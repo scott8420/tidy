@@ -2,6 +2,7 @@
 #include "widgets/Widgets.hpp"
 #include "core/Look.hpp"
 #include "core/Birth.hpp"
+#include "core/Settings.hpp"
 
 #include <gtkmm/applicationwindow.h>
 #include <giomm/menu.h>
@@ -38,6 +39,8 @@
 //   "Where is the birth report shown?" -> Shell_zones.cpp    (build_closet),
 //                                         Shell_handlers.cpp (on_closet_look),
 //                                         Shell_helpers.cpp  (fill_closet) -- s005
+//   "Where are the settings?"         -> Shell_handlers.cpp (on_settings), SettingsWindow,
+//                                         core::settings; written by core::own (s006a)
 //   "Where does the Closet decide?"    -> Shell_handlers.cpp (on_closet_accept /
 //                                         _decide / _junk -> show_closet_preview ->
 //                                         on_closet_run): core::closet plans,
@@ -52,6 +55,7 @@ namespace Gtk { class CheckButton; class DropDown; }
 namespace tidy {
 
 class AboutWindow;
+class SettingsWindow;
 class ShortcutsDialog;
 
 class Shell : public Gtk::ApplicationWindow {
@@ -77,6 +81,7 @@ private:
     // ── handlers ───────────────────────────────────────────────────────────
     void on_nav(const std::string& page);          // category: handler: a sidebar row -> page + tint
     void on_about();                               // category: handler: the About window (hide-on-close)
+    void on_settings();                            // category: handler: the Settings window (s006a)
     void on_shortcuts();                           // category: handler: the keyboard reference
     void on_dump_registry();                       // category: handler: print the live widget tree
     void on_activity_undo();                       // category: handler: undo the newest batch, through the door
@@ -136,6 +141,8 @@ private:
     std::optional<latch::door::Plan> m_clo_plan;   // shown, not yet run
 
     std::unique_ptr<AboutWindow>     m_about;
+    std::unique_ptr<SettingsWindow>  m_settings_win;
+    core::settings::Settings         m_settings;   // read at build_ui; written only by core::own
     std::unique_ptr<ShortcutsDialog> m_shortcuts;
 };
 

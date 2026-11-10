@@ -8,6 +8,7 @@ namespace tidy {
 
 void Shell::bind_actions() {  // bindings: win.* actions
     add_action("about",         sigc::mem_fun(*this, &Shell::on_about));
+    add_action("settings",      sigc::mem_fun(*this, &Shell::on_settings));
     add_action("shortcuts",     sigc::mem_fun(*this, &Shell::on_shortcuts));
     add_action("dump-registry", sigc::mem_fun(*this, &Shell::on_dump_registry));
     add_action("quit",          [this]() { close(); });

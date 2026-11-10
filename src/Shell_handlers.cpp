@@ -1,6 +1,8 @@
 #include "Shell.hpp"
 #include "AboutWindow.hpp"
 #include "ShortcutsDialog.hpp"
+#include "SettingsWindow.hpp"
+#include "core/Own.hpp"
 #include "Log.hpp"
 #include "Registry.hpp"
 #include "core/Catalog.hpp"
@@ -35,6 +37,22 @@ void Shell::on_nav(const std::string& page) {  // handler: a sidebar row -> page
 void Shell::on_about() {  // handler: the About window -- a hide-on-close singleton
     if (!m_about) m_about = std::make_unique<AboutWindow>(*this);
     m_about->present();
+}
+
+// Settings (s006a): written by core::own, the one writer of Tidy's own files;
+// the Closet re-reads with the new aging days and junk list.
+void Shell::on_settings() {  // handler: the Settings window
+    if (!m_settings_win)
+        m_settings_win = std::make_unique<SettingsWindow>(*this, [this](const core::settings::Settings& s) {
+            const std::string err = core::own::write(m_data_dir, core::settings::kFile, core::settings::format(s));
+            if (!err.empty()) return err;
+            m_settings = s;
+            if (m_clo_states && m_clo_states->get_visible_child_name() == "results") fill_closet();
+            if (auto lg = log::get(log::Area::Shell))
+                lg->info("settings saved: aging {} days, {} junk patterns", s.aging_days, s.junk.size());
+            return std::string();
+        });
+    m_settings_win->show(m_settings);
 }
 
 void Shell::on_shortcuts() {  // handler: the keyboard reference (renders from core::shortcut_registry)

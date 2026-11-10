@@ -8,9 +8,11 @@
 //
 //   Holds only the undecided. A file carrying a decided retention never visits.
 //   It leaves by:
-//     * a proposal accepted  -- its birth rule's level (s005), or AGING OUT:
-//                               undecided, born and unread kAgingDays -> Ephemeral
-//                               (incidental -> the decay ladder);
+//     * a proposal accepted  -- its birth rule's level (s005); the JUNK LIST
+//                               (s006a: the user's patterns -> the Junk Drawer,
+//                               winning over the birth rules); or AGING OUT:
+//                               undecided, born and unread aging_days (a
+//                               setting) -> Ephemeral (incidental -> the decay ladder);
 //     * the user deciding    -- any level, by hand;
 //     * the Junk Drawer      -- decided Keep, no home (role "junk-drawer").
 //   (Gaining a purpose is s009's way out.)
@@ -18,6 +20,7 @@
 // Every plan is Tag actions only: the Closet never moves, copies or trashes.
 #include "core/Birth.hpp"
 #include "core/Retention.hpp"
+#include "core/Settings.hpp"
 
 #include <latch/Door.hpp>
 
@@ -29,7 +32,7 @@
 namespace tidy::core::closet {
 
 inline constexpr const char* kJunkDrawer = "junk-drawer";   // user.tidy.role, with retention keep
-inline constexpr int kAgingDays = 30;                       // (lean) born AND unread this long
+inline constexpr int kAgingDays = settings::kAgingDefault;  // the default; Settings sets it
 
 struct View {
     std::vector<birth::Born> proposed;   // a level to accept (birth rule, or aging out)
@@ -42,12 +45,13 @@ struct View {
 // Days since t (0 if t is unknown or in the future).
 int days_since(std::int64_t t, std::int64_t now);
 // Undecided, and both born (btime, else mtime) and last read kAgingDays ago.
-bool aging(const facts::Facts& f, std::int64_t now);
+bool aging(const facts::Facts& f, std::int64_t now, int days = kAgingDays);
 
-View view(const birth::Report& r, std::int64_t now);
+View view(const birth::Report& r, std::int64_t now, const settings::Settings& s = {});
 
 namespace door = latch::door;
-// Each file to its own proposed level (one batch, grouped by level). A waiting
+// Each file to its own proposed level (one batch, grouped by level; a junk-list
+// proposal goes to the Junk Drawer: Keep + role junk-drawer). A waiting
 // file in the list is stamped Undecided: seen, given its id, still waiting.
 door::Plan accept(const std::vector<birth::Born>& items);
 // Each file to `level`, by hand.

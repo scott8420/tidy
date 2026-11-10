@@ -1,6 +1,8 @@
 #include "Shell.hpp"
 #include "AboutWindow.hpp"      // complete types for the unique_ptr dtors
 #include "ShortcutsDialog.hpp"
+#include "SettingsWindow.hpp"
+#include "core/Own.hpp"
 #include "Log.hpp"
 #include "core/Paths.hpp"
 
@@ -50,6 +52,7 @@ void Shell::build_ui() {
     // The door reads its manifest (creates nothing until it runs a plan).
     m_door = std::make_unique<latch::door::Door>(m_home, m_data_dir);
     m_door->load();
+    m_settings = core::settings::parse(core::own::read(m_data_dir, core::settings::kFile));   // absent: the defaults
 
     build_shell();     // zone
     build_pages();     // zone (+ the look's sidebar over them)

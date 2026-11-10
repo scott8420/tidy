@@ -96,7 +96,7 @@ void Shell::fill_closet() {  // helper
     namespace rt = core::retention;
     const auto now = static_cast<std::int64_t>(std::time(nullptr));
     const auto rep = cb::report(m_home, cb::places(m_home, user_dirs_text()));
-    const auto v = cl::view(rep, now);
+    const auto v = cl::view(rep, now, m_settings);
     while (auto* row = m_clo_list->get_row_at_index(0)) m_clo_list->remove(*row);
     m_clo_rows.clear();
 
@@ -138,7 +138,9 @@ void Shell::fill_closet() {  // helper
             const std::string path = tilde(b.file.path, m_home);
             const auto slash = path.find_last_of('/');
             auto name = Gtk::make_managed<Gtk::Label>(path.substr(slash + 1) + (b.file.dir ? "  (package)" : "") +
-                                                      (proposed ? "   → " + rt::title_of(b.level) : ""));
+                                                      (!proposed ? std::string()
+                                                       : b.rule == "junk-list" ? std::string("   \u2192 Junk Drawer")
+                                                       : "   \u2192 " + rt::title_of(b.level)));
             name->set_xalign(0);
             name->set_ellipsize(Pango::EllipsizeMode::MIDDLE);
             box->append(*name);
@@ -152,7 +154,8 @@ void Shell::fill_closet() {  // helper
             const auto* r = cb::rule(b.rule);
             const std::string says = r ? r->title + " -- " + r->says
                                    : b.rule == "aged-out" ? std::string("Aging out -- undecided, born and unread ") +
-                                                                std::to_string(cl::kAgingDays) + " days: incidental, Ephemeral."
+                                                                std::to_string(m_settings.aging_days) + " days: incidental, Ephemeral."
+                                   : b.rule == "junk-list" ? std::string("Your junk list (Settings) -- the Junk Drawer: kept, no home.")
                                                           : b.rule;
             d->set_tooltip_text(b.origin.empty() ? says : says + "\nOrigin: " + b.origin);
             box->append(*d);
@@ -171,13 +174,13 @@ void Shell::fill_closet() {  // helper
     };
     if (!v.proposed.empty()) {
         heading("closet.proposed", "Proposed  (" + std::to_string(v.proposed.size()) + ")",
-                "Their birth says what they are. Accept stamps each with its own level.");
+                "Their birth, your junk list, or their age says what they are. Accept stamps each with its own.");
         rows(v.proposed, true);
     }
     if (!v.waiting.empty()) {
         heading("closet.waiting", "Waiting  (" + std::to_string(v.waiting.size()) + ")",
-                "Undecided. Decide by hand, or the Junk Drawer. Unread " + std::to_string(cl::kAgingDays) +
-                    " days, they are proposed to age out.");
+                "Undecided. Decide by hand, or the Junk Drawer. Unread " + std::to_string(m_settings.aging_days) +
+                    " days (Settings), they are proposed to age out.");
         rows(v.waiting, false);
     }
     if (v.total() == 0) heading("closet.empty", "The Closet is empty", "Everything in the landing places is decided.");

@@ -376,6 +376,9 @@ void Shell::build_nav() {  // zone: brand + sections + rows
 
 Glib::RefPtr<Gio::Menu> Shell::build_menu() {  // zone: hamburger model
     auto menu = Gio::Menu::create();
+    auto prefs = Gio::Menu::create();
+    prefs->append("Settings\u2026", "win.settings");
+    menu->append_section(prefs);
     auto diag = Gio::Menu::create();
     diag->append("Keyboard shortcuts", "win.shortcuts");
     diag->append("Dump registry", "win.dump-registry");

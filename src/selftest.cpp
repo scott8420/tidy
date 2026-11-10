@@ -32,6 +32,10 @@
 //                   unpreviewed; bytes, inode and mtime untouched; undone back
 //                   into the Closet; the catalog in step.
 //
+// s006a, settings (Scott): aging days a setting; the junk list (patterns ->
+//   the Junk Drawer, winning over birth rules); core::own the ONE writer of
+//   Tidy's own files -- under the data folder only, gate-listed.
+//
 //   ./build/tidy_selftest
 //   ./build/tidy_selftest --fixture DIR   make a fixture home at DIR (tagged,
 //                                         one atomic save carried) and stop:
@@ -50,6 +54,8 @@
 #include "core/Retention.hpp"
 #include "core/Birth.hpp"
 #include "core/Closet.hpp"
+#include "core/Settings.hpp"
+#include "core/Own.hpp"
 
 #include <latch/Door.hpp>
 #include <latch/Protect.hpp>
@@ -149,6 +155,14 @@ std::vector<std::string> gate_hits(const std::string& file, const std::string& t
     std::string code = code_only(text);
     const bool catalog = file == "Catalog.cpp";
     if (catalog) code = std::regex_replace(code, std::regex(R"(\bfs::create_directories\s*\()"), "made_dirs(");
+    // Own.cpp, the ONE writer of Tidy's own files (s006a): make the folder,
+    // write a temp, rename it into place. Those three only.
+    if (file == "Own.cpp") {
+        code = std::regex_replace(code, std::regex(R"(\bfs::create_directories\s*\()"), "made_dirs(");
+        code = std::regex_replace(code, std::regex(R"(\bstd::ofstream\b)"), "own_out");
+        code = std::regex_replace(code, std::regex(R"(#include\s*<fstream>)"), "");
+        code = std::regex_replace(code, std::regex(R"(\bstd::rename\s*\()"), "own_swap(");
+    }
     for (const auto& f : forbidden()) {
         if (catalog && std::string(f.name) == "sqlite") continue;
         if (std::regex_search(code, f.re)) hits.push_back(file + ": " + f.name);
@@ -638,6 +652,11 @@ int main(int argc, char** argv) {
               !gate_hits("Shell.cpp", "sqlite3_exec(db, q, 0, 0, 0);").empty());
         check("gate: ...Catalog.cpp may use SQLite and make its folder",
               gate_hits("Catalog.cpp", "sqlite3_exec(db, q, 0, 0, 0); fs::create_directories(d, ec);").empty());
+        check("gate: Own.cpp may make its folder, write a temp, rename it in",
+              gate_hits("Own.cpp", "fs::create_directories(d, ec); std::ofstream out(t); std::rename(a, b);").empty());
+        check("gate: ...but a remove in Own.cpp is found, and its three calls anywhere else",
+              !gate_hits("Own.cpp", "fs::remove(p);").empty() &&
+              !gate_hits("Shell.cpp", "std::ofstream out(t);").empty() && !gate_hits("Shell.cpp", "std::rename(a, b);").empty());
         check("gate: ...but any other write in Catalog.cpp is found",
               !gate_hits("Catalog.cpp", "fs::create_directories(d); fs::remove(p);").empty());
 
@@ -995,6 +1014,97 @@ int main(int argc, char** argv) {
               fc::tags_of(H + "/Documents/loose.txt").retention.empty(),
               std::to_string(undone));
         check("closet: ...and the catalog holds only the 6 accepted", cat.count() == 6, std::to_string(cat.count()));
+
+        std::error_code ec;
+        fs::remove_all(root, ec);
+    }
+
+    // ── s006a: settings, the junk list, Tidy's own writer -- on a FIXTURE ──
+    {
+        std::cout << "[settings]\n";
+        namespace st = core::settings;
+        namespace ow = core::own;
+        namespace cb = core::birth;
+        namespace cl = core::closet;
+        namespace rt = core::retention;
+
+        const auto d = st::parse("");
+        check("settings: the defaults -- 30 days, an empty junk list", d.aging_days == 30 && d.junk.empty());
+        st::Settings s;
+        s.aging_days = 12;
+        s.junk = {"*.png", "Screenshot*"};
+        check("settings: format -> parse is the same settings", st::parse(st::format(s)) == s, st::format(s));
+        check("settings: days clamped 1..3650; junk deduped; junk text, bad lines ignored",
+              st::parse("aging_days=0").aging_days == 1 && st::parse("aging_days=99999").aging_days == 3650 &&
+              st::parse("aging_days=x").aging_days == 30 && st::parse("junk=a\njunk=a\nnonsense\n# c\n").junk.size() == 1);
+        check("settings: a text box -> patterns (trimmed, blanks and repeats dropped)",
+              st::patterns_of("  *.png \n\n*.png\nScreenshot*\r\n") == std::vector<std::string>{"*.png", "Screenshot*"});
+        check("settings: junk_match -- glob, case-insensitive, names the pattern",
+              st::junk_match(s.junk, "CAT.PNG") == "*.png" && st::junk_match(s.junk, "screenshot 1.jpg") == "Screenshot*" &&
+              st::junk_match(s.junk, "notes.txt").empty() && st::junk_match({}, "a.png").empty());
+
+        check("own: refuses absolute, '..', hidden, and the catalog's / door's files",
+              !ow::refusal("/etc/x").empty() && !ow::refusal("a/../b").empty() && !ow::refusal(".hidden").empty() &&
+              !ow::refusal("catalog.db").empty() && !ow::refusal("catalog.db-wal").empty() && !ow::refusal("manifest").empty() &&
+              !ow::refusal("trash/x").empty() && ow::refusal(st::kFile).empty() && ow::refusal("templates/writing.tpl").empty());
+
+        const fs::path root = fs::temp_directory_path() / ("tidy_selftest_settings_" + std::to_string(::getpid()));
+        fs::remove_all(root);
+        const fs::path home = root / "home";
+        make_home(home);
+        make_birth_extras(home);
+        fs::remove_all(home / ".local");
+        const std::string H = fs::canonical(home).string();
+        const std::string D = core::paths::data_dir(H, nullptr);
+        bool found = true;
+        ow::read(D, st::kFile, &found);
+        check("own: nothing there yet -> read says not found", !found);
+        const std::string err = ow::write(D, st::kFile, st::format(s));
+        const std::string back = ow::read(D, st::kFile, &found);
+        check("own: written (folder made), read back the same", err.empty() && found && st::parse(back) == s, err);
+        s.aging_days = 45;
+        ow::write(D, st::kFile, st::format(s));
+        check("own: written again -- replaced whole, no temp left behind",
+              st::parse(ow::read(D, st::kFile)).aging_days == 45 && !fs::exists(D + "/.settings.ini.tmp"));
+        check("own: a refused name writes nothing", !ow::write(D, "../escape.txt", "x").empty() && !fs::exists(H + "/.local/share/escape.txt"));
+
+        const std::int64_t now = now_s();
+        const auto ps = cb::places(H, "");
+        st::Settings junk;
+        junk.junk = {"Screenshot*", "*.txt"};
+        const auto v = cl::view(cb::report(H, ps), now, junk);
+        std::size_t listed = 0;
+        bool shots = true;
+        for (const auto& b : v.proposed) {
+            if (b.rule != "junk-list") continue;
+            ++listed;
+            if (b.file.path.find("Screenshot") != std::string::npos) shots = shots && b.level == rt::Level::Keep;
+        }
+        // Screenshot From.png + Screenshot 2026.png (over the birth rule), notes, plan, loose (txt).
+        check("junk list: matching Closet files proposed for the Junk Drawer -- over the birth rule",
+              listed == 5 && shots, std::to_string(listed));
+        check("junk list: a decided file is never re-proposed (cover-final stays decided)", v.decided == 1);
+
+        latch::door::set_app_name("Tidy");
+        latch::door::Door door(H, D);
+        door.load();
+        auto plan = cl::accept(v.proposed);
+        plan.previewed = true;
+        const auto r = door.run(plan);
+        const auto t = core::facts::tags_of(H + "/Downloads/notes.txt");
+        const auto shot = core::facts::tags_of(H + "/Desktop/Screenshot 2026-11-10.png");
+        const auto v2 = cl::view(cb::report(H, ps), now, junk);
+        check("junk list: accepted -> Keep + junk-drawer; counted in the Junk Drawer, out of the Closet",
+              r.ok && t.retention == "keep" && t.role == cl::kJunkDrawer && shot.role == cl::kJunkDrawer &&
+              v2.junk == 5 && v2.proposed.empty(), std::to_string(v2.junk));
+
+        st::Settings soon;
+        soon.aging_days = 5;
+        const auto later = cl::view(cb::report(H, ps), now + 6 * 86400LL, soon);
+        std::size_t aged = 0;
+        for (const auto& b : later.proposed) aged += b.rule == "aged-out";
+        check("aging: the setting decides -- 5 days set, 6 days on, the waiting age out",
+              aged == 2 && cl::view(cb::report(H, ps), now + 6 * 86400LL).proposed.empty(), std::to_string(aged));
 
         std::error_code ec;
         fs::remove_all(root, ec);

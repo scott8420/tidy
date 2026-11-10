@@ -88,6 +88,8 @@ add_library(tidy_core STATIC
     src/core/Retention.cpp   # the seven retention levels, as data (s005)
     src/core/Birth.cpp       # birth rules: landing places -> proposed levels, REPORT ONLY (s005)
     src/core/Closet.cpp      # the Closet: view + accept / decide / Junk Drawer as door plans (s006)
+    src/core/Settings.cpp    # what the user sets: aging days, the junk list (s006a)
+    src/core/Own.cpp         # the ONE writer of Tidy's own files -- gate-listed (s006a)
 )
 target_include_directories(tidy_core PUBLIC include)
 target_link_libraries(tidy_core PUBLIC latch::latch PkgConfig::SQLITE)
@@ -133,6 +135,7 @@ add_executable(tidy
     src/Shell_handlers.cpp
     src/Shell_helpers.cpp
     src/AboutWindow.cpp
+    src/SettingsWindow.cpp
     src/ShortcutsDialog.cpp
     src/Registry.cpp
     src/Log.cpp
