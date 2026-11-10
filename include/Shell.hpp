@@ -5,6 +5,8 @@
 #include <gtkmm/applicationwindow.h>
 #include <giomm/menu.h>
 
+#include <latch/Door.hpp>
+
 #include <memory>
 #include <string>
 #include <vector>
@@ -27,10 +29,14 @@
 //   "Where is a page built?"           -> Shell_zones.cpp    (build_page, from
 //                                         core::pages -- the spine's heroes)
 //   "Where does latch get Tidy's name?"-> Shell.cpp          (build_ui)
+//   "Where is Activity built / undone?"-> Shell_zones.cpp    (build_activity),
+//                                         Shell_handlers.cpp (on_activity_undo),
+//                                         Shell_helpers.cpp  (refresh_activity)
+//   "Which home?"                      -> Shell.cpp          (TIDY_HOME = a fixture)
 //
-// s003, the spine: READ-ONLY. No page acts yet; nothing here writes a file.
-// The selftest's source gate fails the build's test if any Tidy source calls a
-// filesystem write -- every write, from s004 on, goes through latch's door.
+// s004: every change to a user's file goes through latch's door (m_door); the
+// selftest's source gate fails the build's test if any Tidy source calls a
+// filesystem or xattr write, or SQLite outside core/Catalog.cpp.
 // ─────────────────────────────────────────────────────────────────────────────
 namespace tidy {
 
@@ -50,6 +56,7 @@ private:
     void build_nav();                              // category: zone: the look's sidebar -- brand, sections, rows
     void build_pages();                            // category: zone: one page per nav item
     void build_page(const std::string& id);        // category: zone: a page's hero (spine: start state only)
+    void build_activity();                         // category: zone: Activity -- the door's batches + Undo (s004)
     Glib::RefPtr<Gio::Menu> build_menu();          // category: zone: hamburger model
 
     // ── bindings ───────────────────────────────────────────────────────────
@@ -60,9 +67,11 @@ private:
     void on_about();                               // category: handler: the About window (hide-on-close)
     void on_shortcuts();                           // category: handler: the keyboard reference
     void on_dump_registry();                       // category: handler: print the live widget tree
+    void on_activity_undo();                       // category: handler: undo the newest batch, through the door
 
     // ── helpers ────────────────────────────────────────────────────────────
     std::string page_note(const std::string& id) const;   // category: helper: the line under a page's promise
+    void refresh_activity();                       // category: helper: Activity from the door's manifest
 
     // Titlebar: brand logo (start) + hamburger (end).
     widgets::Button     m_logo_button;
@@ -77,9 +86,18 @@ private:
     std::vector<core::look::NavEntry> m_nav_model;
     std::string           m_tint;      // the tint on the window now ("" = none)
 
-    // Facts the pages show (resolved, never created, in the spine).
+    // Facts the pages show.
     std::string m_home;
     std::string m_data_dir;
+    bool        m_fixture = false;     // TIDY_HOME: a fixture home, not the real one
+
+    // s004: the one door (Tidy's manifest in m_data_dir), and Activity's widgets.
+    std::unique_ptr<latch::door::Door> m_door;
+    Gtk::Stack*   m_act_states = nullptr;   // "start" (nothing yet) | "results"
+    Gtk::ListBox* m_act_list = nullptr;
+    Gtk::Label*   m_act_summary = nullptr;
+    Gtk::Button*  m_act_undo = nullptr;
+    Gtk::Label*   m_act_status = nullptr;
 
     std::unique_ptr<AboutWindow>     m_about;
     std::unique_ptr<ShortcutsDialog> m_shortcuts;

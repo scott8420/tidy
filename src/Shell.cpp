@@ -8,6 +8,7 @@
 #include <glibmm/miscutils.h>
 
 #include <cstdlib>
+#include <filesystem>
 
 // Shell.cpp -- GLUE. The ctor and the ordered build_ui() pass; every other
 // method body lives in a category file (see the index in Shell.hpp).
@@ -33,18 +34,31 @@ void Shell::build_ui() {
     // rules -- every Root step is refused. (REQUIREMENTS §11.7.)
     latch::door::set_app_name("Tidy");
 
-    // Where Tidy's records will live. RESOLVED, not created: the spine writes
-    // nothing (RULES: read-only until the s004 door is crc'd).
-    m_home = Glib::get_home_dir();
-    m_data_dir = core::paths::data_dir(m_home, std::getenv("XDG_DATA_HOME"));
+    // Which home. TIDY_HOME (an absolute folder) is a FIXTURE home -- e.g. one
+    // made by `tidy_selftest --fixture DIR` -- and then Tidy's records live
+    // inside it (XDG_DATA_HOME ignored), so nothing reaches the real home.
+    const char* fixture = std::getenv("TIDY_HOME");
+    std::error_code ec;
+    if (fixture && fixture[0] == '/' && std::filesystem::is_directory(fixture, ec)) {
+        m_home = std::filesystem::weakly_canonical(fixture, ec).string();
+        m_fixture = true;
+        m_data_dir = core::paths::data_dir(m_home, nullptr);
+    } else {
+        m_home = Glib::get_home_dir();
+        m_data_dir = core::paths::data_dir(m_home, std::getenv("XDG_DATA_HOME"));
+    }
+    // The door reads its manifest (creates nothing until it runs a plan).
+    m_door = std::make_unique<latch::door::Door>(m_home, m_data_dir);
+    m_door->load();
 
     build_shell();     // zone
     build_pages();     // zone (+ the look's sidebar over them)
     bind_actions();    // bindings
 
     if (auto lg = log::get(log::Area::Shell))
-        lg->info("ready -- latch says '{}'; records at {} (not created)",
-                 latch::door::app_name(), m_data_dir);
+        lg->info("ready -- latch says '{}'; home {}{}; records at {}; {} batches",
+                 latch::door::app_name(), m_home, m_fixture ? " (FIXTURE)" : "", m_data_dir,
+                 m_door->batches().size());
 }
 
 }  // namespace tidy

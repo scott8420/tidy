@@ -14,8 +14,23 @@ on backup media.
 Split from Rouster (the space reclaimer) in Nov 2026; started from Cairn; every
 file move goes through **latch**, the one door Rouster also uses.
 
-**Status: the spine.** The window, the look, every page on the road as a hero
-that says what it will do and when. Read-only: Tidy writes nothing yet.
+**Status: tags and catalog (s004).** Tidy can give files a stable id and
+`user.tidy.*` tags (retention, purpose, role) -- only through latch's door, as
+a previewed plan, every step undoable -- and keeps its own SQLite catalog of
+what it has seen (`~/.local/share/tidy/catalog.db`). After an app's atomic
+save drops the tags, reconciliation carries them to the new file. Activity
+lists every batch, with Undo. Nothing yet proposes a plan on your real home:
+s004 is exercised on fixture homes only.
+
+## Try it on a fixture home
+
+```
+./build/tidy_selftest --fixture /tmp/tidy-fx    # a made-up home, tagged; 3 batches
+TIDY_HOME=/tmp/tidy-fx ./build/tidy              # Tidy on that home -- Activity, Undo
+```
+
+`TIDY_HOME` (an absolute folder) points Tidy at a fixture home; its records
+then live inside it, never in your real home.
 
 ## Build
 

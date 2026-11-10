@@ -7,6 +7,8 @@
 #include <gtkmm/image.h>
 #include <gtkmm/label.h>
 #include <gtkmm/listboxrow.h>
+#include <gtkmm/scrolledwindow.h>
+#include <gtkmm/stack.h>
 
 // Shell_zones.cpp -- ZONES. Construction of the named regions: the window
 // frame and header, the sidebar, the pages, the menu model. The look is CSS
@@ -78,6 +80,7 @@ void Shell::build_pages() {  // zone: one page per nav item, then the sidebar
 // the promise, and which milestone brings it to life. The orb is there and
 // greyed -- the shape of the page to come, not a button that pretends.
 void Shell::build_page(const std::string& id) {  // zone: a page's hero
+    if (id == "activity") { build_activity(); return; }   // s004: alive
     const auto* p = core::pages::find(id);
     const std::string title = p ? p->title : id;
 
@@ -106,6 +109,77 @@ void Shell::build_page(const std::string& id) {  // zone: a page's hero
     start->append(*orb);
 
     m_stack.add(*start, id, title);
+}
+
+// Activity (s004): the door's batches, newest first, and the way back. Two
+// states: start (nothing done yet -- the hero) and results (the list + an act
+// bar whose one button undoes the newest batch). Filled by refresh_activity().
+void Shell::build_activity() {  // zone: Activity
+    const auto* p = core::pages::find("activity");
+    m_act_states = Gtk::make_managed<Gtk::Stack>();
+    m_act_states->set_name("activity.states");
+
+    auto start = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::VERTICAL, 14);
+    start->set_name("activity.start");
+    start->set_valign(Gtk::Align::CENTER);
+    start->set_halign(Gtk::Align::CENTER);
+    start->set_margin(40);
+    start->append(*hero("tidy-hero-activity", 128));
+    start->append(*label(p ? p->title : "Activity", "hero-title"));
+    auto sub = label(p ? p->promise : "", "hero-sub");
+    sub->set_max_width_chars(52);
+    start->append(*sub);
+    auto note = label(page_note("activity"), "dim");
+    note->set_name("activity.note");
+    note->set_max_width_chars(60);
+    note->set_selectable(true);
+    start->append(*note);
+    m_act_states->add(*start, "start");
+
+    auto results = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::VERTICAL, 0);
+    results->set_name("activity.results");
+    auto head = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::HORIZONTAL, 14);
+    head->set_margin_start(32);
+    head->set_margin_end(32);
+    head->set_margin_top(24);
+    head->set_margin_bottom(12);
+    head->append(*hero("tidy-hero-activity", 48));
+    auto titles = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::VERTICAL, 4);
+    titles->append(*label(p ? p->title : "Activity", "hero-title", 0.0f));
+    m_act_summary = label("", "dim", 0.0f);
+    m_act_summary->set_name("activity.summary");
+    m_act_summary->set_selectable(true);
+    titles->append(*m_act_summary);
+    head->append(*titles);
+    results->append(*head);
+
+    auto scroll = Gtk::make_managed<Gtk::ScrolledWindow>();
+    scroll->set_vexpand(true);
+    scroll->set_margin_start(32);
+    scroll->set_margin_end(32);
+    scroll->set_margin_bottom(16);
+    m_act_list = Gtk::make_managed<Gtk::ListBox>();
+    m_act_list->set_name("activity.list");
+    m_act_list->set_selection_mode(Gtk::SelectionMode::NONE);
+    scroll->set_child(*m_act_list);
+    results->append(*scroll);
+
+    auto bar = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::HORIZONTAL, 14);
+    bar->add_css_class("act-bar");
+    m_act_status = label("", "dim", 0.0f);
+    m_act_status->set_name("activity.status");
+    m_act_status->set_hexpand(true);
+    bar->append(*m_act_status);
+    m_act_undo = Gtk::make_managed<Gtk::Button>("Undo");
+    m_act_undo->set_name("activity.undo");
+    m_act_undo->add_css_class("act");
+    m_act_undo->signal_clicked().connect([this] { on_activity_undo(); });
+    bar->append(*m_act_undo);
+    results->append(*bar);
+    m_act_states->add(*results, "results");
+
+    m_stack.add(*m_act_states, "activity", p ? p->title : "Activity");
+    refresh_activity();
 }
 
 // The look's sidebar (Cairn's build_nav): brand, section headers that are

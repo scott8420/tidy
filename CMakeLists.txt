@@ -15,6 +15,7 @@ endif()
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GTKMM REQUIRED gtkmm-4.0)
 find_package(spdlog REQUIRED)
+pkg_check_modules(SQLITE REQUIRED IMPORTED_TARGET sqlite3)   # Tidy's own catalog (s004)
 
 # ── latch -- the shared door (scott8420/latch) ───────────────────────────────
 # A workspace dependency, NOT part of this repo: cloned beside tidy/ at
@@ -65,7 +66,7 @@ if(LATCH_DIR AND NOT LATCH_INSTALLED)
     # EXCLUDE_FROM_ALL: latch's own install() rules stay out of Tidy's.
     add_subdirectory(${LATCH_DIR} ${CMAKE_BINARY_DIR}/latch EXCLUDE_FROM_ALL)
 else()
-    find_package(latch 0.1 QUIET)
+    find_package(latch 0.2 QUIET)   # 0.2: the Tag verb
     if(NOT latch_FOUND)
         message(FATAL_ERROR "latch not found -- run ./install.sh in latch's folder, "
                             "or configure with -DLATCH_DIR=<latch source>")
@@ -80,9 +81,13 @@ add_library(tidy_core STATIC
     src/core/Pages.cpp       # what each page promises; which milestone brings it
     src/core/Paths.cpp       # where Tidy's records live (resolved, not created)
     src/core/Shortcuts.cpp   # one shortcut list, two consumers (Cairn)
+    src/core/Facts.cpp       # statx times + user.tidy.* tags, read (s004)
+    src/core/Scan.cpp        # walk folders, read-only: never Protected, packages whole (s004)
+    src/core/Catalog.cpp     # Tidy's own SQLite record -- the ONE source that writes SQLite (s004)
+    src/core/Tagging.cpp     # stamp / reconcile as door plans; the catalog kept in step (s004)
 )
 target_include_directories(tidy_core PUBLIC include)
-target_link_libraries(tidy_core PUBLIC latch::latch)
+target_link_libraries(tidy_core PUBLIC latch::latch PkgConfig::SQLITE)
 
 # ── Headless selftest ─────────────────────────────────────────────────────────
 add_executable(tidy_selftest src/selftest.cpp)

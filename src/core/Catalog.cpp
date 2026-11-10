@@ -1,0 +1,199 @@
+#include "core/Catalog.hpp"
+
+#include <sqlite3.h>
+
+#include <filesystem>
+
+// Catalog.cpp -- the one Tidy source that writes SQLite (Tidy's own record),
+// and the one allowed filesystem write: the data folder, created on first open
+// for writing. The selftest's source gate allows exactly these, here only.
+
+namespace tidy::core::catalog {
+
+namespace fs = std::filesystem;
+
+namespace {
+constexpr const char* kSchema =
+    "CREATE TABLE IF NOT EXISTS files ("
+    "  id TEXT PRIMARY KEY,"
+    "  path TEXT NOT NULL,"
+    "  dev INTEGER NOT NULL, ino INTEGER NOT NULL, size INTEGER NOT NULL,"
+    "  btime INTEGER NOT NULL, mtime INTEGER NOT NULL, ctime INTEGER NOT NULL, atime INTEGER NOT NULL,"
+    "  retention TEXT NOT NULL DEFAULT '', purpose TEXT NOT NULL DEFAULT '', role TEXT NOT NULL DEFAULT '',"
+    "  seen INTEGER NOT NULL, gone INTEGER NOT NULL DEFAULT 0);"
+    "CREATE INDEX IF NOT EXISTS files_inode ON files(dev, ino);"
+    "CREATE INDEX IF NOT EXISTS files_path ON files(path);"
+    "PRAGMA user_version = 1;";
+
+constexpr const char* kCols = "id, path, dev, ino, size, btime, mtime, ctime, atime, retention, purpose, role, seen, gone";
+
+std::int64_t s64(std::uint64_t v) { return static_cast<std::int64_t>(v); }
+std::uint64_t u64(std::int64_t v) { return static_cast<std::uint64_t>(v); }
+std::string text(sqlite3_stmt* st, int i) {
+    const auto* p = sqlite3_column_text(st, i);
+    return p ? reinterpret_cast<const char*>(p) : "";
+}
+Entry row(sqlite3_stmt* st) {
+    Entry e;
+    e.id = text(st, 0);
+    e.path = text(st, 1);
+    e.dev = u64(sqlite3_column_int64(st, 2));
+    e.ino = u64(sqlite3_column_int64(st, 3));
+    e.size = u64(sqlite3_column_int64(st, 4));
+    e.btime = sqlite3_column_int64(st, 5);
+    e.mtime = sqlite3_column_int64(st, 6);
+    e.ctime = sqlite3_column_int64(st, 7);
+    e.atime = sqlite3_column_int64(st, 8);
+    e.retention = text(st, 9);
+    e.purpose = text(st, 10);
+    e.role = text(st, 11);
+    e.seen = sqlite3_column_int64(st, 12);
+    e.gone = sqlite3_column_int(st, 13) != 0;
+    return e;
+}
+}  // namespace
+
+Entry from_facts(const facts::Facts& f, std::int64_t seen) {
+    Entry e;
+    e.id = f.tags.id;
+    e.path = f.path;
+    e.dev = f.dev;
+    e.ino = f.ino;
+    e.size = f.size;
+    e.btime = f.btime;
+    e.mtime = f.mtime;
+    e.ctime = f.ctime;
+    e.atime = f.atime;
+    e.retention = f.tags.retention;
+    e.purpose = f.tags.purpose;
+    e.role = f.tags.role;
+    e.seen = seen;
+    return e;
+}
+
+Catalog::~Catalog() {
+    if (m_db) sqlite3_close(m_db);
+}
+
+std::string Catalog::path_in(const std::string& data_dir) { return data_dir + "/catalog.db"; }
+
+bool Catalog::open(const std::string& data_dir, bool create, std::string* err) {
+    if (m_db) { sqlite3_close(m_db); m_db = nullptr; }
+    const std::string p = path_in(data_dir);
+    std::error_code ec;
+    if (create) {
+        fs::create_directories(data_dir, ec);
+        if (ec) { if (err) *err = "could not make " + data_dir + ": " + ec.message(); return false; }
+    } else if (!fs::exists(p, ec)) {
+        if (err) *err = "no catalog yet";
+        return false;
+    }
+    const int flags = create ? (SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE) : SQLITE_OPEN_READONLY;
+    if (sqlite3_open_v2(p.c_str(), &m_db, flags, nullptr) != SQLITE_OK) {
+        if (err) *err = m_db ? sqlite3_errmsg(m_db) : "sqlite open failed";
+        if (m_db) sqlite3_close(m_db);
+        m_db = nullptr;
+        return false;
+    }
+    m_rw = create;
+    sqlite3_busy_timeout(m_db, 2000);
+    if (create) {
+        char* msg = nullptr;
+        if (sqlite3_exec(m_db, kSchema, nullptr, nullptr, &msg) != SQLITE_OK) {
+            if (err) *err = msg ? msg : "schema failed";
+            sqlite3_free(msg);
+            sqlite3_close(m_db);
+            m_db = nullptr;
+            return false;
+        }
+    }
+    return true;
+}
+
+bool Catalog::put(const Entry& e) {
+    if (!m_db || !m_rw || e.id.empty()) return false;
+    const std::string sql = std::string("INSERT OR REPLACE INTO files (") + kCols +
+                            ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(m_db, sql.c_str(), -1, &st, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_text(st, 1, e.id.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(st, 2, e.path.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(st, 3, s64(e.dev));
+    sqlite3_bind_int64(st, 4, s64(e.ino));
+    sqlite3_bind_int64(st, 5, s64(e.size));
+    sqlite3_bind_int64(st, 6, e.btime);
+    sqlite3_bind_int64(st, 7, e.mtime);
+    sqlite3_bind_int64(st, 8, e.ctime);
+    sqlite3_bind_int64(st, 9, e.atime);
+    sqlite3_bind_text(st, 10, e.retention.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(st, 11, e.purpose.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(st, 12, e.role.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(st, 13, e.seen);
+    sqlite3_bind_int(st, 14, e.gone ? 1 : 0);
+    const bool ok = sqlite3_step(st) == SQLITE_DONE;
+    sqlite3_finalize(st);
+    return ok;
+}
+
+bool Catalog::mark_gone(const std::string& id, std::int64_t when) {
+    if (!m_db || !m_rw) return false;
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(m_db, "UPDATE files SET gone = 1, seen = ? WHERE id = ?", -1, &st, nullptr) != SQLITE_OK)
+        return false;
+    sqlite3_bind_int64(st, 1, when);
+    sqlite3_bind_text(st, 2, id.c_str(), -1, SQLITE_TRANSIENT);
+    const bool ok = sqlite3_step(st) == SQLITE_DONE && sqlite3_changes(m_db) == 1;
+    sqlite3_finalize(st);
+    return ok;
+}
+
+bool Catalog::drop(const std::string& id) {
+    if (!m_db || !m_rw) return false;
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(m_db, "DELETE FROM files WHERE id = ?", -1, &st, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_text(st, 1, id.c_str(), -1, SQLITE_TRANSIENT);
+    const bool ok = sqlite3_step(st) == SQLITE_DONE && sqlite3_changes(m_db) == 1;
+    sqlite3_finalize(st);
+    return ok;
+}
+
+std::vector<Entry> Catalog::query(const char* where, const std::vector<std::string>& args) const {
+    std::vector<Entry> out;
+    if (!m_db) return out;
+    const std::string sql = std::string("SELECT ") + kCols + " FROM files " + where;
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(m_db, sql.c_str(), -1, &st, nullptr) != SQLITE_OK) return out;
+    for (std::size_t i = 0; i < args.size(); ++i)
+        sqlite3_bind_text(st, static_cast<int>(i + 1), args[i].c_str(), -1, SQLITE_TRANSIENT);
+    while (sqlite3_step(st) == SQLITE_ROW) out.push_back(row(st));
+    sqlite3_finalize(st);
+    return out;
+}
+
+std::optional<Entry> Catalog::by_id(const std::string& id) const {
+    auto v = query("WHERE id = ?", {id});
+    if (v.empty()) return std::nullopt;
+    return v.front();
+}
+
+std::optional<Entry> Catalog::by_inode(std::uint64_t dev, std::uint64_t ino) const {
+    // Bound as text: SQLite compares an INTEGER column with a numeric text value by number.
+    auto v = query("WHERE dev = ? AND ino = ? AND gone = 0 ORDER BY seen DESC",
+                   {std::to_string(s64(dev)), std::to_string(s64(ino))});
+    if (v.empty()) return std::nullopt;
+    return v.front();
+}
+
+std::optional<Entry> Catalog::by_path(const std::string& path) const {
+    auto v = query("WHERE path = ? ORDER BY gone ASC, seen DESC", {path});
+    if (v.empty()) return std::nullopt;
+    return v.front();
+}
+
+std::vector<Entry> Catalog::all() const { return query("ORDER BY path", {}); }
+
+std::size_t Catalog::count(bool include_gone) const {
+    return query(include_gone ? "" : "WHERE gone = 0", {}).size();
+}
+
+}  // namespace tidy::core::catalog
