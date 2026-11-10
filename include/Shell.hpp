@@ -33,6 +33,10 @@
 //                                         Shell_handlers.cpp (on_activity_undo),
 //                                         Shell_helpers.cpp  (refresh_activity)
 //   "Which home?"                      -> Shell.cpp          (TIDY_HOME = a fixture)
+//   "Where is the birth report shown?" -> Shell_zones.cpp    (build_closet),
+//                                         Shell_handlers.cpp (on_closet_look),
+//                                         Shell_helpers.cpp  (fill_closet) -- s005,
+//                                         REPORT ONLY: core::birth, nothing tagged
 //
 // s004: every change to a user's file goes through latch's door (m_door); the
 // selftest's source gate fails the build's test if any Tidy source calls a
@@ -57,6 +61,7 @@ private:
     void build_pages();                            // category: zone: one page per nav item
     void build_page(const std::string& id);        // category: zone: a page's hero (spine: start state only)
     void build_activity();                         // category: zone: Activity -- the door's batches + Undo (s004)
+    void build_closet();                           // category: zone: The Closet -- the birth report (s005, read-only)
     Glib::RefPtr<Gio::Menu> build_menu();          // category: zone: hamburger model
 
     // ── bindings ───────────────────────────────────────────────────────────
@@ -68,10 +73,13 @@ private:
     void on_shortcuts();                           // category: handler: the keyboard reference
     void on_dump_registry();                       // category: handler: print the live widget tree
     void on_activity_undo();                       // category: handler: undo the newest batch, through the door
+    void on_closet_look();                         // category: handler: run the birth report (reads only)
 
     // ── helpers ────────────────────────────────────────────────────────────
     std::string page_note(const std::string& id) const;   // category: helper: the line under a page's promise
     void refresh_activity();                       // category: helper: Activity from the door's manifest
+    void fill_closet();                            // category: helper: the birth report -> the Closet's list
+    std::string user_dirs_text() const;            // category: helper: ~/.config/user-dirs.dirs, read ("" if none)
 
     // Titlebar: brand logo (start) + hamburger (end).
     widgets::Button     m_logo_button;
@@ -98,6 +106,12 @@ private:
     Gtk::Label*   m_act_summary = nullptr;
     Gtk::Button*  m_act_undo = nullptr;
     Gtk::Label*   m_act_status = nullptr;
+
+    // s005: The Closet's birth report (read-only).
+    Gtk::Stack*   m_clo_states = nullptr;   // "start" | "results"
+    Gtk::ListBox* m_clo_list = nullptr;
+    Gtk::Label*   m_clo_summary = nullptr;
+    Gtk::Label*   m_clo_status = nullptr;
 
     std::unique_ptr<AboutWindow>     m_about;
     std::unique_ptr<ShortcutsDialog> m_shortcuts;

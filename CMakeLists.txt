@@ -85,6 +85,8 @@ add_library(tidy_core STATIC
     src/core/Scan.cpp        # walk folders, read-only: never Protected, packages whole (s004)
     src/core/Catalog.cpp     # Tidy's own SQLite record -- the ONE source that writes SQLite (s004)
     src/core/Tagging.cpp     # stamp / reconcile as door plans; the catalog kept in step (s004)
+    src/core/Retention.cpp   # the seven retention levels, as data (s005)
+    src/core/Birth.cpp       # birth rules: landing places -> proposed levels, REPORT ONLY (s005)
 )
 target_include_directories(tidy_core PUBLIC include)
 target_link_libraries(tidy_core PUBLIC latch::latch PkgConfig::SQLITE)

@@ -1,12 +1,19 @@
 #include "Shell.hpp"
 #include "core/Catalog.hpp"
 #include "core/Pages.hpp"
+#include "core/Birth.hpp"
+#include "core/Retention.hpp"
+#include "Log.hpp"
 
 #include <gtkmm/label.h>
 #include <gtkmm/listbox.h>
 #include <gtkmm/listboxrow.h>
 #include <gtkmm/stack.h>
 #include <glibmm/datetime.h>
+
+#include <glibmm/fileutils.h>
+
+#include <cstdlib>
 
 // Shell_helpers.cpp -- HELPERS. Shared orchestration for zones and handlers.
 
@@ -19,7 +26,25 @@ std::string Shell::page_note(const std::string& id) const {  // helper
     if (id == "activity")
         return std::string("Nothing done yet. Every change Tidy makes is listed here, with the way back.\n") +
                "Records: " + m_data_dir + (m_fixture ? "\n(a FIXTURE home: " + m_home + ")" : "");
+    if (id == "closet")
+        return std::string("Look reads the landing places -- Downloads, Screenshots, Desktop, the loose top of ") +
+               "Documents -- and shows what each file's birth says it should be. Report only: nothing is " +
+               "tagged. Deciding comes with " + (p ? p->milestone : "s006") + "." +
+               (m_fixture ? "\n(a FIXTURE home: " + m_home + ")" : "");
     return p ? "Comes with " + p->milestone + "." : "";
+}
+
+// ~/.config/user-dirs.dirs (or $XDG_CONFIG_HOME's), read. A fixture home uses
+// its own .config and ignores XDG, as its records do.
+std::string Shell::user_dirs_text() const {  // helper
+    std::string cfg = m_home + "/.config";
+    const char* x = std::getenv("XDG_CONFIG_HOME");
+    if (!m_fixture && x && x[0] == '/') cfg = x;
+    try {
+        return Glib::file_get_contents(cfg + "/user-dirs.dirs");
+    } catch (const Glib::Error&) {
+        return "";   // none: the defaults
+    }
 }
 
 namespace {
@@ -46,6 +71,99 @@ std::string step_text(const latch::door::Record& r, const std::string& home) {
     return s;
 }
 }  // namespace
+
+namespace {
+std::string tilde(const std::string& p, const std::string& home) {
+    return p.rfind(home + "/", 0) == 0 ? "~/" + p.substr(home.size() + 1) : p;
+}
+std::string born_text(const tidy::core::facts::Facts& f) {
+    const std::int64_t t = f.has_btime ? f.btime : f.mtime;
+    if (t <= 0) return "";
+    return (f.has_btime ? "born " : "changed ") + Glib::DateTime::create_now_local(static_cast<gint64>(t)).format("%b %e, %Y");
+}
+}  // namespace
+
+// The birth report -> the Closet's list: one heading per level that has items
+// (in §2's order), then its files -- name, and a dim line: where, why, born.
+void Shell::fill_closet() {  // helper
+    namespace cb = core::birth;
+    namespace rt = core::retention;
+    const auto rep = cb::report(m_home, cb::places(m_home, user_dirs_text()));
+    while (auto* row = m_clo_list->get_row_at_index(0)) m_clo_list->remove(*row);
+
+    constexpr std::size_t kShown = 300;   // per level; the counts above are whole
+    std::string counts;
+    for (const auto& lv : rt::all()) {
+        const auto n = rep.count(lv.level);
+        if (!n) continue;
+        counts += (counts.empty() ? "" : ", ") + std::to_string(n) + " " + lv.title;
+
+        auto hb = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::VERTICAL, 2);
+        hb->set_margin_top(14);
+        hb->set_margin_start(6);
+        auto h = Gtk::make_managed<Gtk::Label>(lv.title + "  (" + std::to_string(n) + ")");
+        h->set_xalign(0);
+        h->add_css_class("heading");
+        hb->append(*h);
+        auto m = Gtk::make_managed<Gtk::Label>(lv.meaning);
+        m->set_xalign(0);
+        m->add_css_class("dim");
+        hb->append(*m);
+        auto hr = Gtk::make_managed<Gtk::ListBoxRow>();
+        hr->set_name("closet.level." + lv.id);
+        hr->set_activatable(false);
+        hr->set_child(*hb);
+        m_clo_list->append(*hr);
+
+        std::size_t shown = 0;
+        for (const auto& b : rep.items) {
+            if (b.level != lv.level) continue;
+            if (++shown > kShown) break;
+            auto box = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::VERTICAL, 2);
+            box->set_margin_start(20);
+            box->set_margin_top(4);
+            box->set_margin_bottom(4);
+            const std::string path = tilde(b.file.path, m_home);
+            const auto slash = path.find_last_of('/');
+            auto name = Gtk::make_managed<Gtk::Label>(path.substr(slash + 1) + (b.file.dir ? "  (package)" : ""));
+            name->set_xalign(0);
+            name->set_ellipsize(Pango::EllipsizeMode::MIDDLE);
+            box->append(*name);
+            const auto* r = cb::rule(b.rule);
+            std::string line = path.substr(0, slash) + "   \u00b7   " + b.why;
+            if (const auto bt = born_text(b.file); !bt.empty()) line += "   \u00b7   " + bt;
+            auto d = Gtk::make_managed<Gtk::Label>(line);
+            d->set_xalign(0);
+            d->set_ellipsize(Pango::EllipsizeMode::MIDDLE);
+            d->add_css_class("dim");
+            const std::string says = r ? r->title + " -- " + r->says : b.rule;
+            d->set_tooltip_text(b.origin.empty() ? says : says + "\nOrigin: " + b.origin);
+            box->append(*d);
+            auto row = Gtk::make_managed<Gtk::ListBoxRow>();
+            row->set_activatable(false);
+            row->set_child(*box);
+            m_clo_list->append(*row);
+        }
+        if (n > kShown) {
+            auto more = Gtk::make_managed<Gtk::Label>("... and " + std::to_string(n - kShown) + " more");
+            more->set_xalign(0);
+            more->set_margin_start(20);
+            more->add_css_class("dim");
+            auto row = Gtk::make_managed<Gtk::ListBoxRow>();
+            row->set_activatable(false);
+            row->set_child(*more);
+            m_clo_list->append(*row);
+        }
+    }
+    std::string where;
+    for (const auto& pl : rep.places) where += (where.empty() ? "" : ", ") + pl.title;
+    m_clo_summary->set_text(std::to_string(rep.items.size()) + " items in " + std::to_string(rep.places.size()) +
+                            " landing places (" + where + ")" + (counts.empty() ? "" : "   |   " + counts) +
+                            (m_fixture ? "   |   FIXTURE " + m_home : ""));
+    m_clo_status->set_text("Report only -- nothing is tagged. Deciding comes with s006.");
+    if (auto lg = log::get(log::Area::Shell))
+        lg->info("birth report: {} items in {} places; {}", rep.items.size(), rep.places.size(), counts);
+}
 
 // Activity from the door's manifest: newest batch first, each with its steps.
 void Shell::refresh_activity() {  // helper

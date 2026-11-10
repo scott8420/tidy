@@ -81,6 +81,7 @@ void Shell::build_pages() {  // zone: one page per nav item, then the sidebar
 // greyed -- the shape of the page to come, not a button that pretends.
 void Shell::build_page(const std::string& id) {  // zone: a page's hero
     if (id == "activity") { build_activity(); return; }   // s004: alive
+    if (id == "closet") { build_closet(); return; }       // s005: the birth report (read-only)
     const auto* p = core::pages::find(id);
     const std::string title = p ? p->title : id;
 
@@ -180,6 +181,86 @@ void Shell::build_activity() {  // zone: Activity
 
     m_stack.add(*m_act_states, "activity", p ? p->title : "Activity");
     refresh_activity();
+}
+
+// The Closet (s005): the birth report. Start = the hero with a live Look orb;
+// results = the landing places' items grouped by proposed level, and an act
+// bar that says REPORT ONLY. Nothing here tags anything -- the stamp plan that
+// acts on this report comes with s006, through the door, behind its preview.
+void Shell::build_closet() {  // zone: The Closet
+    const auto* p = core::pages::find("closet");
+    const std::string title = p ? p->title : "The Closet";
+    m_clo_states = Gtk::make_managed<Gtk::Stack>();
+    m_clo_states->set_name("closet.states");
+
+    auto start = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::VERTICAL, 14);
+    start->set_name("closet.start");
+    start->set_valign(Gtk::Align::CENTER);
+    start->set_halign(Gtk::Align::CENTER);
+    start->set_margin(40);
+    start->append(*hero("tidy-hero-closet", 128));
+    start->append(*label(title, "hero-title"));
+    auto sub = label(p ? p->promise : "", "hero-sub");
+    sub->set_max_width_chars(52);
+    start->append(*sub);
+    auto note = label(page_note("closet"), "dim");
+    note->set_name("closet.note");
+    note->set_max_width_chars(60);
+    note->set_selectable(true);
+    start->append(*note);
+    auto orb = Gtk::make_managed<Gtk::Button>("Look");
+    orb->set_name("closet.look");
+    orb->add_css_class("orb");
+    orb->set_halign(Gtk::Align::CENTER);
+    orb->set_margin_top(18);
+    orb->set_tooltip_text("Read the landing places and show what each file's birth says -- nothing is tagged");
+    orb->signal_clicked().connect([this] { on_closet_look(); });
+    start->append(*orb);
+    m_clo_states->add(*start, "start");
+
+    auto results = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::VERTICAL, 0);
+    results->set_name("closet.results");
+    auto head = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::HORIZONTAL, 14);
+    head->set_margin_start(32);
+    head->set_margin_end(32);
+    head->set_margin_top(24);
+    head->set_margin_bottom(12);
+    head->append(*hero("tidy-hero-closet", 48));
+    auto titles = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::VERTICAL, 4);
+    titles->append(*label("Birth report", "hero-title", 0.0f));
+    m_clo_summary = label("", "dim", 0.0f);
+    m_clo_summary->set_name("closet.summary");
+    m_clo_summary->set_selectable(true);
+    titles->append(*m_clo_summary);
+    head->append(*titles);
+    results->append(*head);
+
+    auto scroll = Gtk::make_managed<Gtk::ScrolledWindow>();
+    scroll->set_vexpand(true);
+    scroll->set_margin_start(32);
+    scroll->set_margin_end(32);
+    scroll->set_margin_bottom(16);
+    m_clo_list = Gtk::make_managed<Gtk::ListBox>();
+    m_clo_list->set_name("closet.list");
+    m_clo_list->set_selection_mode(Gtk::SelectionMode::NONE);
+    scroll->set_child(*m_clo_list);
+    results->append(*scroll);
+
+    auto bar = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::HORIZONTAL, 14);
+    bar->add_css_class("act-bar");
+    m_clo_status = label("Report only -- nothing is tagged. Deciding comes with s006.", "dim", 0.0f);
+    m_clo_status->set_name("closet.status");
+    m_clo_status->set_hexpand(true);
+    bar->append(*m_clo_status);
+    auto again = Gtk::make_managed<Gtk::Button>("Look again");
+    again->set_name("closet.again");
+    again->add_css_class("act");
+    again->signal_clicked().connect([this] { on_closet_look(); });
+    bar->append(*again);
+    results->append(*bar);
+    m_clo_states->add(*results, "results");
+
+    m_stack.add(*m_clo_states, "closet", title);
 }
 
 // The look's sidebar (Cairn's build_nav): brand, section headers that are

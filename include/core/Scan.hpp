@@ -14,4 +14,8 @@ namespace tidy::core::scan {
 // Folders themselves are not listed (they are walked).
 std::vector<facts::Facts> walk(const std::string& home, const std::vector<std::string>& roots);
 
+// Only the loose top of one folder: its files and packages, never its
+// sub-folders (s005: the top of Documents is a landing place, its folders are not).
+std::vector<facts::Facts> top(const std::string& home, const std::string& dir);
+
 }  // namespace tidy::core::scan

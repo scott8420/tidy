@@ -60,6 +60,13 @@ void Shell::on_activity_undo() {  // handler: Activity's act button
         lg->info("undo '{}': {} done, {} failed; catalog {} synced", label, r.done, r.failed, synced);
 }
 
+// The birth report (s005): reads the landing places -- statx and xattrs, no
+// writes -- and shows what each file's birth proposes. REPORT ONLY.
+void Shell::on_closet_look() {  // handler: the Closet's Look / Look again
+    fill_closet();
+    m_clo_states->set_visible_child("results");
+}
+
 void Shell::on_dump_registry() {  // handler: print the live widget tree (also callable from gdb)
     registry::dump();
 }

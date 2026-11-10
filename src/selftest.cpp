@@ -17,11 +17,21 @@
 //                   as door plans, undone through the door; the catalog in step;
 //                   no file's bytes or mtime changed by tagging;
 //   * the gate   -- also: no xattr writes in Tidy; SQLite only in Catalog.cpp.
+// s005, birth rules (REPORT ONLY):
+//   * levels     -- the seven, ids stable and unique;
+//   * places     -- the landing places from user-dirs.dirs; home itself and
+//                   outside home dropped;
+//   * rules      -- each rule fits its file; a decided stamp is never overruled;
+//   * the report -- on a fixture: every rule fits something, Documents top
+//                   only; and it changed NOTHING (inode, size, mtime, ctime,
+//                   every xattr) and created no record.
 //
 //   ./build/tidy_selftest
 //   ./build/tidy_selftest --fixture DIR   make a fixture home at DIR (tagged,
 //                                         one atomic save carried) and stop:
 //                                         TIDY_HOME=DIR ./build/tidy shows it
+//   ./build/tidy_selftest --report HOME   print the birth report for HOME
+//                                         (read-only: nothing is tagged)
 
 #include "core/Look.hpp"
 #include "core/Pages.hpp"
@@ -31,6 +41,8 @@
 #include "core/Facts.hpp"
 #include "core/Scan.hpp"
 #include "core/Tagging.hpp"
+#include "core/Retention.hpp"
+#include "core/Birth.hpp"
 
 #include <latch/Door.hpp>
 #include <latch/Protect.hpp>
@@ -41,11 +53,13 @@
 #include <fstream>
 #include <iostream>
 #include <regex>
+#include <map>
 #include <set>
 #include <sstream>
 #include <string>
 #include <vector>
 
+#include <cstring>
 #include <ctime>
 #include <sys/stat.h>
 #include <sys/xattr.h>  // the harness copies tags as cp -a would
@@ -166,6 +180,31 @@ std::vector<std::string> roots_of(const std::string& H) {
     return {H + "/Downloads", H + "/Desktop", H + "/Documents"};
 }
 std::int64_t now_s() { return static_cast<std::int64_t>(std::time(nullptr)); }
+
+// s005: what the birth rules need on top of make_home -- a Screenshots folder,
+// downloads with their origin (as a browser leaves it), a loose file and a
+// folder at the top of Documents, a file carrying a decision. The harness sets
+// xattrs itself (as a browser or one of our apps would); Tidy never does.
+void xset(const fs::path& p, const char* name, const std::string& v) {
+    ::lsetxattr(p.c_str(), name, v.data(), v.size(), 0);
+}
+void make_birth_extras(const fs::path& home) {
+    namespace cb = core::birth;
+    put_file(home / "Pictures/Screenshots/Screenshot From 2026-11-10 09-14-02.png", "png");
+    put_file(home / "Pictures/Screenshots/Screencast From 2026-11-10 09-20-11.webm", "webm");
+    put_file(home / "Downloads/fedora-44.rpm", "rpm");
+    put_file(home / "Downloads/notes.txt", "no origin");
+    put_file(home / "Downloads/brochure.pdf", "pdf");
+    put_file(home / "Documents/loose.txt", "loose");
+    put_file(home / "Documents/Taxes/w2.pdf", "inside a folder: not loose");
+    put_file(home / "Desktop/plan.txt", "plan");
+    put_file(home / "Desktop/cover-final.png", "decided");
+    xset(home / "Downloads/f1040.pdf", cb::kOriginUrl, "https://www.IRS.gov/pub/irs-pdf/f1040.pdf");
+    xset(home / "Downloads/cat.jpg", cb::kOriginUrl, "https://images.example.com/cat.jpg");
+    xset(home / "Downloads/fedora-44.rpm", cb::kOriginUrl, "https://github.com/x/y/releases/fedora-44.rpm");
+    xset(home / "Downloads/brochure.pdf", cb::kOriginUrl, "https://shop.example.com/brochure.pdf");
+    xset(home / "Desktop/cover-final.png", core::facts::kRetention, "keep");
+}
 }  // namespace
 
 namespace {
@@ -202,6 +241,7 @@ int make_fixture(const std::string& dir) {
     atomic_save(home / "Documents/report.odt", "report v2");
     const auto f = tg::reconcile(cat, core::scan::walk(H, roots_of(H)));
     ok = run(tg::plan_for(f, "Reconcile: 1 atomic save")) && ok && f.carries.size() == 1;
+    make_birth_extras(home);   // s005: untagged by Tidy -- the birth report has something to say
     std::cout << (ok ? "fixture home made: " : "fixture home made WITH ERRORS: ") << H << "\n"
               << "  " << door.batches().size() << " batches, " << cat.count() << " files in the catalog\n"
               << "  TIDY_HOME=" << H << " ./build/tidy\n";
@@ -209,8 +249,19 @@ int make_fixture(const std::string& dir) {
 }
 }  // namespace
 
+// --report HOME: the birth report as text. READ-ONLY (statx + xattr reads).
+int print_report(const std::string& dir) {
+    std::error_code ec;
+    const std::string H = fs::canonical(dir, ec).string();
+    if (ec || !fs::is_directory(H)) { std::cerr << "--report: " << dir << " is not a folder\n"; return 2; }
+    const auto ps = core::birth::places(H, slurp(fs::path(H) / ".config/user-dirs.dirs"));
+    std::cout << core::birth::text(core::birth::report(H, ps), H);
+    return 0;
+}
+
 int main(int argc, char** argv) {
     if (argc == 3 && std::string(argv[1]) == "--fixture") return make_fixture(argv[2]);
+    if (argc == 3 && std::string(argv[1]) == "--report") return print_report(argv[2]);
     // ── The look (Cairn's stone): page states, Tidy's sidebar, every tint ────
     {
         std::cout << "[look]\n";
@@ -597,6 +648,188 @@ int main(int argc, char** argv) {
         }
         check("gate: no Tidy source writes a file, tags only through the door, SQLite only in Catalog.cpp (" + std::to_string(files) + " files read)",
               files > 10 && hits.empty(), hits);
+    }
+
+    // ── s005: birth rules + retention levels -- REPORT ONLY, on a FIXTURE ──
+    {
+        std::cout << "[birth]\n";
+        namespace rt = core::retention;
+        namespace cb = core::birth;
+        namespace fc = core::facts;
+
+        // The seven levels (§2; §11.2 open -- the lean: as written).
+        std::set<std::string> ids;
+        bool round = true;
+        for (const auto& i : rt::all()) {
+            ids.insert(i.id);
+            rt::Level l{};
+            round = round && rt::parse(i.id, l) && l == i.level && rt::id_of(l) == i.id;
+        }
+        check("levels: seven, ids unique, each parses back to itself", rt::all().size() == 7 && ids.size() == 7 && round);
+        rt::Level dummy{};
+        check("levels: the on-disk ids are the ones s004 stamped",
+              rt::id_of(rt::Level::Undecided) == "undecided" && rt::id_of(rt::Level::Keep) == "keep" &&
+              rt::id_of(rt::Level::UntilDone) == "until-done" && rt::id_of(rt::Level::HandsOff) == "hands-off");
+        check("levels: \"\", a title, a stranger -- none parse",
+              !rt::parse("", dummy) && !rt::parse("Keep", dummy) && !rt::parse("forever", dummy));
+
+        // The landing places, from user-dirs.dirs (made-up homes; nothing read).
+        const auto def = cb::places("/home/u", "");
+        check("places: the defaults -- Downloads, Screenshots, Desktop, Documents (top only)",
+              def.size() == 4 && def[0].path == "/home/u/Downloads" && def[1].path == "/home/u/Pictures/Screenshots" &&
+              def[2].path == "/home/u/Desktop" && def[3].path == "/home/u/Documents" && def[3].top_only && !def[0].top_only);
+        const auto moved = cb::places("/home/u", "# comment\nXDG_DOWNLOAD_DIR=\"$HOME/Incoming\"\n"
+                                                 "XDG_PICTURES_DIR=\"/home/u/Bilder\"\n");
+        check("places: user-dirs.dirs moves them ($HOME and absolute forms)",
+              moved.size() == 4 && moved[0].path == "/home/u/Incoming" && moved[1].path == "/home/u/Bilder/Screenshots");
+        const auto bad = cb::places("/home/u", "XDG_DESKTOP_DIR=\"$HOME/\"\nXDG_DOWNLOAD_DIR=\"/tmp/dl\"\n"
+                                               "XDG_DOCUMENTS_DIR=\"docs\"\nXDG_PICTURES_DIR=\"$HOME/../x\"\n");
+        check("places: home itself, outside home, relative, '..' -- all dropped (never the whole home)", bad.empty(),
+              std::to_string(bad.size()) + " kept");
+        const auto same = cb::places("/home/u", "XDG_DESKTOP_DIR=\"$HOME/Downloads\"\n");
+        check("places: two names for one folder -- walked once", same.size() == 3);
+
+        // The pieces.
+        check("rules: host_of", cb::host_of("https://www.IRS.gov:443/f.pdf") == "www.irs.gov" &&
+                                cb::host_of("https://u:p@x.org/a?b") == "x.org" && cb::host_of("nonsense").empty() &&
+                                cb::host_of("file:///home/u/a").empty());
+        check("rules: screenshot names (GNOME old and new, macOS, screencasts)",
+              cb::is_screenshot_name("Screenshot from 2024-01-02 10-11-12.png") &&
+              cb::is_screenshot_name("Screenshot From 2026-11-10 09-14-02.png") &&
+              cb::is_screenshot_name("Screen Shot 2019-03-04 at 1.png") && cb::is_screenshot_name("Screencast.webm") &&
+              !cb::is_screenshot_name("my screenshot.png"));
+        check("rules: ext_of", cb::ext_of("A.TAR.GZ") == "gz" && cb::ext_of(".bashrc").empty() && cb::ext_of("x").empty() &&
+                               cb::ext_of("Fedora.AppImage") == "appimage");
+
+        // classify(), one rule at a time, on made-up facts.
+        const auto F = [](const std::string& path, const std::string& retention = "", bool dir = false) {
+            fc::Facts f;
+            f.path = path;
+            f.dir = dir;
+            f.tags.retention = retention;
+            return f;
+        };
+        const auto is = [](const cb::Born& b, const char* rule, rt::Level l) { return b.rule == rule && b.level == l; };
+        check("rules: a decided stamp wins over any birth (a screenshot stamped Keep stays Keep)",
+              is(cb::classify(F("/h/Pictures/Screenshots/Screenshot.png", "keep"), "screenshots", ""), "stamped", rt::Level::Keep));
+        check("rules: a stamped Undecided is still proposed for (it was waiting, not decided)",
+              is(cb::classify(F("/h/Downloads/a.png", "undecided"), "downloads", ""), "image-download", rt::Level::Ephemeral));
+        check("rules: an unknown retention value is not a decision",
+              is(cb::classify(F("/h/Desktop/a.txt", "forever"), "desktop", ""), "unknown", rt::Level::Undecided));
+        check("rules: anything in Screenshots that is an image -> Ephemeral",
+              is(cb::classify(F("/h/Pictures/Screenshots/whatever.png"), "screenshots", ""), "screenshot", rt::Level::Ephemeral));
+        check("rules: a screenshot by name on the Desktop -> Ephemeral",
+              is(cb::classify(F("/h/Desktop/Screenshot 2026.png"), "desktop", ""), "screenshot", rt::Level::Ephemeral));
+        check("rules: ...but not a text file named Screenshot",
+              is(cb::classify(F("/h/Desktop/Screenshot notes.txt"), "desktop", ""), "unknown", rt::Level::Undecided));
+        check("rules: a .gov download -> Until done",
+              is(cb::classify(F("/h/Downloads/f1040.pdf"), "downloads", "https://www.irs.gov/f1040.pdf"), "gov-download", rt::Level::UntilDone));
+        check("rules: a .gov origin counts outside Downloads too (the origin travels)",
+              is(cb::classify(F("/h/Desktop/w9.pdf"), "desktop", "https://irs.gov/w9.pdf"), "gov-download", rt::Level::UntilDone));
+        check("rules: 'gov' inside a host is not .gov (gov.example.com)",
+              is(cb::classify(F("/h/Downloads/a.pdf"), "downloads", "https://gov.example.com/a.pdf"), "download", rt::Level::Undecided));
+        check("rules: a downloaded image -> Ephemeral",
+              is(cb::classify(F("/h/Downloads/cat.JPG"), "downloads", "https://x.com/cat.jpg"), "image-download", rt::Level::Ephemeral));
+        check("rules: a downloaded installer -> Ephemeral",
+              is(cb::classify(F("/h/Downloads/tool.AppImage"), "downloads", ""), "installer-download", rt::Level::Ephemeral));
+        check("rules: a download no rule knows -> Undecided, its origin named",
+              [&] { auto b = cb::classify(F("/h/Downloads/b.pdf"), "downloads", "https://shop.example.com/b.pdf");
+                    return is(b, "download", rt::Level::Undecided) && b.why.find("shop.example.com") != std::string::npos; }());
+        check("rules: a package is one thing -- never a screenshot, never an installer",
+              is(cb::classify(F("/h/Downloads/Screenshot.scriv", "", true), "downloads", ""), "download", rt::Level::Undecided));
+        check("rules: a loose document with no story -> Undecided",
+              is(cb::classify(F("/h/Documents/loose.txt"), "documents", ""), "unknown", rt::Level::Undecided));
+
+        // The report, on a FIXTURE home.
+        latch::door::set_app_name("Tidy");
+        const fs::path root = fs::temp_directory_path() / ("tidy_selftest_birth_" + std::to_string(::getpid()));
+        fs::remove_all(root);
+        const fs::path home = root / "home";
+        make_home(home);
+        make_birth_extras(home);
+        fs::remove_all(home / ".local");   // no records at all: the report must not make any
+        const std::string H = fs::canonical(home).string();
+
+        // Everything about every file under home, before.
+        const auto snapshot = [&] {
+            std::map<std::string, std::string> m;
+            for (auto it = fs::recursive_directory_iterator(H); it != fs::recursive_directory_iterator(); ++it) {
+                struct stat st{};
+                if (::lstat(it->path().c_str(), &st) != 0) continue;
+                std::string v = std::to_string(st.st_ino) + "/" + std::to_string(st.st_size) + "/" +
+                                std::to_string(st.st_mtim.tv_sec) + "." + std::to_string(st.st_mtim.tv_nsec) + "/" +
+                                std::to_string(st.st_ctim.tv_sec) + "." + std::to_string(st.st_ctim.tv_nsec);
+                char names[4096];
+                const ssize_t n = ::llistxattr(it->path().c_str(), names, sizeof names);
+                for (ssize_t k = 0; k < n; k += static_cast<ssize_t>(std::strlen(names + k)) + 1) {
+                    char val[1024];
+                    const ssize_t vl = ::lgetxattr(it->path().c_str(), names + k, val, sizeof val);
+                    v += std::string("|") + (names + k) + "=" + (vl > 0 ? std::string(val, static_cast<std::size_t>(vl)) : "");
+                }
+                m[it->path().string()] = v;
+            }
+            return m;
+        };
+        const auto before = snapshot();
+        const auto ps = cb::places(H, "");
+        const auto rep = cb::report(H, ps);
+        const auto after = snapshot();
+
+        const auto find = [&](const std::string& rel) -> const cb::Born* {
+            for (const auto& b : rep.items)
+                if (b.file.path == H + "/" + rel) return &b;
+            return nullptr;
+        };
+        const auto has = [&](const std::string& rel, const char* rule, rt::Level l) {
+            const auto* b = find(rel);
+            return b && b->rule == rule && b->level == l;
+        };
+        check("report: all four landing places found", rep.places.size() == 4, std::to_string(rep.places.size()));
+        check("report: the IRS form, by its origin -> Until done",
+              has("Downloads/f1040.pdf", "gov-download", rt::Level::UntilDone));
+        check("report: cat.jpg -> Ephemeral; the .rpm -> Ephemeral",
+              has("Downloads/cat.jpg", "image-download", rt::Level::Ephemeral) &&
+              has("Downloads/fedora-44.rpm", "installer-download", rt::Level::Ephemeral));
+        check("report: Screenshots (png + webm) and the Desktop screenshot -> Ephemeral",
+              has("Pictures/Screenshots/Screenshot From 2026-11-10 09-14-02.png", "screenshot", rt::Level::Ephemeral) &&
+              has("Pictures/Screenshots/Screencast From 2026-11-10 09-20-11.webm", "screenshot", rt::Level::Ephemeral) &&
+              has("Desktop/Screenshot 2026-11-10.png", "screenshot", rt::Level::Ephemeral));
+        check("report: a file carrying Keep stays Keep", has("Desktop/cover-final.png", "stamped", rt::Level::Keep));
+        check("report: notes.txt (no origin), brochure.pdf (no rule) -> Undecided",
+              has("Downloads/notes.txt", "download", rt::Level::Undecided) &&
+              has("Downloads/brochure.pdf", "download", rt::Level::Undecided));
+        check("report: Documents -- the loose top only (loose.txt, report.odt, the .scriv whole; not Taxes/w2.pdf)",
+              has("Documents/loose.txt", "unknown", rt::Level::Undecided) && find("Documents/report.odt") &&
+              find("Documents/Jasper.scriv") && !find("Documents/Taxes/w2.pdf") &&
+              !find("Documents/Jasper.scriv/Files/Data/1/content.rtf"));
+        check("report: never hidden, a symlink, fixes/, or a folder not a landing place",
+              !find("Downloads/.part") && !find("Downloads/report-link.odt") && !find("Documents/fixes/patch.txt") &&
+              !find("Pictures/landscape.png"));
+        std::string unused;
+        for (const auto& r : cb::rules())
+            if (!rep.count_rule(r.id)) unused += r.id + " ";
+        check("report: every birth rule fits at least one fixture file", unused.empty(), unused);
+        std::size_t by_level = 0;
+        for (const auto& l : rt::all()) by_level += rep.count(l.level);
+        check("report: every item has exactly one proposed level", by_level == rep.items.size() && !rep.items.empty(),
+              std::to_string(rep.items.size()) + " items");
+
+        std::string changed;
+        for (const auto& [p, v] : before) {
+            const auto it = after.find(p);
+            if (it == after.end() || it->second != v) changed += p.substr(H.size()) + " ";
+        }
+        check("report: REPORT ONLY -- no file's inode, size, mtime, ctime or xattrs changed",
+              changed.empty() && before.size() == after.size(), changed);
+        check("report: ...and it made no records (no data folder, no catalog, no manifest)",
+              !fs::exists(H + "/.local"));
+        const std::string t = cb::text(rep, H);
+        check("report: the text form says REPORT ONLY and groups by level",
+              t.find("REPORT ONLY") != std::string::npos && t.find("\nEphemeral (") != std::string::npos &&
+              t.find("~/Downloads/f1040.pdf") != std::string::npos);
+
+        std::error_code ec;
+        fs::remove_all(root, ec);
     }
 
     // -- Shortcuts: the registry paradigm, exercised ---------------------------

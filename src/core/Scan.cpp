@@ -11,7 +11,7 @@ namespace tidy::core::scan {
 namespace fs = std::filesystem;
 
 namespace {
-void walk_dir(const std::string& home, const fs::path& dir, std::vector<facts::Facts>& out) {
+void walk_dir(const std::string& home, const fs::path& dir, std::vector<facts::Facts>& out, bool deep) {
     std::error_code ec;
     std::vector<fs::directory_entry> kids;
     for (fs::directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec)) kids.push_back(*it);
@@ -26,7 +26,7 @@ void walk_dir(const std::string& home, const fs::path& dir, std::vector<facts::F
         const auto st = e.symlink_status(e2);
         if (e2 || fs::is_symlink(st)) continue;
         if (fs::is_directory(st) && !latch::pkg::is_package_name(name)) {
-            walk_dir(home, e.path(), out);
+            if (deep) walk_dir(home, e.path(), out, true);
             continue;
         }
         if (!fs::is_regular_file(st) && !fs::is_directory(st)) continue;
@@ -36,15 +36,25 @@ void walk_dir(const std::string& home, const fs::path& dir, std::vector<facts::F
 }
 }  // namespace
 
+namespace {
+bool root_ok(const std::string& home, const std::string& r) {
+    if (r.size() <= home.size() || r.rfind(home + "/", 0) != 0) return false;   // under home only
+    if (latch::protect::here(r.substr(home.size() + 1))) return false;
+    std::error_code ec;
+    return fs::is_directory(fs::symlink_status(r, ec));
+}
+}  // namespace
+
 std::vector<facts::Facts> walk(const std::string& home, const std::vector<std::string>& roots) {
     std::vector<facts::Facts> out;
-    for (const auto& r : roots) {
-        if (r.size() <= home.size() || r.rfind(home + "/", 0) != 0) continue;   // under home only
-        if (latch::protect::here(r.substr(home.size() + 1))) continue;
-        std::error_code ec;
-        if (!fs::is_directory(fs::symlink_status(r, ec))) continue;
-        walk_dir(home, r, out);
-    }
+    for (const auto& r : roots)
+        if (root_ok(home, r)) walk_dir(home, r, out, true);
+    return out;
+}
+
+std::vector<facts::Facts> top(const std::string& home, const std::string& dir) {
+    std::vector<facts::Facts> out;
+    if (root_ok(home, dir)) walk_dir(home, dir, out, false);
     return out;
 }
 
