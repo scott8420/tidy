@@ -19,7 +19,10 @@ that says what it will do and when. Read-only: Tidy writes nothing yet.
 
 ## Build
 
-Needs latch installed first (`./install.sh` in latch's folder), then:
+latch comes along by itself: configure clones scott8420/latch into the
+workspace at `../deps/latch` (outside this repo) and `git pull --ff-only`s it
+every configure, then builds it with Tidy. Needs git and the network the first
+time.
 
 ```
 ./build.sh                    # Fedora: gtkmm4.0-devel spdlog-devel cmake gcc-c++
@@ -28,7 +31,9 @@ Needs latch installed first (`./install.sh` in latch's folder), then:
 TIDY_LOOK=0 ./build/tidy      # the plain shell
 ```
 
-Without installing latch: `./build.sh -DLATCH_DIR=<latch source>`.
+Options: `-DLATCH_PULL=OFF` (use `../deps/latch` as it stands),
+`-DLATCH_DIR=<latch source>` (another checkout), `-DLATCH_INSTALLED=ON`
+(the installed latch, via `find_package`).
 
 ## Install
 

@@ -17,11 +17,53 @@ pkg_check_modules(GTKMM REQUIRED gtkmm-4.0)
 find_package(spdlog REQUIRED)
 
 # ── latch -- the shared door (scott8420/latch) ───────────────────────────────
-# Installed like a system library (latch's ./install.sh -> /usr/local) and
-# found here; or, without installing, -DLATCH_DIR=<latch source folder>.
-set(LATCH_DIR "" CACHE PATH "latch's source folder (only when it is not installed)")
-if(LATCH_DIR)
-    add_subdirectory(${LATCH_DIR} ${CMAKE_BINARY_DIR}/latch)
+# A workspace dependency, NOT part of this repo: cloned beside tidy/ at
+# <workspace>/deps/latch, and `git pull --ff-only` at every configure, then
+# built from source with Tidy. The pull never discards anything: local edits
+# or no network -> a warning, and the build uses the clone as it stands.
+#   -DLATCH_PULL=OFF          use deps/latch as it is (no network)
+#   -DLATCH_DIR=<folder>      use that latch source folder instead
+#   -DLATCH_INSTALLED=ON      use the installed latch (find_package)
+get_filename_component(TIDY_WORKSPACE "${CMAKE_CURRENT_SOURCE_DIR}/.." ABSOLUTE)
+set(LATCH_GIT_URL "https://github.com/scott8420/latch.git" CACHE STRING "latch's git remote")
+set(LATCH_GIT_BRANCH "main" CACHE STRING "latch branch to clone")
+set(LATCH_DIR "" CACHE PATH "latch's source folder (default: <workspace>/deps/latch)")
+option(LATCH_PULL "git pull deps/latch at configure" ON)
+option(LATCH_INSTALLED "use the installed latch (find_package) instead of deps/latch" OFF)
+
+if(NOT LATCH_INSTALLED AND NOT LATCH_DIR)
+    find_package(Git REQUIRED)
+    set(LATCH_DIR "${TIDY_WORKSPACE}/deps/latch")
+    if(NOT EXISTS "${LATCH_DIR}/.git")
+        message(STATUS "latch: cloning ${LATCH_GIT_URL} -> ${LATCH_DIR}")
+        execute_process(
+            COMMAND "${GIT_EXECUTABLE}" clone --branch "${LATCH_GIT_BRANCH}"
+                    "${LATCH_GIT_URL}" "${LATCH_DIR}"
+            RESULT_VARIABLE _latch_rc)
+        if(NOT _latch_rc EQUAL 0)
+            message(FATAL_ERROR "latch: clone failed -- check the network, or use "
+                                "-DLATCH_DIR=<folder> / -DLATCH_INSTALLED=ON")
+        endif()
+    elseif(LATCH_PULL)
+        execute_process(
+            COMMAND "${GIT_EXECUTABLE}" -C "${LATCH_DIR}" pull --ff-only
+            RESULT_VARIABLE _latch_rc
+            OUTPUT_VARIABLE _latch_out ERROR_VARIABLE _latch_out
+            OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_STRIP_TRAILING_WHITESPACE)
+        if(_latch_rc EQUAL 0)
+            message(STATUS "latch: git pull -- ${_latch_out}")
+        else()
+            message(WARNING "latch: git pull failed; building deps/latch as it stands.\n${_latch_out}")
+        endif()
+    endif()
+    execute_process(COMMAND "${GIT_EXECUTABLE}" -C "${LATCH_DIR}" log -1 --format=%h\ %s
+                    OUTPUT_VARIABLE _latch_head OUTPUT_STRIP_TRAILING_WHITESPACE)
+    message(STATUS "latch: ${LATCH_DIR} @ ${_latch_head}")
+endif()
+
+if(LATCH_DIR AND NOT LATCH_INSTALLED)
+    # EXCLUDE_FROM_ALL: latch's own install() rules stay out of Tidy's.
+    add_subdirectory(${LATCH_DIR} ${CMAKE_BINARY_DIR}/latch EXCLUDE_FROM_ALL)
 else()
     find_package(latch 0.1 QUIET)
     if(NOT latch_FOUND)
