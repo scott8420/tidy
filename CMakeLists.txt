@@ -87,6 +87,7 @@ add_library(tidy_core STATIC
     src/core/Tagging.cpp     # stamp / reconcile as door plans; the catalog kept in step (s004)
     src/core/Retention.cpp   # the seven retention levels, as data (s005)
     src/core/Birth.cpp       # birth rules: landing places -> proposed levels, REPORT ONLY (s005)
+    src/core/Closet.cpp      # the Closet: view + accept / decide / Junk Drawer as door plans (s006)
 )
 target_include_directories(tidy_core PUBLIC include)
 target_link_libraries(tidy_core PUBLIC latch::latch PkgConfig::SQLITE)

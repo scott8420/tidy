@@ -26,6 +26,12 @@
 //                   only; and it changed NOTHING (inode, size, mtime, ctime,
 //                   every xattr) and created no record.
 //
+// s006, the Closet (TAGS ONLY, through the door, on a FIXTURE):
+//   * the view   -- only the undecided; decided never visit; aging -> proposed;
+//   * the plans  -- accept / decide / Junk Drawer: Tag actions only; refused
+//                   unpreviewed; bytes, inode and mtime untouched; undone back
+//                   into the Closet; the catalog in step.
+//
 //   ./build/tidy_selftest
 //   ./build/tidy_selftest --fixture DIR   make a fixture home at DIR (tagged,
 //                                         one atomic save carried) and stop:
@@ -43,6 +49,7 @@
 #include "core/Tagging.hpp"
 #include "core/Retention.hpp"
 #include "core/Birth.hpp"
+#include "core/Closet.hpp"
 
 #include <latch/Door.hpp>
 #include <latch/Protect.hpp>
@@ -827,6 +834,167 @@ int main(int argc, char** argv) {
         check("report: the text form says REPORT ONLY and groups by level",
               t.find("REPORT ONLY") != std::string::npos && t.find("\nEphemeral (") != std::string::npos &&
               t.find("~/Downloads/f1040.pdf") != std::string::npos);
+
+        std::error_code ec;
+        fs::remove_all(root, ec);
+    }
+
+    // ── s006: the Closet -- decide / accept / Junk Drawer, on a FIXTURE ─────
+    {
+        std::cout << "[closet]\n";
+        namespace rt = core::retention;
+        namespace cb = core::birth;
+        namespace cl = core::closet;
+        namespace fc = core::facts;
+        namespace tg = core::tagging;
+        latch::door::set_app_name("Tidy");
+        const fs::path root = fs::temp_directory_path() / ("tidy_selftest_closet_" + std::to_string(::getpid()));
+        fs::remove_all(root);
+        const fs::path home = root / "home";
+        make_home(home);
+        make_birth_extras(home);
+        fs::remove_all(home / ".local");
+        const std::string H = fs::canonical(home).string();
+        const std::string D = core::paths::data_dir(H, nullptr);
+        const auto ps = cb::places(H, "");
+        const std::int64_t now = now_s();
+        const auto look = [&](std::int64_t when = 0) { return cl::view(cb::report(H, ps), when ? when : now); };
+        const auto names = [](const std::vector<cb::Born>& v) {
+            std::set<std::string> s;
+            for (const auto& b : v) s.insert(b.file.path.substr(b.file.path.find_last_of('/') + 1));
+            return s;
+        };
+        const auto pick = [&](const std::vector<cb::Born>& v, std::set<std::string> want) {
+            std::vector<cb::Born> out;
+            for (const auto& b : v)
+                if (want.count(b.file.path.substr(b.file.path.find_last_of('/') + 1))) out.push_back(b);
+            return out;
+        };
+        struct Id { ino_t ino; off_t size; std::int64_t mt, mtn; };
+        const auto ident = [](const std::string& p) {
+            struct stat st{};
+            ::lstat(p.c_str(), &st);
+            return Id{st.st_ino, st.st_size, st.st_mtim.tv_sec, st.st_mtim.tv_nsec};
+        };
+        const auto same = [](const Id& a, const Id& b) { return a.ino == b.ino && a.size == b.size && a.mt == b.mt && a.mtn == b.mtn; };
+
+        check("closet: days_since / aging -- fresh files are not aging",
+              cl::days_since(now - 3 * 86400, now) == 3 && cl::days_since(0, now) == 0 &&
+              cl::days_since(now + 99, now) == 0 && !cl::aging(fc::Facts{}, now));
+
+        auto v = look();
+        check("closet: proposed = the births with a level (6)",
+              names(v.proposed) == std::set<std::string>{"f1040.pdf", "cat.jpg", "fedora-44.rpm",
+                                                         "Screenshot From 2026-11-10 09-14-02.png",
+                                                         "Screencast From 2026-11-10 09-20-11.webm",
+                                                         "Screenshot 2026-11-10.png"},
+              std::to_string(v.proposed.size()));
+        check("closet: waiting = the undecided with nothing to propose (6, the .scriv whole)",
+              names(v.waiting) == std::set<std::string>{"brochure.pdf", "notes.txt", "plan.txt", "loose.txt",
+                                                        "report.odt", "Jasper.scriv"},
+              std::to_string(v.waiting.size()));
+        check("closet: a decided file never visits (cover-final, Keep)", v.decided == 1 && v.junk == 0 &&
+              !names(v.proposed).count("cover-final.png") && !names(v.waiting).count("cover-final.png"));
+        const auto later = look(now + (cl::kAgingDays + 10) * 86400LL);
+        std::size_t aged = 0;
+        for (const auto& b : later.proposed) aged += b.rule == "aged-out" && b.level == rt::Level::Ephemeral;
+        check("closet: 40 days on, unread -> aging out to Ephemeral; a package waits (never ages as a file)",
+              aged == 5 && later.waiting.size() == 1 && names(later.waiting).count("Jasper.scriv"),
+              std::to_string(aged) + " aged");
+
+        latch::door::Door door(H, D);
+        door.load();
+        core::catalog::Catalog cat;
+        check("closet: the catalog opens (made by the first write)", cat.open(D, true));
+
+        auto plan = cl::accept(v.proposed);
+        bool tags_only = !plan.actions.empty();
+        for (const auto& a : plan.actions) tags_only = tags_only && a.verb == latch::door::Verb::Tag;
+        check("closet: accept is Tag actions only -- an id + a retention for each of the 6",
+              tags_only && plan.actions.size() == 12, std::to_string(plan.actions.size()));
+        std::map<std::string, Id> before;
+        for (const auto& b : v.proposed) before[b.file.path] = ident(b.file.path);
+        const auto refused = door.run(plan);
+        check("closet: an unpreviewed plan is refused, nothing tagged",
+              !refused.ok && refused.done == 0 && fc::tags_of(H + "/Downloads/cat.jpg").retention.empty());
+        plan.previewed = true;
+        const auto r1 = door.run(plan);
+        tg::record(cat, tg::paths_of(door, r1.batch), now);
+        bool each = r1.ok;
+        for (const auto& b : v.proposed) {
+            const auto t = fc::tags_of(b.file.path);
+            each = each && t.retention == rt::id_of(b.level) && fc::is_id(t.id);
+        }
+        check("closet: accepted -- each file carries its own proposed level and an id", each,
+              std::to_string(r1.done) + " steps");
+        bool untouched = true;
+        for (const auto& [p, id] : before) untouched = untouched && same(id, ident(p));
+        check("closet: ...bytes, inode and mtime untouched", untouched);
+        check("closet: ...the IRS form Until done, the screenshots Ephemeral",
+              fc::tags_of(H + "/Downloads/f1040.pdf").retention == "until-done" &&
+              fc::tags_of(H + "/Desktop/Screenshot 2026-11-10.png").retention == "ephemeral");
+        check("closet: ...in the catalog (6)", cat.count() == 6, std::to_string(cat.count()));
+        v = look();
+        check("closet: ...and they left the Closet (0 proposed, 7 decided)",
+              v.proposed.empty() && v.waiting.size() == 6 && v.decided == 7);
+        check("closet: accept never takes a decided file back", [&] {
+            cb::Born b = cb::classify(fc::Facts{}, "desktop", "");
+            fc::of(H + "/Desktop/cover-final.png", b.file);
+            b = cb::classify(b.file, "desktop", "");
+            return cl::accept({b}).actions.empty();
+        }());
+
+        auto jp = cl::junk_drawer(pick(v.waiting, {"notes.txt", "plan.txt"}));
+        jp.previewed = true;
+        const auto r2 = door.run(jp);
+        tg::record(cat, tg::paths_of(door, r2.batch), now);
+        const auto jt = fc::tags_of(H + "/Downloads/notes.txt");
+        v = look();
+        check("closet: the Junk Drawer -- Keep, role junk-drawer; counted, out of the Closet",
+              r2.ok && jt.retention == "keep" && jt.role == cl::kJunkDrawer && v.junk == 2 && v.waiting.size() == 4 &&
+              !names(v.waiting).count("notes.txt"));
+
+        auto dp = cl::decide(pick(v.waiting, {"brochure.pdf"}), rt::Level::Held);
+        dp.previewed = true;
+        const auto r3 = door.run(dp);
+        tg::record(cat, tg::paths_of(door, r3.batch), now);
+        check("closet: decided by hand -- brochure.pdf Held", r3.ok && fc::tags_of(H + "/Downloads/brochure.pdf").retention == "held" &&
+              dp.label.find("Held") != std::string::npos);
+
+        v = look();
+        auto wp = cl::accept(pick(v.waiting, {"loose.txt"}));
+        wp.previewed = true;
+        const auto r4 = door.run(wp);
+        tg::record(cat, tg::paths_of(door, r4.batch), now);
+        const auto lt = fc::tags_of(H + "/Documents/loose.txt");
+        const std::string loose_id = lt.id;
+        v = look();
+        check("closet: accepting a waiting file = seen (an id, Undecided) -- it stays in the Closet",
+              r4.ok && lt.retention == "undecided" && fc::is_id(lt.id) && names(v.waiting).count("loose.txt"));
+        auto dp2 = cl::decide(pick(v.waiting, {"loose.txt"}), rt::Level::Historical);
+        dp2.previewed = true;
+        door.run(dp2);
+        check("closet: deciding it later keeps its id (an id is never replaced)",
+              fc::tags_of(H + "/Documents/loose.txt").id == loose_id &&
+              fc::tags_of(H + "/Documents/loose.txt").retention == "historical");
+
+        // Undo, newest first, down to (not through) the accept: the files go
+        // back to the Closet, and the catalog follows.
+        std::size_t undone = 0;
+        while (door.can_undo() && door.undo_label().find("accept 6") == std::string::npos) {
+            std::uint64_t b = 0;
+            for (auto it = door.batches().rbegin(); it != door.batches().rend(); ++it)
+                if (!it->undone) { b = it->id; break; }
+            undone += door.undo().ok;
+            tg::after_undo(cat, door, b, now);
+        }
+        v = look();
+        check("closet: undo x4 -- back in the Closet as they were (junk, held, seen, historical)",
+              undone == 4 && v.junk == 0 && v.waiting.size() == 6 && v.decided == 7 &&
+              fc::tags_of(H + "/Downloads/notes.txt").id.empty() &&
+              fc::tags_of(H + "/Documents/loose.txt").retention.empty(),
+              std::to_string(undone));
+        check("closet: ...and the catalog holds only the 6 accepted", cat.count() == 6, std::to_string(cat.count()));
 
         std::error_code ec;
         fs::remove_all(root, ec);

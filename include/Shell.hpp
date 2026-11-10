@@ -1,6 +1,7 @@
 #pragma once
 #include "widgets/Widgets.hpp"
 #include "core/Look.hpp"
+#include "core/Birth.hpp"
 
 #include <gtkmm/applicationwindow.h>
 #include <giomm/menu.h>
@@ -8,6 +9,7 @@
 #include <latch/Door.hpp>
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -35,13 +37,18 @@
 //   "Which home?"                      -> Shell.cpp          (TIDY_HOME = a fixture)
 //   "Where is the birth report shown?" -> Shell_zones.cpp    (build_closet),
 //                                         Shell_handlers.cpp (on_closet_look),
-//                                         Shell_helpers.cpp  (fill_closet) -- s005,
-//                                         REPORT ONLY: core::birth, nothing tagged
+//                                         Shell_helpers.cpp  (fill_closet) -- s005
+//   "Where does the Closet decide?"    -> Shell_handlers.cpp (on_closet_accept /
+//                                         _decide / _junk -> show_closet_preview ->
+//                                         on_closet_run): core::closet plans,
+//                                         previewed, through the door (s006)
 //
 // s004: every change to a user's file goes through latch's door (m_door); the
 // selftest's source gate fails the build's test if any Tidy source calls a
 // filesystem or xattr write, or SQLite outside core/Catalog.cpp.
 // ─────────────────────────────────────────────────────────────────────────────
+namespace Gtk { class CheckButton; class DropDown; }
+
 namespace tidy {
 
 class AboutWindow;
@@ -74,12 +81,19 @@ private:
     void on_dump_registry();                       // category: handler: print the live widget tree
     void on_activity_undo();                       // category: handler: undo the newest batch, through the door
     void on_closet_look();                         // category: handler: run the birth report (reads only)
+    void on_closet_accept();                       // category: handler: checked -> their proposals (a plan, previewed)
+    void on_closet_decide();                       // category: handler: checked -> the chosen level (previewed)
+    void on_closet_junk();                         // category: handler: checked -> the Junk Drawer (previewed)
+    void on_closet_run();                          // category: handler: the previewed plan, through the door
+    void on_closet_back();                         // category: handler: preview -> the list, nothing done
 
     // ── helpers ────────────────────────────────────────────────────────────
     std::string page_note(const std::string& id) const;   // category: helper: the line under a page's promise
     void refresh_activity();                       // category: helper: Activity from the door's manifest
     void fill_closet();                            // category: helper: the birth report -> the Closet's list
     std::string user_dirs_text() const;            // category: helper: ~/.config/user-dirs.dirs, read ("" if none)
+    std::vector<core::birth::Born> closet_checked() const;   // category: helper: the checked rows
+    void show_closet_preview(latch::door::Plan plan);  // category: helper: the plan's steps + refusals -> preview state
 
     // Titlebar: brand logo (start) + hamburger (end).
     widgets::Button     m_logo_button;
@@ -112,6 +126,14 @@ private:
     Gtk::ListBox* m_clo_list = nullptr;
     Gtk::Label*   m_clo_summary = nullptr;
     Gtk::Label*   m_clo_status = nullptr;
+    // s006: the Closet decides -- checked rows, a level to decide, the preview.
+    std::vector<std::pair<Gtk::CheckButton*, core::birth::Born>> m_clo_rows;
+    Gtk::DropDown* m_clo_level = nullptr;
+    Gtk::Label*    m_clo_prev_summary = nullptr;
+    Gtk::ListBox*  m_clo_prev_list = nullptr;
+    Gtk::Label*    m_clo_prev_status = nullptr;
+    Gtk::Button*   m_clo_prev_run = nullptr;
+    std::optional<latch::door::Plan> m_clo_plan;   // shown, not yet run
 
     std::unique_ptr<AboutWindow>     m_about;
     std::unique_ptr<ShortcutsDialog> m_shortcuts;

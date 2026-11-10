@@ -5,8 +5,12 @@
 #include "Registry.hpp"
 #include "core/Catalog.hpp"
 #include "core/Tagging.hpp"
+#include "core/Closet.hpp"
+#include "core/Retention.hpp"
 
 #include <gtkmm/button.h>
+#include <gtkmm/dropdown.h>
+#include <gtkmm/stack.h>
 #include <gtkmm/label.h>
 
 #include <ctime>
@@ -52,6 +56,7 @@ void Shell::on_activity_undo() {  // handler: Activity's act button
     if (cat.open(m_data_dir, true))
         synced = core::tagging::after_undo(cat, *m_door, b, static_cast<std::int64_t>(std::time(nullptr)));
     refresh_activity();
+    if (m_clo_states && m_clo_states->get_visible_child_name() == "results") fill_closet();
     m_act_status->set_text(r.ok ? "Undone: " + label + " (" + std::to_string(r.done) + " steps)"
                                 : "Undo of " + label + ": " + std::to_string(r.done) + " back, " +
                                       std::to_string(r.failed) + " left as they are -- " +
@@ -65,6 +70,58 @@ void Shell::on_activity_undo() {  // handler: Activity's act button
 void Shell::on_closet_look() {  // handler: the Closet's Look / Look again
     fill_closet();
     m_clo_states->set_visible_child("results");
+}
+
+// The three choices (s006): each builds a plan from the checked rows and
+// shows its preview. None of them runs anything.
+void Shell::on_closet_accept() {  // handler
+    const auto items = closet_checked();
+    if (items.empty()) { m_clo_status->set_text("Check some files first."); return; }
+    show_closet_preview(core::closet::accept(items));
+}
+
+void Shell::on_closet_decide() {  // handler
+    const auto items = closet_checked();
+    if (items.empty()) { m_clo_status->set_text("Check some files first."); return; }
+    std::vector<core::retention::Level> levels;   // the dropdown's order: all but Undecided
+    for (const auto& i : core::retention::all())
+        if (i.level != core::retention::Level::Undecided) levels.push_back(i.level);
+    const auto k = m_clo_level->get_selected();
+    if (k >= levels.size()) return;
+    show_closet_preview(core::closet::decide(items, levels[k]));
+}
+
+void Shell::on_closet_junk() {  // handler
+    const auto items = closet_checked();
+    if (items.empty()) { m_clo_status->set_text("Check some files first."); return; }
+    show_closet_preview(core::closet::junk_drawer(items));
+}
+
+void Shell::on_closet_back() {  // handler: nothing done
+    m_clo_plan.reset();
+    m_clo_states->set_visible_child("results");
+    m_clo_status->set_text("Nothing done.");
+}
+
+// The previewed plan, through the door; the catalog follows; Activity shows it.
+void Shell::on_closet_run() {  // handler
+    if (!m_clo_plan) return;
+    auto plan = std::move(*m_clo_plan);
+    m_clo_plan.reset();
+    plan.previewed = true;   // shown in full by show_closet_preview (RULES: preview first)
+    const auto r = m_door->run(plan);
+    core::catalog::Catalog cat;
+    std::size_t rec = 0;
+    if (cat.open(m_data_dir, true))
+        rec = core::tagging::record(cat, core::tagging::paths_of(*m_door, r.batch), static_cast<std::int64_t>(std::time(nullptr)));
+    refresh_activity();
+    fill_closet();
+    m_clo_states->set_visible_child("results");
+    m_clo_status->set_text(r.ok ? "Done: " + plan.label + " (" + std::to_string(r.done) + " steps) -- undo in Activity"
+                                : plan.label + ": " + std::to_string(r.done) + " done, " + std::to_string(r.failed) +
+                                      " not -- " + (r.messages.empty() ? std::string() : r.messages.front()));
+    if (auto lg = log::get(log::Area::Shell))
+        lg->info("closet run '{}': {} done, {} failed; catalog {} recorded", plan.label, r.done, r.failed, rec);
 }
 
 void Shell::on_dump_registry() {  // handler: print the live widget tree (also callable from gdb)

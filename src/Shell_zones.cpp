@@ -2,8 +2,12 @@
 #include "Log.hpp"
 #include "Look.hpp"
 #include "core/Pages.hpp"
+#include "core/Retention.hpp"
 
+#include <gtkmm/checkbutton.h>
+#include <gtkmm/dropdown.h>
 #include <gtkmm/headerbar.h>
+#include <gtkmm/stringlist.h>
 #include <gtkmm/image.h>
 #include <gtkmm/label.h>
 #include <gtkmm/listboxrow.h>
@@ -183,10 +187,10 @@ void Shell::build_activity() {  // zone: Activity
     refresh_activity();
 }
 
-// The Closet (s005): the birth report. Start = the hero with a live Look orb;
-// results = the landing places' items grouped by proposed level, and an act
-// bar that says REPORT ONLY. Nothing here tags anything -- the stamp plan that
-// acts on this report comes with s006, through the door, behind its preview.
+// The Closet (s005 report, s006 decides). Start = the hero with a live Look
+// orb; results = the Closet (proposed + waiting, checkable) and an act bar
+// whose every button builds a plan; preview = that plan's steps, Back or Do it.
+// Only "Do it" runs anything, and only through the door.
 void Shell::build_closet() {  // zone: The Closet
     const auto* p = core::pages::find("closet");
     const std::string title = p ? p->title : "The Closet";
@@ -227,12 +231,18 @@ void Shell::build_closet() {  // zone: The Closet
     head->set_margin_bottom(12);
     head->append(*hero("tidy-hero-closet", 48));
     auto titles = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::VERTICAL, 4);
-    titles->append(*label("Birth report", "hero-title", 0.0f));
+    titles->append(*label(title, "hero-title", 0.0f));
     m_clo_summary = label("", "dim", 0.0f);
     m_clo_summary->set_name("closet.summary");
     m_clo_summary->set_selectable(true);
     titles->append(*m_clo_summary);
+    titles->set_hexpand(true);
     head->append(*titles);
+    auto again = Gtk::make_managed<Gtk::Button>("Look again");
+    again->set_name("closet.again");
+    again->set_valign(Gtk::Align::CENTER);
+    again->signal_clicked().connect([this] { on_closet_look(); });
+    head->append(*again);
     results->append(*head);
 
     auto scroll = Gtk::make_managed<Gtk::ScrolledWindow>();
@@ -246,19 +256,84 @@ void Shell::build_closet() {  // zone: The Closet
     scroll->set_child(*m_clo_list);
     results->append(*scroll);
 
-    auto bar = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::HORIZONTAL, 14);
+    // The act bar (s006): every button builds a plan and shows its preview;
+    // nothing runs from here.
+    auto bar = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::HORIZONTAL, 10);
     bar->add_css_class("act-bar");
-    m_clo_status = label("Report only -- nothing is tagged. Deciding comes with s006.", "dim", 0.0f);
+    m_clo_status = label("Check files, then choose. Every choice is previewed first.", "dim", 0.0f);
     m_clo_status->set_name("closet.status");
     m_clo_status->set_hexpand(true);
     bar->append(*m_clo_status);
-    auto again = Gtk::make_managed<Gtk::Button>("Look again");
-    again->set_name("closet.again");
-    again->add_css_class("act");
-    again->signal_clicked().connect([this] { on_closet_look(); });
-    bar->append(*again);
+    auto junk = Gtk::make_managed<Gtk::Button>("Junk Drawer");
+    junk->set_name("closet.junk");
+    junk->set_tooltip_text("Keep them, with no home yet");
+    junk->signal_clicked().connect([this] { on_closet_junk(); });
+    bar->append(*junk);
+    auto levels = Gtk::StringList::create({});
+    for (const auto& i : core::retention::all())
+        if (i.level != core::retention::Level::Undecided) levels->append(i.title);
+    m_clo_level = Gtk::make_managed<Gtk::DropDown>(levels);
+    m_clo_level->set_name("closet.level");
+    m_clo_level->set_tooltip_text("The level for Decide");
+    bar->append(*m_clo_level);
+    auto decide = Gtk::make_managed<Gtk::Button>("Decide");
+    decide->set_name("closet.decide");
+    decide->set_tooltip_text("The checked files -> the level beside it");
+    decide->signal_clicked().connect([this] { on_closet_decide(); });
+    bar->append(*decide);
+    auto accept = Gtk::make_managed<Gtk::Button>("Accept");
+    accept->set_name("closet.accept");
+    accept->add_css_class("act");
+    accept->set_tooltip_text("The checked files -> each one's proposal");
+    accept->signal_clicked().connect([this] { on_closet_accept(); });
+    bar->append(*accept);
     results->append(*bar);
     m_clo_states->add(*results, "results");
+
+    // The preview (s006): the plan's every step, and any refusal, before it runs.
+    auto prev = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::VERTICAL, 0);
+    prev->set_name("closet.preview");
+    auto ph = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::HORIZONTAL, 14);
+    ph->set_margin_start(32);
+    ph->set_margin_end(32);
+    ph->set_margin_top(24);
+    ph->set_margin_bottom(12);
+    ph->append(*hero("tidy-hero-closet", 48));
+    auto pt = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::VERTICAL, 4);
+    pt->append(*label("Preview", "hero-title", 0.0f));
+    m_clo_prev_summary = label("", "dim", 0.0f);
+    m_clo_prev_summary->set_name("closet.preview.summary");
+    m_clo_prev_summary->set_selectable(true);
+    pt->append(*m_clo_prev_summary);
+    ph->append(*pt);
+    prev->append(*ph);
+    auto pscroll = Gtk::make_managed<Gtk::ScrolledWindow>();
+    pscroll->set_vexpand(true);
+    pscroll->set_margin_start(32);
+    pscroll->set_margin_end(32);
+    pscroll->set_margin_bottom(16);
+    m_clo_prev_list = Gtk::make_managed<Gtk::ListBox>();
+    m_clo_prev_list->set_name("closet.preview.list");
+    m_clo_prev_list->set_selection_mode(Gtk::SelectionMode::NONE);
+    pscroll->set_child(*m_clo_prev_list);
+    prev->append(*pscroll);
+    auto pbar = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::HORIZONTAL, 10);
+    pbar->add_css_class("act-bar");
+    m_clo_prev_status = label("", "dim", 0.0f);
+    m_clo_prev_status->set_name("closet.preview.status");
+    m_clo_prev_status->set_hexpand(true);
+    pbar->append(*m_clo_prev_status);
+    auto back = Gtk::make_managed<Gtk::Button>("Back");
+    back->set_name("closet.preview.back");
+    back->signal_clicked().connect([this] { on_closet_back(); });
+    pbar->append(*back);
+    m_clo_prev_run = Gtk::make_managed<Gtk::Button>("Do it");
+    m_clo_prev_run->set_name("closet.preview.run");
+    m_clo_prev_run->add_css_class("act");
+    m_clo_prev_run->signal_clicked().connect([this] { on_closet_run(); });
+    pbar->append(*m_clo_prev_run);
+    prev->append(*pbar);
+    m_clo_states->add(*prev, "preview");
 
     m_stack.add(*m_clo_states, "closet", title);
 }
