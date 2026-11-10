@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <!-- Tidy hero: due: a disc in the page's own tint (the-look.md, Colour), a white glyph. -->
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fda4af"/><stop offset="1" stop-color="#be123c"/></linearGradient>
+    <radialGradient id="s" cx="0.35" cy="0.25" r="0.6"><stop offset="0" stop-color="#ffffff" stop-opacity="0.45"/><stop offset="1" stop-color="#ffffff" stop-opacity="0"/></radialGradient>
+  </defs>
+  <circle cx="64" cy="64" r="58" fill="url(#g)"/>
+  <g transform="translate(32 32) scale(4)" fill="#ffffff">
+  <path fill="#ffffff" fill-rule="evenodd" d="M8 1.2c.4 0 .7.2.9.5l6.4 11.5c.4.7-.1 1.6-.9 1.6H1.6c-.8 0-1.3-.9-.9-1.6L7.1 1.7c.2-.3.5-.5.9-.5zM7 5v5h2V5zm0 6v2h2v-2z"/>
+</g>
+  <circle cx="64" cy="64" r="58" fill="url(#s)"/>
+  <circle cx="64" cy="64" r="57" fill="none" stroke="#ffffff" stroke-opacity="0.4" stroke-width="2"/>
+</svg>

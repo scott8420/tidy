@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Tidy
+GenericName=Home Folder Organizer
+Comment=Knows how long each file should live, and where it belongs
+Exec=@BINDIR@/tidy
+Icon=io.github.scott8420.Tidy
+Terminal=false
+Categories=Utility;Filesystem;GTK;
+Keywords=organize;tidy;files;folders;archive;retention;projects;
+StartupNotify=true
+StartupWMClass=io.github.scott8420.Tidy

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Tidy resource bundle (from Cairn's resource pipeline). Icons resolve out of
+     the binary: App points the icon theme at /io/github/scott8420/Tidy/icons and
+     GTK appends scalable/apps/ itself. Symbolic icons recolour to the
+     foreground; the tidy-hero-* emblems are full colour, each in its page's
+     tint. The look's stylesheet rides in the second prefix. -->
+<gresources>
+  <gresource prefix="/io/github/scott8420/Tidy/icons/scalable/apps">
+    <file preprocess="xml-stripblanks" alias="tidy-activity-symbolic.svg">icons/scalable/apps/tidy-activity-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="tidy-archive-symbolic.svg">icons/scalable/apps/tidy-archive-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="tidy-closet-symbolic.svg">icons/scalable/apps/tidy-closet-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="tidy-done-symbolic.svg">icons/scalable/apps/tidy-done-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="tidy-due-symbolic.svg">icons/scalable/apps/tidy-due-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="tidy-hero-activity.svg">icons/scalable/apps/tidy-hero-activity.svg</file>
+    <file preprocess="xml-stripblanks" alias="tidy-hero-archive.svg">icons/scalable/apps/tidy-hero-archive.svg</file>
+    <file preprocess="xml-stripblanks" alias="tidy-hero-closet.svg">icons/scalable/apps/tidy-hero-closet.svg</file>
+    <file preprocess="xml-stripblanks" alias="tidy-hero-due.svg">icons/scalable/apps/tidy-hero-due.svg</file>
+    <file preprocess="xml-stripblanks" alias="tidy-hero-home.svg">icons/scalable/apps/tidy-hero-home.svg</file>
+    <file preprocess="xml-stripblanks" alias="tidy-hero-projects.svg">icons/scalable/apps/tidy-hero-projects.svg</file>
+    <file preprocess="xml-stripblanks" alias="tidy-hero-purposes.svg">icons/scalable/apps/tidy-hero-purposes.svg</file>
+    <file preprocess="xml-stripblanks" alias="tidy-hero-templates.svg">icons/scalable/apps/tidy-hero-templates.svg</file>
+    <file preprocess="xml-stripblanks" alias="tidy-home-symbolic.svg">icons/scalable/apps/tidy-home-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="tidy-logo-symbolic.svg">icons/scalable/apps/tidy-logo-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="tidy-projects-symbolic.svg">icons/scalable/apps/tidy-projects-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="tidy-purposes-symbolic.svg">icons/scalable/apps/tidy-purposes-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="tidy-templates-symbolic.svg">icons/scalable/apps/tidy-templates-symbolic.svg</file>
+  </gresource>
+  <gresource prefix="/io/github/scott8420/Tidy">
+    <file>look.css</file>
+  </gresource>
+</gresources>
