@@ -140,9 +140,10 @@ void Shell::build_page(const std::string& id) {  // zone: a page's hero
         m_stack.add(*m_purposes, id, pp ? pp->title : "Purposes");
         return;
     }
-    if (id == "due") {                                     // s012a: the trigger's page (read-only)
+    if (id == "due") {                                     // s012a: the trigger's page; s013a: archive through the door
         const auto* pp = core::pages::find(id);
-        m_due = Gtk::make_managed<DuePage>(m_home, m_data_dir, m_fixture, [this] { return user_dirs_text(); });
+        m_due = Gtk::make_managed<DuePage>(*m_door, m_home, m_data_dir, m_fixture, [this] { return user_dirs_text(); },
+                                           [this] { refresh_activity(); });
         m_stack.add(*m_due, id, pp ? pp->title : "Due");
         return;
     }

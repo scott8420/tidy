@@ -85,6 +85,8 @@
 #include "core/Purposes.hpp"
 #include "core/Due.hpp"
 #include "core/Background.hpp"
+#include "core/Archive.hpp"
+#include "core/Sha256.hpp"
 
 #include <latch/Door.hpp>
 #include <latch/Protect.hpp>
@@ -2448,6 +2450,128 @@ int main(int argc, char** argv) {
               u.ok && read(H + "/Downloads/cover.png") == "png one" && read(H + "/Desktop/cover.png") == "png two" &&
               fs::exists(H + "/Downloads/scan.pdf") && !fs::exists(H + "/Documents") &&
               !fs::exists(H + "/Pictures/Covers/cover (2).png") && cat.by_id(id)->path == H + "/Downloads/cover.png",
+              u.messages.empty() ? "" : u.messages[0]);
+        fs::remove_all(root);
+    }
+
+    // ── s013a: the archive -- ~/Archive/<year>/<its folder>, through the door, on a FIXTURE ──
+    {
+        std::cout << "[archive]\n";
+        const auto read = [](const std::string& f) { std::ifstream in(f); std::stringstream o; o << in.rdbuf(); return o.str(); };
+        namespace ar = core::archive;
+        namespace sh = core::sha256;
+        namespace dr = latch::door;
+        check("sha256: the FIPS vectors (\"\", \"abc\", 56 bytes, a million a's)",
+              sh::of_text("") == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" &&
+              sh::of_text("abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad" &&
+              sh::of_text("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq") ==
+                  "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1" &&
+              sh::of_text(std::string(1000000, 'a')) == "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0");
+
+        const fs::path root = fs::temp_directory_path() / ("tidy_selftest_arc_" + std::to_string(::getpid()));
+        fs::remove_all(root);
+        const std::string H = (root / "home").string(), D = (root / "data").string();
+        put_file(H + "/Documents/Letters/letters-2019.odt", "dear sir");
+        put_file(H + "/Documents/Letters/old.odt", "older");
+        put_file(H + "/notes.txt", "top of home");
+        put_file(H + "/Archive/2026/Documents/Letters/old.odt", "already there");
+        put_file(H + "/Archive/2025/kept.odt", "in the archive");
+        put_file(H + "/Writing/Jasper-project/draft.odt", "a project's");
+        const std::string id = "66666666-6666-4666-8666-666666666666";
+        xset(H + "/Documents/Letters/letters-2019.odt", core::facts::kId, id);
+        xset(H + "/Documents/Letters/letters-2019.odt", core::facts::kRetention, "historical");
+        xset(H + "/Documents/Letters/old.odt", core::facts::kRetention, "historical");
+
+        check("folder: ~/Archive/<year>/<its folder>; home's top -> ~/Archive/<year>",
+              ar::folder_for(H, H + "/Documents/Letters/a.odt", 2026) == "Archive/2026/Documents/Letters" &&
+              ar::folder_for(H, H + "/notes.txt", 2026) == "Archive/2026");
+        check("refused: already in ~/Archive; inside a -project; not a file; outside home",
+              !ar::refusal(H, H + "/Archive/2025/kept.odt").empty() &&
+              !ar::refusal(H, H + "/Writing/Jasper-project/draft.odt").empty() &&
+              !ar::refusal(H, H + "/Documents").empty() && !ar::refusal(H, "/etc/hosts").empty() &&
+              ar::refusal(H, H + "/Documents/Letters/old.odt").empty());
+
+        // 2026-11-10 noon, local.
+        std::tm tm{};
+        tm.tm_year = 126; tm.tm_mon = 10; tm.tm_mday = 10; tm.tm_hour = 12; tm.tm_isdst = -1;
+        const std::int64_t when = static_cast<std::int64_t>(std::mktime(&tm));
+        const auto before = tree_facts(H);
+        auto pl = ar::plan(H, {H + "/Documents/Letters/letters-2019.odt", H + "/Documents/Letters/old.odt",
+                                H + "/notes.txt", H + "/Writing/Jasper-project/draft.odt"}, when);
+        std::size_t tags = 0, ids = 0, dirs = 0;
+        std::vector<std::string> tos;
+        for (const auto& a : pl.plan.actions) {
+            if (a.verb == dr::Verb::Tag) { ++tags; ids += a.attr == core::facts::kId; }
+            if (a.verb == dr::Verb::MakeDir) ++dirs;
+            if (a.verb == dr::Verb::Move) tos.push_back(a.to.substr(H.size() + 1));
+        }
+        check("plan: the project's file refused, said; the rest tagged (archived = the day; an id where none)",
+              pl.refused.size() == 1 && tags == 5 && ids == 2 && pl.plan.actions[0].verb == dr::Verb::Tag &&
+              pl.plan.actions[0].attr == core::facts::kArchived && pl.plan.actions[0].content == "2026-11-10", std::to_string(tags) + " tags");
+        check("plan: into ~/Archive/2026/<its folder>; a taken name -> \"old (2).odt\", warned; home's top -> ~/Archive/2026",
+              tos == std::vector<std::string>{"Archive/2026/Documents/Letters/letters-2019.odt",
+                                               "Archive/2026/Documents/Letters/old (2).odt", "Archive/2026/notes.txt"} &&
+              pl.renamed.size() == 1 && dirs == 0, tos.empty() ? "" : tos[0]);
+        check("plan: READ-ONLY until run", tree_facts(H) == before);
+
+        latch::door::set_app_name("Tidy");
+        dr::Door door(H, D);
+        door.load();
+        check("plan: refused unpreviewed", !door.run(pl.plan).ok);
+        struct stat s0{};
+        ::stat((H + "/Documents/Letters/letters-2019.odt").c_str(), &s0);
+        pl.plan.previewed = true;
+        const auto run = door.run(pl.plan);
+        struct stat s1{};
+        ::stat((H + "/Archive/2026/Documents/Letters/letters-2019.odt").c_str(), &s1);
+        const auto t = core::facts::tags_of(H + "/Archive/2026/Documents/Letters/letters-2019.odt");
+        check("run: moved, not copied (same inode); id + retention kept; archived tag; the one there untouched",
+              run.ok && s0.st_ino == s1.st_ino && t.id == id && t.retention == "historical" && t.archived == "2026-11-10" &&
+              read(H + "/Archive/2026/Documents/Letters/old.odt") == "already there" &&
+              read(H + "/Archive/2026/Documents/Letters/old (2).odt") == "older" &&
+              !fs::exists(H + "/Documents/Letters/letters-2019.odt") && fs::exists(H + "/Archive/2026/notes.txt"),
+              run.messages.empty() ? "" : run.messages[0]);
+
+        core::catalog::Catalog cat;
+        cat.open(D, true);
+        const std::string arc_letters = H + "/Archive/2026/Documents/Letters/letters-2019.odt";
+        ::system(("touch -a -d 2024-01-01 '" + arc_letters + "'").c_str());
+        core::facts::Facts at0;
+        core::facts::of(arc_letters, at0);
+        const auto n = ar::record(cat, door, run.batch, when);
+        core::facts::Facts at1;
+        core::facts::of(arc_letters, at1);
+        check("fingerprint: reading the file leaves its read time as it was (O_NOATIME)", at0.atime == at1.atime &&
+              at1.atime < now_s() - 86400 * 300, std::to_string(at1.atime));
+        const auto a = cat.archived_by_id(id);
+        check("catalog: 3 fingerprinted at the archive -- SHA-256 of the bytes, size, where it was, the batch",
+              n == 3 && cat.archived().size() == 3 && a && a->path == H + "/Archive/2026/Documents/Letters/letters-2019.odt" &&
+              a->origin == H + "/Documents/Letters/letters-2019.odt" && a->sha256 == sh::of_text("dear sir") &&
+              a->size == 8 && a->batch == run.batch && a->proved == 0 && cat.by_id(id) &&
+              cat.by_id(id)->path == a->path, std::to_string(n));
+
+        check("refused again: already archived (the tag), wherever it sits",
+              ar::refusal(H, H + "/Archive/2026/Documents/Letters/letters-2019.odt").find("already") != std::string::npos);
+        core::settings::Settings st;
+        std::vector<core::facts::Facts> fx(1);
+        core::facts::of(H + "/Archive/2026/Documents/Letters/letters-2019.odt", fx[0]);
+        const auto later = when + 400LL * 86400;
+        fx[0].atime = fx[0].mtime = when - 400LL * 86400;
+        auto un = fx[0];
+        un.tags.archived.clear();
+        check("due: an archived Historical file is not \"to archive\" again (the same file, untagged, is)",
+              core::due::due(fx, {}, st, later).empty() && core::due::due({un}, {}, st, later).size() == 1);
+
+        const auto u = door.undo();
+        const auto dropped = ar::after_undo(cat, run.batch);
+        core::tagging::after_undo(cat, door, run.batch, now_s());
+        check("undo: each file back, the archived tag off, the fingerprints dropped; the one there untouched",
+              u.ok && read(H + "/Documents/Letters/letters-2019.odt") == "dear sir" &&
+              read(H + "/Documents/Letters/old.odt") == "older" && read(H + "/notes.txt") == "top of home" &&
+              core::facts::tags_of(H + "/Documents/Letters/letters-2019.odt").archived.empty() &&
+              core::facts::tags_of(H + "/Documents/Letters/letters-2019.odt").id == id &&
+              dropped == 3 && cat.archived().empty() &&
+              read(H + "/Archive/2026/Documents/Letters/old.odt") == "already there",
               u.messages.empty() ? "" : u.messages[0]);
         fs::remove_all(root);
     }

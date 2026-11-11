@@ -7,6 +7,7 @@
 //   Ephemeral   born AND unread aging_days ago            -> to remove
 //   Held        held_years since it became Held (ctime)   -> to remove
 //   Historical  unread and unchanged archive_days         -> to archive
+//               (not once archived: user.tidy.archived, s013a)
 //   Until done  its purpose is closed (or none is known)  -> to settle
 //               (Purposes: Close again moves it down)
 //   Undecided / Keep / Hands-off: never due. Undecided is the Closet's.

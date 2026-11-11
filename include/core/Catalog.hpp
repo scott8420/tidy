@@ -45,6 +45,19 @@ struct ProjectRow {
     bool         gone = false;
 };
 
+// s013a: a file archived into ~/Archive -- its fingerprint read back AT the
+// archive, kept so s013b can prove the media copy is the same bytes. Keyed
+// by the file's id; `batch` is the door batch that archived it (undo drops it).
+struct Archived {
+    std::string   id, path, origin;    // where it is in ~/Archive; where it was
+    std::string   sha256;              // 64 hex
+    std::uint64_t size = 0;
+    std::int64_t  when = 0;            // archived (unix seconds)
+    std::uint64_t batch = 0;
+    std::string   media;               // s013b: the media label it was proved on ("" = none yet)
+    std::int64_t  proved = 0;          // s013b: when the read-back matched (0 = not yet)
+};
+
 class Catalog {
 public:
     Catalog() = default;
@@ -81,6 +94,12 @@ public:
     bool add_use(const std::string& project, const std::string& used);
     bool drop_use(const std::string& project, const std::string& used);   // true if a row went
     std::vector<std::pair<std::string, std::string>> uses() const;          // (project, used), ordered
+
+    // Archive (s013a).
+    bool put_archived(const Archived& a);                    // insert or replace, by id
+    std::vector<Archived> archived() const;                  // by path
+    std::optional<Archived> archived_by_id(const std::string& id) const;
+    std::size_t drop_archived_batch(std::uint64_t batch);    // rows the batch made; how many went
 
 private:
     std::vector<Entry> query(const char* sql, const std::vector<std::string>& args) const;

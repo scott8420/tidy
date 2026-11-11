@@ -1,10 +1,13 @@
 #include "DuePage.hpp"
 #include "Log.hpp"
+#include "core/Archive.hpp"
+#include "core/Catalog.hpp"
 #include "core/Due.hpp"
 #include "core/Pages.hpp"
 
 #include <gtkmm/box.h>
 #include <gtkmm/button.h>
+#include <gtkmm/checkbutton.h>
 #include <gtkmm/image.h>
 #include <gtkmm/label.h>
 #include <gtkmm/listbox.h>
@@ -17,6 +20,8 @@
 namespace tidy {
 
 namespace du = core::due;
+namespace ar = core::archive;
+namespace dr = latch::door;
 
 namespace {
 constexpr std::size_t kMaxRows = 500;
@@ -43,8 +48,9 @@ void add_row(Gtk::ListBox* list, Gtk::Widget& child, const std::string& name = "
 }
 }  // namespace
 
-DuePage::DuePage(std::string home, std::string data_dir, bool fixture, Text user_dirs)
-    : m_home(std::move(home)), m_data_dir(std::move(data_dir)), m_fixture(fixture), m_user_dirs(std::move(user_dirs)) {
+DuePage::DuePage(dr::Door& door, std::string home, std::string data_dir, bool fixture, Text user_dirs, Changed changed)
+    : m_door(door), m_changed(std::move(changed)), m_home(std::move(home)), m_data_dir(std::move(data_dir)),
+      m_fixture(fixture), m_user_dirs(std::move(user_dirs)) {
     set_name("due.states");
     const auto* p = core::pages::find("due");
 
@@ -59,8 +65,8 @@ DuePage::DuePage(std::string home, std::string data_dir, bool fixture, Text user
     sub->set_max_width_chars(52);
     start->append(*sub);
     auto note = label(std::string("Ephemeral files past their days, Held past their years: to remove. Historical "
-                                  "files long unread: to archive. Until done whose purpose closed: to settle. "
-                                  "Look reads only; nothing here moves a file.") +
+                                  "files long unread: to archive -- into ~/Archive/<year>/<its folder>, previewed first. "
+                                  "Until done whose purpose closed: to settle. Look reads only.") +
                       (m_fixture ? "\n(a FIXTURE home: " + m_home + ")" : ""), "dim");
     note->set_max_width_chars(60);
     start->append(*note);
@@ -101,16 +107,160 @@ DuePage::DuePage(std::string home, std::string data_dir, bool fixture, Text user
     results->append(*scroll);
     auto bar = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::HORIZONTAL, 10);
     bar->add_css_class("act-bar");
-    auto st = label("Read-only -- archive and remove come in later milestones.", "dim", 0.0f);
-    st->set_hexpand(true);
-    bar->append(*st);
+    m_status = label("Check what to archive, then Archive checked. Remove comes later (s014).", "dim", 0.0f);
+    m_status->set_name("due.status");
+    m_status->set_hexpand(true);
+    bar->append(*m_status);
+    m_archive = Gtk::make_managed<Gtk::Button>("Archive checked...");
+    m_archive->set_name("due.archive");
+    m_archive->set_tooltip_text("The checked files -> ~/Archive/<year>/<their folder> (previewed first)");
+    m_archive->signal_clicked().connect([this] { on_archive(); });
+    bar->append(*m_archive);
     auto again = Gtk::make_managed<Gtk::Button>("Look again");
     again->set_name("due.again");
     again->signal_clicked().connect([this] { fill(); });
     bar->append(*again);
     results->append(*bar);
     add(*results, "results");
+    build_preview();
     set_visible_child("start");
+}
+
+void DuePage::build_preview() {
+    auto box = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::VERTICAL, 0);
+    box->set_name("due.preview");
+    auto head = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::HORIZONTAL, 14);
+    head->set_margin_start(32);
+    head->set_margin_end(32);
+    head->set_margin_top(24);
+    head->set_margin_bottom(12);
+    head->append(*hero(48));
+    auto titles = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::VERTICAL, 4);
+    titles->append(*label("Preview", "hero-title", 0.0f));
+    m_prev_summary = label("", "dim", 0.0f);
+    m_prev_summary->set_name("due.preview.summary");
+    titles->append(*m_prev_summary);
+    titles->set_hexpand(true);
+    head->append(*titles);
+    box->append(*head);
+    auto scroll = Gtk::make_managed<Gtk::ScrolledWindow>();
+    scroll->set_vexpand(true);
+    scroll->set_margin_start(32);
+    scroll->set_margin_end(32);
+    scroll->set_margin_bottom(16);
+    m_prev_list = Gtk::make_managed<Gtk::ListBox>();
+    m_prev_list->set_name("due.preview.list");
+    m_prev_list->set_selection_mode(Gtk::SelectionMode::NONE);
+    scroll->set_child(*m_prev_list);
+    box->append(*scroll);
+    auto bar = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::HORIZONTAL, 10);
+    bar->add_css_class("act-bar");
+    m_prev_status = label("", "dim", 0.0f);
+    m_prev_status->set_name("due.preview.status");
+    m_prev_status->set_hexpand(true);
+    bar->append(*m_prev_status);
+    auto back = Gtk::make_managed<Gtk::Button>("Back");
+    back->set_name("due.preview.back");
+    back->signal_clicked().connect([this] { m_plan.reset(); set_visible_child("results"); });
+    bar->append(*back);
+    m_prev_run = Gtk::make_managed<Gtk::Button>("Do it");
+    m_prev_run->set_name("due.preview.run");
+    m_prev_run->add_css_class("act");
+    m_prev_run->signal_clicked().connect([this] { on_run(); });
+    bar->append(*m_prev_run);
+    box->append(*bar);
+    add(*box, "preview");
+}
+
+void DuePage::on_archive() {
+    std::vector<std::string> paths;
+    for (const auto& [c, p] : m_arc_rows)
+        if (c->get_active()) paths.push_back(p);
+    if (paths.empty()) { m_status->set_text("Check a file under To archive first."); return; }
+    auto planned = ar::plan(m_home, paths, static_cast<std::int64_t>(std::time(nullptr)));
+
+    while (auto* r = m_prev_list->get_row_at_index(0)) m_prev_list->remove(*r);
+    const auto row = [&](const std::string& text, const char* css) {
+        auto l = label(text, css, 0.0f);
+        l->set_margin(4);
+        auto r = Gtk::make_managed<Gtk::ListBoxRow>();
+        r->set_activatable(false);
+        r->set_child(*l);
+        m_prev_list->append(*r);
+    };
+    for (const auto& [p, why] : planned.refused) row(shown(p) + "\nNOT ARCHIVED: " + why, "stop");
+    std::vector<std::string> made;
+    std::size_t refused = 0, moves = 0, tags = 0, dirs = 0;
+    for (const auto& a : planned.plan.actions) {
+        const std::string why = m_door.refusal(a, made);   // in order: a Move may use a folder made above it
+        refused += !why.empty();
+        if (why.empty() && a.verb == dr::Verb::MakeDir) made.push_back(a.to);
+        std::string text;
+        const char* css = nullptr;
+        if (a.verb == dr::Verb::Tag) {
+            ++tags;
+            text = "tag   " + shown(a.from) + "   " + a.attr.substr(10) + " = " + a.content;
+            css = "dim";
+        } else if (a.verb == dr::Verb::MakeDir) {
+            ++dirs;
+            text = "new folder   " + shown(a.to);
+            css = "dim";
+        } else {
+            ++moves;
+            text = shown(a.from) + "   ->   " + shown(a.to) + "\n" + a.reason;
+            if (a.reason.find("is taken there") != std::string::npos) css = "note";
+        }
+        if (!why.empty()) { text += "\nREFUSED: " + why; css = "stop"; }
+        row(text, css);
+    }
+    const auto n = [](std::size_t k, const char* one) {
+        return std::to_string(k) + " " + one + (k == 1 ? "" : "s");
+    };
+    m_prev_summary->set_text(planned.plan.label + "   |   " + n(moves, "move") + ", " + n(dirs, "new folder") + ", " +
+                             n(tags, "tag"));
+    std::string st = refused ? std::to_string(refused) + " step(s) the door refuses -- they will not happen. "
+                             : std::string();
+    if (!planned.renamed.empty())
+        st += std::to_string(planned.renamed.size()) + " name" + (planned.renamed.size() == 1 ? " is" : "s are") +
+              " taken there -- renamed with (2), (3)... Nothing is overwritten. ";
+    st += "After Do it each file's fingerprint (SHA-256) goes into the catalog. Every step can be undone from Activity.";
+    m_prev_status->set_text(st);
+    m_prev_status->remove_css_class("note");
+    if (!planned.renamed.empty()) m_prev_status->add_css_class("note");
+    m_prev_run->set_sensitive(moves > refused);
+    m_plan = std::move(planned.plan);
+    set_visible_child("preview");
+}
+
+void DuePage::on_run() {
+    if (!m_plan) return;
+    auto plan = std::move(*m_plan);
+    m_plan.reset();
+    {   // drop what the door refuses, judged in order as previewed
+        std::vector<std::string> made;
+        std::vector<dr::Action> keep;
+        for (const auto& a : plan.actions) {
+            if (!m_door.refusal(a, made).empty()) continue;
+            if (a.verb == dr::Verb::MakeDir) made.push_back(a.to);
+            keep.push_back(a);
+        }
+        plan.actions = std::move(keep);
+    }
+    plan.previewed = true;   // shown in full by on_archive() (RULES: preview first)
+    const auto r = m_door.run(plan);
+    std::size_t kept = 0;
+    core::catalog::Catalog cat;
+    if (cat.open(m_data_dir, true))
+        kept = ar::record(cat, m_door, r.batch, static_cast<std::int64_t>(std::time(nullptr)));
+    if (m_changed) m_changed();
+    fill();
+    set_visible_child("results");
+    m_status->set_text(r.ok ? "Done: " + plan.label + " (" + std::to_string(r.done) + " steps; " +
+                                  std::to_string(kept) + " fingerprinted) -- undo in Activity"
+                            : plan.label + ": " + std::to_string(r.done) + " done, " + std::to_string(r.failed) +
+                                  " not -- " + (r.messages.empty() ? std::string() : r.messages.front()));
+    if (auto lg = log::get(log::Area::Door))
+        lg->info("archive run '{}': {} done, {} failed; {} fingerprinted", plan.label, r.done, r.failed, kept);
 }
 
 std::string DuePage::shown(const std::string& path) const {
@@ -126,6 +276,7 @@ void DuePage::refresh_if_shown() {
 
 void DuePage::fill() {
     while (auto* r = m_list->get_row_at_index(0)) m_list->remove(*r);
+    m_arc_rows.clear();
     std::vector<du::Item> items;
     const auto a = du::look(m_home, m_data_dir, m_user_dirs ? m_user_dirs() : "",
                             static_cast<std::int64_t>(std::time(nullptr)), &items);
@@ -147,11 +298,23 @@ void DuePage::fill() {
         }
         if (shown_rows++ >= kMaxRows) continue;
         auto b = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::VERTICAL, 2);
-        b->set_margin(8);
         b->append(*label(std::filesystem::path(it.path).filename().string(), nullptr, 0.0f));
         b->append(*label(shown(std::filesystem::path(it.path).parent_path().string()) + " -- " + it.why, "dim", 0.0f));
-        add_row(m_list, *b);
+        b->set_hexpand(true);
+        auto line = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::HORIZONTAL, 10);
+        line->set_margin(8);
+        if (it.to == du::To::Archive) {
+            auto c = Gtk::make_managed<Gtk::CheckButton>();
+            c->set_active(true);
+            c->set_valign(Gtk::Align::CENTER);
+            c->set_name("due.arc." + std::to_string(m_arc_rows.size()));
+            line->append(*c);
+            m_arc_rows.emplace_back(c, it.path);
+        }
+        line->append(*b);
+        add_row(m_list, *line);
     }
+    if (m_archive) m_archive->set_sensitive(!m_arc_rows.empty());
     if (a.closet || a.lists) {
         std::string s;
         if (a.closet) s += std::to_string(a.closet) + " in the Closet, proposed -- see The Closet.";

@@ -64,6 +64,7 @@ std::vector<Item> due(const std::vector<facts::Facts>& files, const purposes::Bo
                 break;
             }
             case rt::Level::Historical:
+                if (!f.tags.archived.empty()) continue;   // s013a: in ~/Archive already
                 if (unread < s.archive_days || unchanged < s.archive_days) continue;
                 it.to = To::Archive;
                 it.why = "Historical, unread " + days(unread) + ", unchanged " + days(unchanged) + " (archive after " +

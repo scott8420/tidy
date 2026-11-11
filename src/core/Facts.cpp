@@ -16,6 +16,7 @@ Tags tags_of(const std::string& path) {
     latch::door::tag_of(path, kRetention, t.retention);
     latch::door::tag_of(path, kPurpose, t.purpose);
     latch::door::tag_of(path, kRole, t.role);
+    latch::door::tag_of(path, kArchived, t.archived);
     return t;
 }
 

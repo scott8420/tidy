@@ -98,6 +98,8 @@ add_library(tidy_core STATIC
     src/core/Rescan.cpp      # what a look tells the catalog: moved by id, gone, copies (s010f1)
     src/core/Due.cpp         # the trigger: what is due; the headless look; attention.ini (s012a)
     src/core/Background.cpp  # the systemd user timer: units as door plans; systemctl lines (s012b)
+    src/core/Sha256.cpp      # SHA-256, no library: the archive's fingerprint (s013a)
+    src/core/Archive.cpp     # the archive: ~/Archive/<year>/<its folder>; tag + move plans; fingerprints (s013a)
     src/core/Homing.cpp      # files home: by type (subfolder required) or into a project; "name (2)" (s011)
 )
 target_include_directories(tidy_core PUBLIC include)

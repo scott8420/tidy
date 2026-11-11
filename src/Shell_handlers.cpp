@@ -1,4 +1,6 @@
 #include "Shell.hpp"
+#include "core/Archive.hpp"
+#include "DuePage.hpp"
 #include "ProjectsPage.hpp"
 #include "PurposesPage.hpp"
 #include "HomePage.hpp"
@@ -87,9 +89,12 @@ void Shell::on_activity_undo() {  // handler: Activity's act button
     const auto r = m_door->undo();
     core::catalog::Catalog cat;
     std::size_t synced = 0;
-    if (cat.open(m_data_dir, true))
+    if (cat.open(m_data_dir, true)) {
         synced = core::tagging::after_undo(cat, *m_door, b, static_cast<std::int64_t>(std::time(nullptr)));
+        synced += core::archive::after_undo(cat, b);   // s013a: an archive undone leaves no fingerprint behind
+    }
     refresh_activity();
+    if (m_due) m_due->refresh_if_shown();
     if (m_clo_states && m_clo_states->get_visible_child_name() == "results") fill_closet();
     if (m_home_page) m_home_page->refresh_if_shown();
     m_act_status->set_text(r.ok ? "Undone: " + label + " (" + std::to_string(r.done) + " steps)"

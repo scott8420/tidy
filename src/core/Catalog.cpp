@@ -29,7 +29,11 @@ constexpr const char* kSchema =
     "  seen INTEGER NOT NULL DEFAULT 0, gone INTEGER NOT NULL DEFAULT 0);"
     "CREATE TABLE IF NOT EXISTS uses ("            /* s010g */
     "  project TEXT NOT NULL, used TEXT NOT NULL, PRIMARY KEY (project, used));"
-    "PRAGMA user_version = 3;";
+    "CREATE TABLE IF NOT EXISTS archived ("        /* s013a */
+    "  id TEXT PRIMARY KEY, path TEXT NOT NULL, origin TEXT NOT NULL DEFAULT '',"
+    "  sha256 TEXT NOT NULL, size INTEGER NOT NULL DEFAULT 0, archived INTEGER NOT NULL DEFAULT 0,"
+    "  batch INTEGER NOT NULL DEFAULT 0, media TEXT NOT NULL DEFAULT '', proved INTEGER NOT NULL DEFAULT 0);"
+    "PRAGMA user_version = 4;";
 
 constexpr const char* kCols = "id, path, dev, ino, size, btime, mtime, ctime, atime, retention, purpose, role, seen, gone";
 
@@ -308,6 +312,76 @@ std::vector<std::pair<std::string, std::string>> Catalog::uses() const {
     while (sqlite3_step(st) == SQLITE_ROW) out.emplace_back(text(st, 0), text(st, 1));
     sqlite3_finalize(st);
     return out;
+}
+
+// ── Archive (s013a) ──────────────────────────────────────────────────────────
+namespace {
+constexpr const char* kArcCols = "id, path, origin, sha256, size, archived, batch, media, proved";
+Archived arc_row(sqlite3_stmt* st) {
+    Archived a;
+    a.id = text(st, 0);
+    a.path = text(st, 1);
+    a.origin = text(st, 2);
+    a.sha256 = text(st, 3);
+    a.size = u64(sqlite3_column_int64(st, 4));
+    a.when = sqlite3_column_int64(st, 5);
+    a.batch = u64(sqlite3_column_int64(st, 6));
+    a.media = text(st, 7);
+    a.proved = sqlite3_column_int64(st, 8);
+    return a;
+}
+}  // namespace
+
+bool Catalog::put_archived(const Archived& a) {
+    if (!m_db || !m_rw || a.id.empty()) return false;
+    const std::string sql = std::string("INSERT OR REPLACE INTO archived (") + kArcCols + ") VALUES (?,?,?,?,?,?,?,?,?)";
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(m_db, sql.c_str(), -1, &st, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_text(st, 1, a.id.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(st, 2, a.path.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(st, 3, a.origin.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(st, 4, a.sha256.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(st, 5, s64(a.size));
+    sqlite3_bind_int64(st, 6, a.when);
+    sqlite3_bind_int64(st, 7, s64(a.batch));
+    sqlite3_bind_text(st, 8, a.media.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(st, 9, a.proved);
+    const bool ok = sqlite3_step(st) == SQLITE_DONE;
+    sqlite3_finalize(st);
+    return ok;
+}
+
+std::vector<Archived> Catalog::archived() const {
+    std::vector<Archived> out;
+    if (!m_db) return out;
+    const std::string sql = std::string("SELECT ") + kArcCols + " FROM archived ORDER BY path";
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(m_db, sql.c_str(), -1, &st, nullptr) != SQLITE_OK) return out;
+    while (sqlite3_step(st) == SQLITE_ROW) out.push_back(arc_row(st));
+    sqlite3_finalize(st);
+    return out;
+}
+
+std::optional<Archived> Catalog::archived_by_id(const std::string& id) const {
+    if (!m_db) return std::nullopt;
+    const std::string sql = std::string("SELECT ") + kArcCols + " FROM archived WHERE id = ?";
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(m_db, sql.c_str(), -1, &st, nullptr) != SQLITE_OK) return std::nullopt;
+    sqlite3_bind_text(st, 1, id.c_str(), -1, SQLITE_TRANSIENT);
+    std::optional<Archived> out;
+    if (sqlite3_step(st) == SQLITE_ROW) out = arc_row(st);
+    sqlite3_finalize(st);
+    return out;
+}
+
+std::size_t Catalog::drop_archived_batch(std::uint64_t batch) {
+    if (!m_db || !m_rw || !batch) return 0;
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(m_db, "DELETE FROM archived WHERE batch = ?", -1, &st, nullptr) != SQLITE_OK) return 0;
+    sqlite3_bind_int64(st, 1, s64(batch));
+    const bool ok = sqlite3_step(st) == SQLITE_DONE;
+    sqlite3_finalize(st);
+    return ok ? static_cast<std::size_t>(sqlite3_changes(m_db)) : 0;
 }
 
 }  // namespace tidy::core::catalog

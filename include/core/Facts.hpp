@@ -18,10 +18,13 @@ inline constexpr const char* kId        = "user.tidy.id";
 inline constexpr const char* kRetention = "user.tidy.retention";
 inline constexpr const char* kPurpose   = "user.tidy.purpose";
 inline constexpr const char* kRole      = "user.tidy.role";
+inline constexpr const char* kArchived  = "user.tidy.archived";   // s013a: the day it went into ~/Archive
+
 
 struct Tags {
     std::string id, retention, purpose, role;
-    bool any() const { return !id.empty() || !retention.empty() || !purpose.empty() || !role.empty(); }
+    std::string archived;   // s013a: "2026-11-10" once archived ("" = not)
+    bool any() const { return !id.empty() || !retention.empty() || !purpose.empty() || !role.empty() || !archived.empty(); }
     bool operator==(const Tags&) const = default;
 };
 
