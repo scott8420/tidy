@@ -51,8 +51,11 @@ Planned plan(const std::string& home, const settings::Media& m, const std::vecto
              const std::vector<catalog::Copy>& copies) {
     Planned out;
     std::set<std::string> proved;
-    for (const auto& c : copies)
-        if (c.media == m.label) proved.insert(c.id);
+    for (const auto& c : copies) {
+        struct stat cs{};
+        // s014 (found in the drive): a proof whose copy is no longer there is no proof -- copy it again.
+        if (c.media == m.label && ::lstat(c.path.c_str(), &cs) == 0) proved.insert(c.id);
+    }
     std::set<std::string> dirs;
     std::vector<dr::Action> mkdirs, cps;
     for (const auto& a : archived) {

@@ -71,6 +71,15 @@ struct Copy {
     std::uint64_t batch = 0;
 };
 
+// s014: an archived file removed from ~/Archive (to the Trash) after its
+// copies were read back again and matched. `media` = where it was proved at
+// that moment ("Big SSD, Pi"). Undo (the file back from the Trash) drops it.
+struct Removed {
+    std::string   id, path, media;
+    std::int64_t  when = 0;
+    std::uint64_t batch = 0;
+};
+
 class Catalog {
 public:
     Catalog() = default;
@@ -119,6 +128,11 @@ public:
     std::vector<Copy> copies() const;                        // by media, path
     std::vector<Copy> copies_of(const std::string& id) const;
     std::size_t drop_copies_batch(std::uint64_t batch);
+
+    // Removal (s014).
+    bool put_removed(const Removed& r);
+    std::vector<Removed> removed() const;
+    std::size_t drop_removed_batch(std::uint64_t batch);
 
 private:
     std::vector<Entry> query(const char* sql, const std::vector<std::string>& args) const;

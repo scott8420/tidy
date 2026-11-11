@@ -1,3 +1,5 @@
+#include "core/Catalog.hpp"
+#include "core/Removal.hpp"
 #include "core/Due.hpp"
 
 #include "core/Birth.hpp"
@@ -143,6 +145,18 @@ Attention look(const std::string& home, const std::string& data_dir, const std::
     const auto book = purposes::parse(own::read(data_dir, purposes::kFile));
     const auto files = scan::walk(home, filelists::roots(home));
     auto list = due(files, book, st, now);
+    {   // s014: archived files proved on media are "to remove" (the bytes are read again before they go)
+        catalog::Catalog cat;
+        if (cat.open(data_dir, false)) {
+            const auto b = removal::book_of(cat);
+            for (const auto& a : removal::offerable(b, st))
+                if (std::none_of(list.begin(), list.end(), [&](const Item& it) { return it.path == a.path; }))
+                    list.push_back({a.path, rt::Level::Historical, To::Remove, removal::offer_why(b, a.id)});
+            std::sort(list.begin(), list.end(), [](const Item& x, const Item& y) {
+                return x.to != y.to ? x.to < y.to : x.path < y.path;
+            });
+        }
+    }
     for (const auto& it : list)
         (it.to == To::Remove ? a.remove : it.to == To::Archive ? a.archive : a.settle)++;
     const auto stale = filelists::stale(files);

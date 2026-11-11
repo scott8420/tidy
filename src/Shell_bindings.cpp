@@ -7,6 +7,7 @@
 namespace tidy {
 
 void Shell::bind_actions() {  // bindings: win.* actions
+    add_action("help",          sigc::mem_fun(*this, &Shell::on_help));   // s017
     add_action("about",         sigc::mem_fun(*this, &Shell::on_about));
     add_action("settings",      sigc::mem_fun(*this, &Shell::on_settings));
     add_action("id-lists",      sigc::mem_fun(*this, &Shell::on_id_lists));

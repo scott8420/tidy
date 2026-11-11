@@ -63,6 +63,7 @@ namespace Gtk { class CheckButton; class DropDown; }
 namespace tidy {
 
 class AboutWindow;
+class HelpWindow;
 class ProjectsPage;
 class IdListsWindow;
 class BackgroundWindow;
@@ -99,6 +100,7 @@ private:
 
     // ── handlers ───────────────────────────────────────────────────────────
     void on_nav(const std::string& page);          // category: handler: a sidebar row -> page + tint
+    void on_help();                                // category: handler: How to use Tidy (s017)
     void on_about();                               // category: handler: the About window (hide-on-close)
     void on_settings();                            // category: handler: the Settings window (s006a)
     void arm_rescan();
@@ -171,6 +173,7 @@ private:
     DuePage*      m_due = nullptr;                // s012a the trigger (managed by the stack)          // s011 files home (managed by the stack)
 
     std::unique_ptr<AboutWindow>     m_about;
+    std::unique_ptr<HelpWindow>      m_help;
     std::unique_ptr<SettingsWindow>  m_settings_win;
     std::unique_ptr<IdListsWindow>   m_idlists_win;   // s010f2
     std::unique_ptr<BackgroundWindow> m_background_win;   // s012b

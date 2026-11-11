@@ -1,6 +1,7 @@
 #include "core/Backup.hpp"
 #include "Shell.hpp"
-#include "AboutWindow.hpp"      // complete types for the unique_ptr dtors
+#include "AboutWindow.hpp"
+#include "HelpWindow.hpp"      // complete types for the unique_ptr dtors
 #include "ShortcutsDialog.hpp"
 #include "SettingsWindow.hpp"
 #include "IdListsWindow.hpp"

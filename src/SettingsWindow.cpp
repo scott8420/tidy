@@ -93,8 +93,11 @@ SettingsWindow::SettingsWindow(Gtk::Window& parent, SaveFn on_save) : m_save(std
              st::kHeldMax, "years");
     spin_row("Historical is due to archive after", m_archive, "settings.archive_days", st::kArchiveDefault,
              st::kArchiveMin, st::kArchiveMax, "days unread and unchanged");
-    box->append(*text("Ephemeral uses the aging days above. Due only proposes -- nothing is removed or archived "
-                      "from here.", "dim"));
+    spin_row("Remove from ~/Archive with", m_proofs, "settings.proofs_needed", st::kProofsDefault, st::kProofsMin,
+             st::kProofsMax, "proofs on media");
+    box->append(*text("Ephemeral uses the aging days above. Due proposes; you check and Do it. Removal goes to the "
+                      "Trash -- an archived file only when that many of its media copies read back the same, then.",
+                      "dim"));
 
     auto junk = text("Junk list", "heading");
     junk->set_margin_top(14);
@@ -219,6 +222,7 @@ void SettingsWindow::show(const st::Settings& current) {
     m_rescan->set_value(current.rescan_minutes);
     m_held->set_value(current.held_years);
     m_archive->set_value(current.archive_days);
+    m_proofs->set_value(current.proofs_needed);
     std::string lines;
     for (const auto& j : current.junk) lines += j + "\n";
     m_junk->get_buffer()->set_text(lines);
@@ -238,6 +242,7 @@ void SettingsWindow::on_save_clicked() {
     s.rescan_minutes = m_rescan->get_value_as_int();
     s.held_years = m_held->get_value_as_int();
     s.archive_days = m_archive->get_value_as_int();
+    s.proofs_needed = m_proofs->get_value_as_int();
     s.junk = st::patterns_of(m_junk->get_buffer()->get_text());
     // The type table: every line must read, or nothing is saved (says which).
     std::vector<core::homing::TypeRoute> table;

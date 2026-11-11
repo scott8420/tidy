@@ -37,6 +37,10 @@ inline constexpr int kNotifyDefault = 10, kNotifyMin = 1, kNotifyMax = 100000;
 // moves anything there. `label` is what the Archive page calls it, and what a
 // proof is kept under -- rename it and the old proofs stay under the old name.
 // In settings.ini: "media=Big SSD|/run/media/scott/Big SSD/Tidy".
+// s014 removal: an archived file leaves ~/Archive only when this many of its
+// media copies read back the same, now (Scott: one on the SSD or the Pi).
+inline constexpr int kProofsDefault = 1, kProofsMin = 1, kProofsMax = 5;
+
 struct Media {
     std::string label, path;
     bool operator==(const Media&) const = default;
@@ -60,6 +64,7 @@ struct Settings {
     std::vector<std::string> home;
     bool home_set = false;
     std::vector<Media> media;   // s013b: labels unique, first wins
+    int proofs_needed = kProofsDefault;   // s014
     bool operator==(const Settings&) const = default;
 };
 

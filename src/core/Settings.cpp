@@ -67,6 +67,10 @@ Settings parse(const std::string& text) {
         } else if (k == "home") {
             s.home_set = true;
             if (!v.empty() && std::find(s.home.begin(), s.home.end(), v) == s.home.end()) s.home.push_back(v);
+        } else if (k == "proofs_needed") {
+            try {
+                s.proofs_needed = std::clamp(std::stoi(v), kProofsMin, kProofsMax);
+            } catch (...) {}
         } else if (k == "media") {
             Media m;
             if (media_of(v, m) && std::none_of(s.media.begin(), s.media.end(),
@@ -90,6 +94,7 @@ std::string format(const Settings& s) {
     o << "archive_days=" << std::clamp(s.archive_days, kArchiveMin, kArchiveMax) << "\n";
     o << "rescan_minutes=" << std::clamp(s.rescan_minutes, kRescanMin, kRescanMax) << "\n";
     for (const auto& j : s.junk) o << "junk=" << j << "\n";
+    o << "proofs_needed=" << std::clamp(s.proofs_needed, kProofsMin, kProofsMax) << "\n";
     for (const auto& m : s.media) o << "media=" << m.label << "|" << m.path << "\n";
     if (s.home_set) {
         if (s.home.empty()) o << "home=\n";   // the table emptied on purpose

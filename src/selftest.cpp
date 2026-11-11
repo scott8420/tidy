@@ -88,6 +88,8 @@
 #include "core/Archive.hpp"
 #include "core/Sha256.hpp"
 #include "core/Backup.hpp"
+#include "core/Removal.hpp"
+#include "core/Help.hpp"
 
 #include <latch/Door.hpp>
 #include <latch/Protect.hpp>
@@ -2706,6 +2708,15 @@ int main(int argc, char** argv) {
         check("again: the 3 proved are left out; d and f are there now -> read back only, never copied over",
               again.proved == 3 && cp2 == 0 && again.checks.size() == 2 && again.skipped.size() == 1);
 
+        {   // a proof whose copy vanished from the disk is no proof: planned again (stat only)
+            fs::rename(M + "/2025/c.odt", M + "/2025/c.away");
+            const auto p3 = bk::plan(H, media, cat.archived(), cat.copies());
+            std::size_t c3 = 0;
+            for (const auto& a : p3.plan.actions) c3 += a.verb == dr::Verb::Copy && a.to == M + "/2025/c.odt";
+            check("again: a proved copy gone from the disk -> copied again (not counted as proved)",
+                  p3.proved == 2 && c3 == 1);
+            fs::rename(M + "/2025/c.away", M + "/2025/c.odt");
+        }
         const auto trash_before = tree_facts(H + "/.local/share/Trash");
         const auto u = door.undo();
         const auto dropped = bk::after_undo(cat, run.batch);
@@ -2741,6 +2752,151 @@ int main(int argc, char** argv) {
         }
         dr::set_media_roots({});
         fs::remove_all(root);
+    }
+
+    // ── s014: removal -- to the Trash; an archived file only when proved NOW on media, on a FIXTURE ──
+    {
+        std::cout << "[removal]\n";
+        const auto read = [](const std::string& f) { std::ifstream in(f); std::stringstream o; o << in.rdbuf(); return o.str(); };
+        namespace rm = core::removal;
+        namespace bk = core::backup;
+        namespace sh = core::sha256;
+        namespace st = core::settings;
+        namespace dr = latch::door;
+
+        st::Settings s0;
+        check("settings: proofs_needed round trip, default 1, clamped 1..5",
+              s0.proofs_needed == 1 && st::parse("proofs_needed=3\n").proofs_needed == 3 &&
+              st::parse("proofs_needed=0\n").proofs_needed == 1 && st::parse("proofs_needed=9\n").proofs_needed == 5 &&
+              st::parse(st::format(st::parse("proofs_needed=2\n"))).proofs_needed == 2);
+
+        const fs::path root = fs::temp_directory_path() / ("tidy_selftest_rm_" + std::to_string(::getpid()));
+        fs::remove_all(root);
+        const std::string H = (root / "home").string(), D = (root / "data").string(), M = (root / "ssd" / "Tidy").string();
+        fs::create_directories(M);
+        fs::create_directories(H + "/.local/share/Trash/files");
+        core::catalog::Catalog cat;
+        cat.open(D, true);
+        const auto arc = [&](const std::string& id, const std::string& rel, const std::string& body, bool copy,
+                             const std::string& media = "SSD") {
+            put_file(H + "/Archive/" + rel, body);
+            xset(H + "/Archive/" + rel, core::facts::kId, id);
+            xset(H + "/Archive/" + rel, core::facts::kRetention, "historical");
+            core::catalog::Archived a;
+            a.id = id; a.path = H + "/Archive/" + rel; a.sha256 = sh::of_text(body); a.size = body.size(); a.when = now_s();
+            cat.put_archived(a);
+            if (copy) {
+                put_file(M + "/" + rel, body);
+                cat.put_copy({id, media, M + "/" + rel, a.sha256, a.size, now_s(), 0});
+            }
+        };
+        arc("11111111-1111-4111-8111-111111111111", "2026/a.odt", "alpha", true);    // proved
+        arc("22222222-2222-4222-8222-222222222222", "2026/b.odt", "beta", false);    // not backed up
+        arc("33333333-3333-4333-8333-333333333333", "2026/c.odt", "gamma", true, "Gone disk");   // media not in settings
+        arc("44444444-4444-4444-8444-444444444444", "2026/d.odt", "delta", true);    // the copy rots on the disk
+        arc("55555555-5555-4555-8555-555555555555", "2026/g.odt", "golf", true);     // changed in ~/Archive since
+        put_file(M + "/2026/d.odt", "DELTA");
+        put_file(H + "/Archive/2026/g.odt", "GOLF");
+        put_file(H + "/Downloads/old.iso", "ephemeral");
+        xset(H + "/Downloads/old.iso", core::facts::kRetention, "ephemeral");
+        put_file(H + "/Documents/keep.odt", "keep");
+        xset(H + "/Documents/keep.odt", core::facts::kRetention, "keep");
+        put_file(H + "/Archive/2026/stray.odt", "no fingerprint");
+
+        st::Settings S;
+        S.media = {{"SSD", M}};
+        bk::register_media(S.media, false);
+        core::own::write(D, st::kFile, st::format(S));
+        auto book = rm::book_of(cat);
+        std::vector<std::string> off;
+        for (const auto& a : rm::offerable(book, S)) off.push_back(fs::path(a.path).filename().string());
+        check("offerable: proved on a media the settings name, still in ~/Archive (no reads) -- a, d, g; not b, not c",
+              off == std::vector<std::string>{"a.odt", "d.odt", "g.odt"}, off.empty() ? "" : off[0]);
+        st::Settings two = S;
+        two.proofs_needed = 2;
+        check("offerable: 2 proofs needed -> none (each has one)", rm::offerable(book, two).empty());
+
+        std::vector<core::due::Item> items;
+        const auto att = core::due::look(H, D, "", now_s(), &items);
+        std::size_t proved_rows = 0;
+        for (const auto& it : items) proved_rows += it.to == core::due::To::Remove && it.why.find("proved on SSD") != std::string::npos;
+        check("due: the proved archive files are \"to remove\" (3) and counted (old.iso was born today: not due yet)",
+              proved_rows == 3 && att.remove == 3, std::to_string(att.remove));
+
+        const auto before_h = tree_facts(H), before_m = tree_facts((root / "ssd").string());
+        const std::vector<std::string> paths = {H + "/Archive/2026/a.odt", H + "/Archive/2026/b.odt",
+            H + "/Archive/2026/c.odt", H + "/Archive/2026/d.odt", H + "/Archive/2026/g.odt", H + "/Downloads/old.iso",
+            H + "/Documents/keep.odt", H + "/Archive/2026/stray.odt"};
+        auto pl = rm::plan(H, book, S, paths, false);
+        std::map<std::string, std::string> why;
+        for (const auto& [p, w] : pl.refused) why[fs::path(p).filename().string()] = w;
+        std::vector<std::string> go;
+        for (const auto& a : pl.plan.actions) go.push_back(fs::path(a.from).filename().string());
+        check("plan: a (read back now) + the Ephemeral one -> the Trash; only Trash steps",
+              go == std::vector<std::string>{"a.odt", "old.iso"} && pl.plan.actions[0].verb == dr::Verb::Trash &&
+              pl.pending.size() == 1 && pl.pending[0].media == "SSD", go.empty() ? "" : go[0]);
+        check("plan: kept, each said -- b not backed up, c's media not in Settings, d's copy differs now, g changed "
+              "since archived, keep.odt not Ephemeral/Held, a stray in ~/Archive has no fingerprint",
+              why.size() == 6 && why["b.odt"].find("0 of the 1") != std::string::npos &&
+              why["c.odt"].find("not in Settings") != std::string::npos &&
+              why["d.odt"].find("differs now") != std::string::npos && why["g.odt"].find("changed since") != std::string::npos &&
+              why["keep.odt"].find("not Ephemeral") != std::string::npos &&
+              why["stray.odt"].find("no fingerprint") != std::string::npos, why["b.odt"]);
+        check("plan: READ-ONLY (home and media)", tree_facts(H) == before_h && tree_facts((root / "ssd").string()) == before_m);
+
+        {   // the media unplugged -> not proved now, even with the proof in the catalog
+            fs::rename(M, M + ".away");
+            const auto p2 = rm::plan(H, book, S, {H + "/Archive/2026/a.odt"}, false);
+            check("plan: the media not there now -> kept (\"not there\"), the old proof is not enough",
+                  p2.plan.actions.empty() && p2.refused.size() == 1 && p2.refused[0].second.find("not there") != std::string::npos,
+                  p2.refused.empty() ? "" : p2.refused[0].second);
+            fs::rename(M + ".away", M);
+        }
+        check("plan: 2 proofs needed -> a kept (\"1 of the 2\")",
+              rm::plan(H, book, two, {H + "/Archive/2026/a.odt"}, false).refused[0].second.find("1 of the 2") != std::string::npos);
+
+        dr::Door door(H, D);
+        door.load();
+        check("run: refused unpreviewed", !door.run(pl.plan).ok);
+        pl.plan.previewed = true;
+        const auto r = door.run(pl.plan);
+        const auto n = rm::record(cat, door, r.batch, pl.pending, now_s());
+        const auto gone = cat.removed();
+        check("run: a + old.iso in the home Trash (not deleted); the media copy untouched; a's removed row (SSD)",
+              r.ok && !fs::exists(H + "/Archive/2026/a.odt") && !fs::exists(H + "/Downloads/old.iso") &&
+              read(H + "/.local/share/Trash/files/a.odt") == "alpha" && read(M + "/2026/a.odt") == "alpha" &&
+              n == 1 && gone.size() == 1 && gone[0].media == "SSD" && gone[0].batch == r.batch,
+              r.messages.empty() ? "" : r.messages[0]);
+        book = rm::book_of(cat);
+        check("after: a is no longer offered", rm::offerable(book, S).size() == 2);
+
+        const auto u = door.undo();
+        const auto dropped = rm::after_undo(cat, r.batch);
+        check("undo: both back from the Trash, the removed row dropped, offered again",
+              u.ok && read(H + "/Archive/2026/a.odt") == "alpha" && read(H + "/Downloads/old.iso") == "ephemeral" &&
+              dropped == 1 && cat.removed().empty() && rm::offerable(rm::book_of(cat), S).size() == 3);
+        dr::set_media_roots({});
+        fs::remove_all(root);
+    }
+
+    // ── s017: How to use Tidy -- every step's page exists; every page is in the process ──
+    {
+        std::cout << "[help]\n";
+        std::set<std::string> used;
+        bool all_exist = true;
+        std::string bad;
+        for (const auto& sec : core::help::sections())
+            for (const auto& st : sec.steps)
+                if (!st.page.empty()) {
+                    used.insert(st.page);
+                    if (!core::pages::find(st.page)) { all_exist = false; bad = st.page; }
+                }
+        check("help: every page a step sends you to exists", all_exist, bad);
+        std::string missing;
+        for (const auto& id : {"closet", "due", "projects", "templates", "purposes", "home", "archive", "activity"})
+            if (!used.count(id)) missing += std::string(missing.empty() ? "" : ", ") + id;
+        check("help: every page is in the process", missing.empty(), missing);
+        check("help: the retention levels, one line each", core::help::levels().size() == core::retention::all().size());
     }
 
     std::cout << "-----------------------------------------------\n";

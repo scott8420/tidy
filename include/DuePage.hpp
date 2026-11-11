@@ -36,6 +36,7 @@ private:
     void fill();
     void build_preview();
     void on_archive();                   // checked "To archive" rows -> the plan, previewed
+    void on_remove();                    // s014: checked "To remove" rows -> core::removal's plan, previewed
     void on_run();                       // the previewed plan, through the door
     std::string shown(const std::string& path) const;
 
@@ -50,6 +51,10 @@ private:
     Gtk::Label*   m_status = nullptr;
     Gtk::Button*  m_archive = nullptr;
     std::vector<std::pair<Gtk::CheckButton*, std::string>> m_arc_rows;   // (check, path)
+    std::vector<std::pair<Gtk::CheckButton*, std::string>> m_rem_rows;   // s014 (check, path)
+    Gtk::Button*  m_remove = nullptr;
+    bool m_removing = false;                   // the preview shown is a removal
+    std::vector<std::string> m_rem_paths;      // what it was planned from (planned again at Do it)
     Gtk::Label*   m_prev_summary = nullptr;
     Gtk::ListBox* m_prev_list = nullptr;
     Gtk::Label*   m_prev_status = nullptr;

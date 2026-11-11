@@ -3,7 +3,10 @@
 #include "core/Archive.hpp"
 #include "core/Catalog.hpp"
 #include "core/Due.hpp"
+#include "core/Own.hpp"
 #include "core/Pages.hpp"
+#include "core/Removal.hpp"
+#include "core/Settings.hpp"
 
 #include <gtkmm/box.h>
 #include <gtkmm/button.h>
@@ -107,7 +110,8 @@ DuePage::DuePage(dr::Door& door, std::string home, std::string data_dir, bool fi
     results->append(*scroll);
     auto bar = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::HORIZONTAL, 10);
     bar->add_css_class("act-bar");
-    m_status = label("Check what to archive, then Archive checked. Remove comes later (s014).", "dim", 0.0f);
+    m_status = label("Check what to archive or remove. Removal goes to the Trash; a file in ~/Archive goes only "
+                     "when its copies on media read back the same, now.", "dim", 0.0f);
     m_status->set_name("due.status");
     m_status->set_hexpand(true);
     bar->append(*m_status);
@@ -116,6 +120,11 @@ DuePage::DuePage(dr::Door& door, std::string home, std::string data_dir, bool fi
     m_archive->set_tooltip_text("The checked files -> ~/Archive/<year>/<their folder> (previewed first)");
     m_archive->signal_clicked().connect([this] { on_archive(); });
     bar->append(*m_archive);
+    m_remove = Gtk::make_managed<Gtk::Button>("Remove checked...");
+    m_remove->set_name("due.remove");
+    m_remove->set_tooltip_text("The checked files -> the Trash (previewed first; archived ones only when proved now)");
+    m_remove->signal_clicked().connect([this] { on_remove(); });
+    bar->append(*m_remove);
     auto again = Gtk::make_managed<Gtk::Button>("Look again");
     again->set_name("due.again");
     again->signal_clicked().connect([this] { fill(); });
@@ -161,7 +170,7 @@ void DuePage::build_preview() {
     bar->append(*m_prev_status);
     auto back = Gtk::make_managed<Gtk::Button>("Back");
     back->set_name("due.preview.back");
-    back->signal_clicked().connect([this] { m_plan.reset(); set_visible_child("results"); });
+    back->signal_clicked().connect([this] { m_plan.reset(); m_removing = false; set_visible_child("results"); });
     bar->append(*back);
     m_prev_run = Gtk::make_managed<Gtk::Button>("Do it");
     m_prev_run->set_name("due.preview.run");
@@ -229,6 +238,52 @@ void DuePage::on_archive() {
     if (!planned.renamed.empty()) m_prev_status->add_css_class("note");
     m_prev_run->set_sensitive(moves > refused);
     m_plan = std::move(planned.plan);
+    m_removing = false;
+    set_visible_child("preview");
+}
+
+void DuePage::on_remove() {
+    std::vector<std::string> paths;
+    for (const auto& [c, p] : m_rem_rows)
+        if (c->get_active()) paths.push_back(p);
+    if (paths.empty()) { m_status->set_text("Check a file under To remove first."); return; }
+    core::removal::Book book;
+    {
+        core::catalog::Catalog cat;
+        if (cat.open(m_data_dir, false)) book = core::removal::book_of(cat);
+    }
+    const auto st = core::settings::parse(core::own::read(m_data_dir, core::settings::kFile));
+    auto planned = core::removal::plan(m_home, book, st, paths);
+
+    while (auto* r = m_prev_list->get_row_at_index(0)) m_prev_list->remove(*r);
+    const auto row = [&](const std::string& text, const char* css) {
+        auto l = label(text, css, 0.0f);
+        l->set_margin(4);
+        auto r = Gtk::make_managed<Gtk::ListBoxRow>();
+        r->set_activatable(false);
+        r->set_child(*l);
+        m_prev_list->append(*r);
+    };
+    for (const auto& [p, why] : planned.refused) row(shown(p) + "\nNOT REMOVED: " + why, "stop");
+    std::size_t refused = 0;
+    for (const auto& a : planned.plan.actions) {
+        const std::string why = m_door.refusal(a, {});
+        refused += !why.empty();
+        std::string text = "to the Trash   " + shown(a.from) + "\n" + a.reason;
+        row(why.empty() ? text : text + "\nREFUSED: " + why, why.empty() ? nullptr : "stop");
+    }
+    const auto n = planned.plan.actions.size();
+    m_prev_summary->set_text(planned.plan.label + "   |   " + std::to_string(n) + " to the Trash" +
+                             (planned.refused.empty() ? "" : ", " + std::to_string(planned.refused.size()) + " kept"));
+    std::string s = refused ? std::to_string(refused) + " step(s) the door refuses -- they will not happen. " : "";
+    s += "To the Trash, not deleted -- undo in Activity. An archived file's copies are read back again at Do it; "
+         "one that no longer matches stays.";
+    m_prev_status->set_text(s);
+    m_prev_status->remove_css_class("note");
+    m_prev_run->set_sensitive(n > refused);
+    m_plan = std::move(planned.plan);
+    m_removing = true;
+    m_rem_paths = std::move(paths);
     set_visible_child("preview");
 }
 
@@ -245,6 +300,51 @@ void DuePage::on_run() {
             keep.push_back(a);
         }
         plan.actions = std::move(keep);
+    }
+    if (m_removing) {   // s014: plan again NOW (reads the copies again); only steps shown AND still proved run
+        m_removing = false;
+        core::removal::Book book;
+        {
+            core::catalog::Catalog ro;
+            if (ro.open(m_data_dir, false)) book = core::removal::book_of(ro);
+        }
+        const auto st = core::settings::parse(core::own::read(m_data_dir, core::settings::kFile));
+        auto now_plan = core::removal::plan(m_home, book, st, m_rem_paths);
+        std::vector<dr::Action> keep;
+        for (const auto& a : plan.actions)
+            for (const auto& b : now_plan.plan.actions)
+                if (a.from == b.from) { keep.push_back(a); break; }
+        const std::size_t dropped = plan.actions.size() - keep.size();
+        plan.actions = std::move(keep);
+        if (dropped && !plan.actions.empty())   // the label names what really runs (Activity's undo)
+            plan.label = plan.actions.size() == 1 ? "Remove: " + std::filesystem::path(plan.actions[0].from).filename().string() + " -> Trash"
+                                                  : "Remove: " + std::to_string(plan.actions.size()) + " files -> Trash";
+        std::size_t kept = 0;
+        dr::Result r;
+        r.ok = true;
+        if (!plan.actions.empty()) {
+            plan.previewed = true;   // shown in full by on_remove()
+            r = m_door.run(plan);
+            core::catalog::Catalog cat;
+            if (cat.open(m_data_dir, true))
+                kept = core::removal::record(cat, m_door, r.batch, now_plan.pending,
+                                             static_cast<std::int64_t>(std::time(nullptr)));
+        }
+        if (m_changed) m_changed();
+        fill();
+        set_visible_child("results");
+        std::string s = plan.actions.empty() ? std::string("Nothing removed")
+                                             : (r.ok ? "Done: " : "Partly done: ") + plan.label + " (" +
+                                                   std::to_string(r.done) + " to the Trash; " + std::to_string(kept) +
+                                                   " from ~/Archive)";
+        if (dropped) s += " -- " + std::to_string(dropped) + " kept: no longer proved at Do it";
+        if (!r.ok && !r.messages.empty()) s += " -- " + r.messages.front();
+        if (!plan.actions.empty()) s += " -- undo in Activity";
+        m_status->set_text(s);
+        if (auto lg = log::get(log::Area::Door))
+            lg->info("remove run '{}': {} done, {} failed; {} archived recorded, {} dropped at Do it", plan.label,
+                     r.done, r.failed, kept, dropped);
+        return;
     }
     plan.previewed = true;   // shown in full by on_archive() (RULES: preview first)
     const auto r = m_door.run(plan);
@@ -277,6 +377,7 @@ void DuePage::refresh_if_shown() {
 void DuePage::fill() {
     while (auto* r = m_list->get_row_at_index(0)) m_list->remove(*r);
     m_arc_rows.clear();
+    m_rem_rows.clear();
     std::vector<du::Item> items;
     const auto a = du::look(m_home, m_data_dir, m_user_dirs ? m_user_dirs() : "",
                             static_cast<std::int64_t>(std::time(nullptr)), &items);
@@ -303,18 +404,21 @@ void DuePage::fill() {
         b->set_hexpand(true);
         auto line = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::HORIZONTAL, 10);
         line->set_margin(8);
-        if (it.to == du::To::Archive) {
+        if (it.to == du::To::Archive || it.to == du::To::Remove) {
+            const bool arc = it.to == du::To::Archive;
             auto c = Gtk::make_managed<Gtk::CheckButton>();
-            c->set_active(true);
+            c->set_active(arc);   // removal: nothing checked until you check it
             c->set_valign(Gtk::Align::CENTER);
-            c->set_name("due.arc." + std::to_string(m_arc_rows.size()));
+            c->set_name(std::string(arc ? "due.arc." : "due.rem.") +
+                        std::to_string(arc ? m_arc_rows.size() : m_rem_rows.size()));
             line->append(*c);
-            m_arc_rows.emplace_back(c, it.path);
+            (arc ? m_arc_rows : m_rem_rows).emplace_back(c, it.path);
         }
         line->append(*b);
         add_row(m_list, *line);
     }
     if (m_archive) m_archive->set_sensitive(!m_arc_rows.empty());
+    if (m_remove) m_remove->set_sensitive(!m_rem_rows.empty());
     if (a.closet || a.lists) {
         std::string s;
         if (a.closet) s += std::to_string(a.closet) + " in the Closet, proposed -- see The Closet.";

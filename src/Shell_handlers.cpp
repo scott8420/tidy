@@ -1,8 +1,10 @@
 #include "Shell.hpp"
 #include "core/Archive.hpp"
 #include "ArchivePage.hpp"
+#include "HelpWindow.hpp"
 #include "DuePage.hpp"
 #include "core/Backup.hpp"
+#include "core/Removal.hpp"
 #include "ProjectsPage.hpp"
 #include "PurposesPage.hpp"
 #include "HomePage.hpp"
@@ -47,6 +49,11 @@ void Shell::on_nav(const std::string& page) {  // handler: a sidebar row -> page
     }
     m_stack.set_visible_child(page);
     if (auto lg = log::get(log::Area::Shell)) lg->debug("nav -> {} (tint {})", page, m_tint);
+}
+
+void Shell::on_help() {  // handler: How to use Tidy -- non-modal, beside the window (s017)
+    if (!m_help) m_help = std::make_unique<HelpWindow>(*this, [this](const std::string& page) { go(page); });
+    m_help->present();
 }
 
 void Shell::on_about() {  // handler: the About window -- a hide-on-close singleton
@@ -97,6 +104,7 @@ void Shell::on_activity_undo() {  // handler: Activity's act button
         synced = core::tagging::after_undo(cat, *m_door, b, static_cast<std::int64_t>(std::time(nullptr)));
         synced += core::archive::after_undo(cat, b);   // s013a: an archive undone leaves no fingerprint behind
         synced += core::backup::after_undo(cat, b);    // s013b: copies undone -> their proofs go
+        synced += core::removal::after_undo(cat, b);   // s014: back from the Trash -> not removed
     }
     refresh_activity();
     if (m_due) m_due->refresh_if_shown();

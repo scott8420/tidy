@@ -2,7 +2,9 @@
 #include "Log.hpp"
 #include "core/Archive.hpp"
 #include "core/Catalog.hpp"
+#include "core/Own.hpp"
 #include "core/Pages.hpp"
+#include "core/Removal.hpp"
 
 #include <gtkmm/box.h>
 #include <gtkmm/button.h>
@@ -142,11 +144,16 @@ ArchivePage::ArchivePage(dr::Door& door, std::string home, std::string data_dir,
     results->append(*scroll);
     auto bar = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::HORIZONTAL, 10);
     bar->add_css_class("act-bar");
-    m_status = label("Removal (s014) will need one proof on a disk. Degoo is by hand, through Samson -- never proof.",
-                     "dim", 0.0f);
+    m_status = label("Remove proved... sends a file to the Trash only when its copies read back the same, now. "
+                     "Degoo is by hand, through Samson -- never proof.", "dim", 0.0f);
     m_status->set_name("archive.status");
     m_status->set_hexpand(true);
     bar->append(*m_status);
+    m_remove = Gtk::make_managed<Gtk::Button>("Remove proved...");
+    m_remove->set_name("archive.remove");
+    m_remove->set_tooltip_text("Files proved on media -> the Trash, after reading the copies back again (previewed first)");
+    m_remove->signal_clicked().connect([this] { on_remove(); });
+    bar->append(*m_remove);
     auto again = Gtk::make_managed<Gtk::Button>("Look again");
     again->set_name("archive.again");
     again->signal_clicked().connect([this] { fill(); });
@@ -195,6 +202,7 @@ void ArchivePage::build_preview() {
     back->signal_clicked().connect([this] {
         m_plan.reset();
         m_checks.clear();
+        m_removing = false;
         set_visible_child("results");
     });
     bar->append(*back);
@@ -236,6 +244,8 @@ void ArchivePage::on_backup() {
     if (cat.open(m_data_dir, false)) {
         arch = cat.archived();
         copies = cat.copies();
+        for (const auto& r : cat.removed())   // s014: removed from ~/Archive -- nothing to back up
+            std::erase_if(arch, [&](const ca::Archived& a) { return a.id == r.id; });
     }
     auto planned = bk::plan(m_home, *m, arch, copies);
 
@@ -288,10 +298,111 @@ void ArchivePage::on_backup() {
     m_plan = std::move(planned.plan);
     m_checks = std::move(planned.checks);
     m_plan_media = *m;
+    m_removing = false;
     set_visible_child("preview");
 }
 
+void ArchivePage::on_remove() {
+    namespace rm = core::removal;
+    rm::Book book;
+    {
+        ca::Catalog cat;
+        if (cat.open(m_data_dir, false)) book = rm::book_of(cat);
+    }
+    const auto st = core::settings::parse(core::own::read(m_data_dir, core::settings::kFile));
+    std::vector<std::string> paths;
+    for (const auto& a : rm::offerable(book, st)) paths.push_back(a.path);
+    if (paths.empty()) {
+        m_status->set_text("Nothing proved on " + std::to_string(st.proofs_needed) + " media yet -- Back up first.");
+        set_css(m_status, "note");
+        return;
+    }
+    auto planned = rm::plan(m_home, book, st, paths);
+    while (auto* r = m_prev_list->get_row_at_index(0)) m_prev_list->remove(*r);
+    const auto row = [&](const std::string& text, const char* css) {
+        auto l = label(text, css, 0.0f);
+        l->set_margin(4);
+        auto r = Gtk::make_managed<Gtk::ListBoxRow>();
+        r->set_activatable(false);
+        r->set_child(*l);
+        m_prev_list->append(*r);
+    };
+    for (const auto& [p, why] : planned.refused) row(shown(p) + "\nKEPT: " + why, "stop");
+    std::size_t refused = 0;
+    for (const auto& a : planned.plan.actions) {
+        const std::string why = m_door.refusal(a, {});
+        refused += !why.empty();
+        const std::string text = "to the Trash   " + shown(a.from) + "\n" + a.reason;
+        row(why.empty() ? text : text + "\nREFUSED: " + why, why.empty() ? nullptr : "stop");
+    }
+    const auto n = planned.plan.actions.size();
+    m_prev_summary->set_text(planned.plan.label + "   |   " + std::to_string(n) + " to the Trash" +
+                             (planned.refused.empty() ? "" : ", " + std::to_string(planned.refused.size()) + " kept"));
+    m_prev_status->set_text(std::string(refused ? std::to_string(refused) + " step(s) the door refuses. " : "") +
+                            "Each was read back just now on " + std::to_string(st.proofs_needed) +
+                            "+ media. To the Trash, not deleted -- undo in Activity. At Do it they are read back "
+                            "once more; one that no longer matches stays.");
+    m_prev_run->set_sensitive(n > refused);
+    m_plan = std::move(planned.plan);
+    m_checks.clear();
+    m_plan_media.reset();
+    m_removing = true;
+    m_rem_paths = std::move(paths);
+    set_visible_child("preview");
+}
+
+void ArchivePage::run_remove(dr::Plan plan) {
+    namespace rm = core::removal;
+    m_removing = false;
+    rm::Book book;
+    {
+        ca::Catalog ro;
+        if (ro.open(m_data_dir, false)) book = rm::book_of(ro);
+    }
+    const auto st = core::settings::parse(core::own::read(m_data_dir, core::settings::kFile));
+    const auto now_plan = rm::plan(m_home, book, st, m_rem_paths);   // read back AGAIN, now
+    std::vector<dr::Action> keep;
+    for (const auto& a : plan.actions)
+        for (const auto& b : now_plan.plan.actions)
+            if (a.from == b.from) { keep.push_back(a); break; }
+    const std::size_t dropped = plan.actions.size() - keep.size();
+    plan.actions = std::move(keep);
+    if (dropped && !plan.actions.empty())   // the label names what really runs (Activity's undo)
+        plan.label = plan.actions.size() == 1 ? "Remove: " + std::filesystem::path(plan.actions[0].from).filename().string() + " -> Trash"
+                                              : "Remove: " + std::to_string(plan.actions.size()) + " files -> Trash";
+    dr::Result r;
+    r.ok = true;
+    std::size_t kept = 0;
+    if (!plan.actions.empty()) {
+        plan.previewed = true;   // shown in full by on_remove()
+        r = m_door.run(plan);
+        ca::Catalog cat;
+        if (cat.open(m_data_dir, true))
+            kept = rm::record(cat, m_door, r.batch, now_plan.pending, static_cast<std::int64_t>(std::time(nullptr)));
+    }
+    if (m_changed) m_changed();
+    fill();
+    set_visible_child("results");
+    std::string s = plan.actions.empty() ? std::string("Nothing removed")
+                                         : (r.ok ? "Done: " : "Partly done: ") + plan.label + " (" +
+                                               std::to_string(kept) + " removed from ~/Archive)";
+    if (dropped) s += "; " + std::to_string(dropped) + " kept -- no longer proved at Do it";
+    if (!r.ok && !r.messages.empty()) s += "\n" + r.messages.front();
+    if (!plan.actions.empty()) s += "\nUndo in Activity.";
+    m_status->set_text(s);
+    set_css(m_status, dropped || !r.ok ? "stop" : "ok");
+    if (auto lg = log::get(log::Area::Door))
+        lg->info("archive remove '{}': {} done, {} failed; {} recorded, {} dropped at Do it", plan.label, r.done,
+                 r.failed, kept, dropped);
+}
+
 void ArchivePage::on_run() {
+    if (m_plan && m_removing) {
+        auto plan = std::move(*m_plan);
+        m_plan.reset();
+        run_remove(std::move(plan));
+        return;
+    }
     if (!m_plan || !m_plan_media) return;
     auto plan = std::move(*m_plan);
     const auto checks = std::move(m_checks);
@@ -373,15 +484,34 @@ void ArchivePage::fill() {
     ca::Catalog cat;
     std::vector<ca::Archived> arch;
     std::map<std::string, std::vector<ca::Copy>> by_id;
+    std::map<std::string, ca::Removed> gone;
+    core::removal::Book book;
     if (cat.open(m_data_dir, false)) {
         arch = cat.archived();
         for (auto& c : cat.copies()) by_id[c.id].push_back(std::move(c));
+        for (auto& r : cat.removed()) gone[r.id] = r;
+        book = core::removal::book_of(cat);
     }
+    const auto st = core::settings::parse(core::own::read(m_data_dir, core::settings::kFile));
+    const std::size_t offer = core::removal::offerable(book, st).size();
+    m_remove->set_sensitive(offer > 0);
     std::map<std::string, std::size_t> per_media;
-    std::size_t none = 0, rows = 0;
+    std::size_t none = 0, rows = 0, removed_n = 0;
     for (const auto& a : arch) {
         const auto it = by_id.find(a.id);
         const std::vector<ca::Copy> mine = it == by_id.end() ? std::vector<ca::Copy>{} : it->second;
+        const auto g = gone.find(a.id);
+        if (g != gone.end()) {
+            ++removed_n;
+            if (rows++ >= kMaxRows) continue;
+            auto b = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::VERTICAL, 2);
+            b->set_margin(8);
+            b->append(*label(std::filesystem::path(a.path).filename().string(), "dim", 0.0f));
+            b->append(*label("removed from ~/Archive " + core::archive::day_of(g->second.when) + " -- kept on " +
+                                 g->second.media, "dim", 0.0f));
+            add_row(m_list, *b, "archive.row." + std::to_string(rows - 1));
+            continue;
+        }
         if (mine.empty()) ++none;
         for (const auto& c : mine) ++per_media[c.media];
         if (rows++ >= kMaxRows) continue;
@@ -396,6 +526,8 @@ void ArchivePage::fill() {
     std::string s = n_of(arch.size(), "file") + " archived";
     for (const auto& [m, k] : per_media) s += "; " + std::to_string(k) + " on " + m;
     if (none) s += "; " + std::to_string(none) + " not on media yet";
+    if (removed_n) s += "; " + std::to_string(removed_n) + " removed (kept on media)";
+    if (offer) s += "; " + std::to_string(offer) + " may be removed";
     m_summary->set_text(s + ".");
     if (arch.empty()) {
         auto l = label("Nothing archived yet -- Due -> Look -> To archive.", "dim", 0.0f);

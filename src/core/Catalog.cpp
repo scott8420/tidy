@@ -37,7 +37,10 @@ constexpr const char* kSchema =
     "  id TEXT NOT NULL, media TEXT NOT NULL, path TEXT NOT NULL, sha256 TEXT NOT NULL,"
     "  size INTEGER NOT NULL DEFAULT 0, proved INTEGER NOT NULL DEFAULT 0, batch INTEGER NOT NULL DEFAULT 0,"
     "  PRIMARY KEY (id, media));"
-    "PRAGMA user_version = 5;";
+    "CREATE TABLE IF NOT EXISTS removed ("         /* s014 */
+    "  id TEXT PRIMARY KEY, path TEXT NOT NULL, media TEXT NOT NULL DEFAULT '',"
+    "  removed INTEGER NOT NULL DEFAULT 0, batch INTEGER NOT NULL DEFAULT 0);"
+    "PRAGMA user_version = 6;";
 
 constexpr const char* kCols = "id, path, dev, ino, size, btime, mtime, ctime, atime, retention, purpose, role, seen, gone";
 
@@ -448,6 +451,47 @@ std::size_t Catalog::drop_copies_batch(std::uint64_t batch) {
     if (!m_db || !m_rw || !batch) return 0;
     sqlite3_stmt* st = nullptr;
     if (sqlite3_prepare_v2(m_db, "DELETE FROM copies WHERE batch = ?", -1, &st, nullptr) != SQLITE_OK) return 0;
+    sqlite3_bind_int64(st, 1, s64(batch));
+    const bool ok = sqlite3_step(st) == SQLITE_DONE;
+    sqlite3_finalize(st);
+    return ok ? static_cast<std::size_t>(sqlite3_changes(m_db)) : 0;
+}
+
+// ── Removal (s014) ───────────────────────────────────────────────────────────
+bool Catalog::put_removed(const Removed& r) {
+    if (!m_db || !m_rw || r.id.empty()) return false;
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(m_db, "INSERT OR REPLACE INTO removed (id, path, media, removed, batch) VALUES (?,?,?,?,?)",
+                           -1, &st, nullptr) != SQLITE_OK)
+        return false;
+    sqlite3_bind_text(st, 1, r.id.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(st, 2, r.path.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(st, 3, r.media.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(st, 4, r.when);
+    sqlite3_bind_int64(st, 5, s64(r.batch));
+    const bool ok = sqlite3_step(st) == SQLITE_DONE;
+    sqlite3_finalize(st);
+    return ok;
+}
+
+std::vector<Removed> Catalog::removed() const {
+    std::vector<Removed> out;
+    if (!m_db) return out;
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(m_db, "SELECT id, path, media, removed, batch FROM removed ORDER BY path", -1, &st,
+                           nullptr) != SQLITE_OK)
+        return out;
+    while (sqlite3_step(st) == SQLITE_ROW)
+        out.push_back({text(st, 0), text(st, 1), text(st, 2), sqlite3_column_int64(st, 3),
+                       u64(sqlite3_column_int64(st, 4))});
+    sqlite3_finalize(st);
+    return out;
+}
+
+std::size_t Catalog::drop_removed_batch(std::uint64_t batch) {
+    if (!m_db || !m_rw || !batch) return 0;
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(m_db, "DELETE FROM removed WHERE batch = ?", -1, &st, nullptr) != SQLITE_OK) return 0;
     sqlite3_bind_int64(st, 1, s64(batch));
     const bool ok = sqlite3_step(st) == SQLITE_DONE;
     sqlite3_finalize(st);

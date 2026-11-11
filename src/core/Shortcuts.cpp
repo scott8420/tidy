@@ -114,7 +114,8 @@ const std::vector<ShortcutSpec>& shortcut_registry() {
         // ── General ───────────────────────────────────────────────────────────
         {"General", "win.shortcuts",     {"<Ctrl>question", "<Ctrl>slash"}, "",
          "Keyboard shortcuts (this window)"},
-        {"General", "win.about",         {"F1"}, "", "About Tidy"},
+        {"General", "win.help",          {"F1"}, "", "How to use Tidy"},
+        {"General", "win.about",         {"<Shift>F1"}, "", "About Tidy"},
         {"General", "win.quit",          {"<Ctrl>q"}, "", "Quit"},
 
         // ── Pages ─────────────────────────────────────────────────────────────

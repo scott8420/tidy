@@ -40,6 +40,8 @@ private:
     void build_preview();
     void on_backup();                    // the chosen media -> the plan, previewed
     void on_run();                       // the previewed plan, through the door, then the proofs
+    void on_remove();                    // s014: proved files -> core::removal (read back NOW), previewed
+    void run_remove(latch::door::Plan plan);
     std::optional<core::settings::Media> chosen() const;
     std::string shown(const std::string& path) const;
 
@@ -64,6 +66,9 @@ private:
     std::vector<core::backup::Check> m_checks;            // shown with it
     std::optional<core::settings::Media> m_plan_media;
     bool m_filling = false;
+    Gtk::Button*   m_remove = nullptr;                    // s014
+    bool m_removing = false;
+    std::vector<std::string> m_rem_paths;
 };
 
 }  // namespace tidy
