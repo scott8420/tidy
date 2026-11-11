@@ -1,4 +1,5 @@
 #include "Shell.hpp"
+#include "core/Protection.hpp"
 #include "core/Archive.hpp"
 #include "ArchivePage.hpp"
 #include "HelpWindow.hpp"
@@ -65,11 +66,12 @@ void Shell::on_about() {  // handler: the About window -- a hide-on-close single
 // the Closet re-reads with the new aging days and junk list.
 void Shell::on_settings() {  // handler: the Settings window
     if (!m_settings_win)
-        m_settings_win = std::make_unique<SettingsWindow>(*this, [this](const core::settings::Settings& s) {
+        m_settings_win = std::make_unique<SettingsWindow>(*this, m_home, [this](const core::settings::Settings& s) {
             const std::string err = core::own::write(m_data_dir, core::settings::kFile, core::settings::format(s));
             if (!err.empty()) return err;
             m_settings = s;
             core::backup::register_media(m_settings.media);   // s013b
+            core::protection::apply(m_home, core::protection::config_home(m_home), m_settings);   // s019a
             if (m_archive) m_archive->refresh_if_shown();
             arm_rescan();
             if (m_clo_states && m_clo_states->get_visible_child_name() == "results") fill_closet();
@@ -229,7 +231,11 @@ void Shell::on_background() {  // handler
         m_background_win = std::make_unique<BackgroundWindow>(
             *this, *m_door, m_home, m_data_dir,
             core::background::unit_dir(m_home, std::getenv("XDG_CONFIG_HOME"), m_fixture), m_fixture,
-            [this](const core::settings::Settings& s) { m_settings = s; refresh_activity(); });
+            [this](const core::settings::Settings& s) {
+                m_settings = s;
+                core::protection::apply(m_home, core::protection::config_home(m_home), m_settings);   // s019a
+                refresh_activity();
+            });
     m_background_win->open(m_settings);
 }
 

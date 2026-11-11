@@ -1,4 +1,7 @@
 #include "SettingsWindow.hpp"
+#include "core/Protection.hpp"
+
+#include <algorithm>
 #include "core/Homing.hpp"
 
 #include <gtkmm/adjustment.h>
@@ -24,7 +27,8 @@ Gtk::Label* text(const std::string& s, const char* css = nullptr) {
 }
 }  // namespace
 
-SettingsWindow::SettingsWindow(Gtk::Window& parent, SaveFn on_save) : m_save(std::move(on_save)) {
+SettingsWindow::SettingsWindow(Gtk::Window& parent, const std::string& home_dir, SaveFn on_save)
+    : m_save(std::move(on_save)), m_home_dir(home_dir) {
     set_name("settings.window");
     set_title("Tidy Settings");
     set_transient_for(parent);
@@ -201,6 +205,53 @@ SettingsWindow::SettingsWindow(Gtk::Window& parent, SaveFn on_save) : m_save(std
     });
     box->append(*addm);
 
+    // s019a: folders Tidy never looks inside, never moves into or out of.
+    auto hands = text("Hands-off folders", "heading");
+    hands->set_margin_top(14);
+    box->append(*hands);
+    box->append(*text("One per line, in your home (\"~/Taxes\"). Tidy never looks inside them and never moves "
+                      "anything into or out of them -- with everything inside, all the way down. Hidden folders "
+                      "are always left alone.", "dim"));
+    auto oscroll = Gtk::make_managed<Gtk::ScrolledWindow>();
+    oscroll->set_has_frame(true);
+    oscroll->set_min_content_height(60);
+    m_hands = Gtk::make_managed<Gtk::TextView>();
+    m_hands->set_name("settings.hands_off");
+    m_hands->set_monospace(true);
+    m_hands->set_top_margin(6);
+    m_hands->set_left_margin(6);
+    oscroll->set_child(*m_hands);
+    box->append(*oscroll);
+    m_samson = text("", "dim");
+    m_samson->set_name("settings.hands_off.samson");
+    box->append(*m_samson);
+    auto addh = Gtk::make_managed<Gtk::Button>("Add folder...");
+    addh->set_name("settings.hands_off.add");
+    addh->set_halign(Gtk::Align::START);
+    addh->set_tooltip_text("Pick a folder in your home to leave alone; it is added as a line (Save keeps it)");
+    addh->signal_clicked().connect([this] {
+        auto dlg = Gtk::FileDialog::create();
+        dlg->set_title("A folder Tidy leaves alone");
+        dlg->set_modal(true);
+        dlg->set_initial_folder(Gio::File::create_for_path(m_home_dir));
+        dlg->select_folder(*this, [this, dlg](const Glib::RefPtr<Gio::AsyncResult>& res) {
+            try {
+                const auto f = dlg->select_folder_finish(res);
+                if (!f || f->get_path().empty()) return;
+                std::string rel;
+                if (const auto why = core::protection::rel_of(m_home_dir, f->get_path(), rel); !why.empty()) {
+                    m_status->set_text("Hands-off folders: " + why);
+                    return;
+                }
+                auto buf = m_hands->get_buffer();
+                std::string t = buf->get_text();
+                if (!t.empty() && t.back() != '\n') t += "\n";
+                buf->set_text(t + "~/" + rel + "\n");
+            } catch (const Glib::Error&) {}   // cancelled
+        });
+    });
+    box->append(*addh);
+
     auto bar = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::HORIZONTAL, 10);
     bar->set_margin_top(8);
     m_status = text("");
@@ -249,6 +300,16 @@ void SettingsWindow::show(const st::Settings& current) {
     lines.clear();
     for (const auto& m : current.media) lines += st::media_line(m) + "\n";
     m_media->get_buffer()->set_text(lines);
+    lines.clear();
+    for (const auto& h : current.hands_off) lines += "~/" + h + "\n";
+    m_hands->get_buffer()->set_text(lines);
+    {   // s019a: Samson's own places -- shown, never edited here
+        const auto sam = core::protection::samson(m_home_dir, core::protection::config_home(m_home_dir));
+        std::string t;
+        for (const auto& r : sam) t += (t.empty() ? "" : ", ") + std::string("~/") + r;
+        m_samson->set_text(sam.empty() ? "" : "Samson's (always, while Samson is installed): " + t);
+        m_samson->set_visible(!sam.empty());
+    }
     m_status->set_text("");
     present();
 }
@@ -308,6 +369,18 @@ void SettingsWindow::on_save_clicked() {
                 return;
             }
         s.media.push_back(m);
+    }
+    // s019a: every hands-off line must be a folder in the home.
+    s.hands_off.clear();
+    n = 0;
+    for (const auto& l : st::patterns_of(m_hands->get_buffer()->get_text())) {
+        ++n;
+        std::string rel;
+        if (const auto why = core::protection::rel_of(m_home_dir, l, rel); !why.empty()) {
+            m_status->set_text("Hands-off folders, line " + std::to_string(n) + ": " + why);
+            return;
+        }
+        if (std::find(s.hands_off.begin(), s.hands_off.end(), rel) == s.hands_off.end()) s.hands_off.push_back(rel);
     }
     const std::string err = m_save ? m_save(s) : std::string("nothing to save to");
     if (err.empty()) set_visible(false);

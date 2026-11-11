@@ -41,7 +41,7 @@ const std::vector<Topic>& topics() {
          {"Where undecided files wait. Look sweeps the whole home for LOOSE files: at home's top, at the top of a "
           "folder there (~/Pictures/x.png), or in a landing place (Downloads, Desktop, Screenshots). A file in a "
           "subfolder (~/Pictures/Covers/x.png) is home already and not shown. Tidy never looks inside hidden "
-          "folders, -projects, git repos or ~/Archive.",
+          "folders, -projects, git repos, ~/Archive, your Hands-off folders (Settings) or Samson's folders.",
           "Tidy reads how each was born (downloaded, a screenshot, saved by an app) and proposes a level. A file "
           "nobody has changed or read in years (Settings, 2) is proposed Historical -- a record, which Due then "
           "archives. Your junk list (Settings) sends matching files to the Junk Drawer: kept, no home."},

@@ -44,6 +44,10 @@ Settings parse(const std::string& text) {
             try {
                 s.aging_days = std::clamp(std::stoi(v), kAgingMin, kAgingMax);
             } catch (...) {}
+        } else if (k == "hands_off") {   // s019a: relative to home, checked when typed
+            if (!v.empty() && v[0] != '/' && v.find("..") == std::string::npos &&
+                std::find(s.hands_off.begin(), s.hands_off.end(), v) == s.hands_off.end())
+                s.hands_off.push_back(v);
         } else if (k == "old_years") {
             try {
                 s.old_years = std::clamp(std::stoi(v), kOldMin, kOldMax);
@@ -98,6 +102,7 @@ std::string format(const Settings& s) {
     o << "archive_days=" << std::clamp(s.archive_days, kArchiveMin, kArchiveMax) << "\n";
     o << "rescan_minutes=" << std::clamp(s.rescan_minutes, kRescanMin, kRescanMax) << "\n";
     o << "old_years=" << std::clamp(s.old_years, kOldMin, kOldMax) << "\n";
+    for (const auto& h : s.hands_off) o << "hands_off=" << h << "\n";
     for (const auto& j : s.junk) o << "junk=" << j << "\n";
     o << "proofs_needed=" << std::clamp(s.proofs_needed, kProofsMin, kProofsMax) << "\n";
     for (const auto& m : s.media) o << "media=" << m.label << "|" << m.path << "\n";

@@ -1,6 +1,7 @@
 #include "core/Catalog.hpp"
 #include "core/Removal.hpp"
 #include "core/Due.hpp"
+#include "core/Protection.hpp"
 
 #include "core/Birth.hpp"
 #include "core/Closet.hpp"
@@ -142,6 +143,7 @@ Attention look(const std::string& home, const std::string& data_dir, const std::
     Attention a;
     a.when = now;
     const auto st = settings::parse(own::read(data_dir, settings::kFile));
+    protection::apply(home, protection::config_home(home), st);   // s019a: the hands-off folders, before any walk
     const auto book = purposes::parse(own::read(data_dir, purposes::kFile));
     const auto files = scan::walk(home, filelists::roots(home));
     auto judged = files;   // s019: and the files at home's own top (the sweep shows them; the id lists don't cover them)

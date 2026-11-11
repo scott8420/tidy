@@ -62,6 +62,7 @@ struct Settings {
     int archive_days = kArchiveDefault;
     int rescan_minutes = kRescanDefault;
     int old_years = kOldDefault;   // s019
+    std::vector<std::string> hands_off;   // s019a: folders Tidy never touches, relative to home
     std::vector<std::string> junk;
     // s011 files home: the type table, "*.png -> Pictures" per line (core::homing
     // reads it). home_set = false -> the standard table (Scott: "fine"); true ->

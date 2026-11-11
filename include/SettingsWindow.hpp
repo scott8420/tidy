@@ -20,7 +20,7 @@ namespace tidy {
 class SettingsWindow : public Gtk::Window {
 public:
     using SaveFn = std::function<std::string(const core::settings::Settings&)>;
-    SettingsWindow(Gtk::Window& parent, SaveFn on_save);
+    SettingsWindow(Gtk::Window& parent, const std::string& home_dir, SaveFn on_save);   // s019a: home
     ~SettingsWindow() override;
 
     void show(const core::settings::Settings& current);
@@ -39,6 +39,9 @@ private:
     Gtk::TextView*   m_junk = nullptr;
     Gtk::TextView*   m_home = nullptr;      // s011: the type table
     Gtk::TextView*   m_media = nullptr;     // s013b: backup media, "name | /folder"
+    Gtk::TextView*   m_hands = nullptr;     // s019a: Hands-off folders, "~/Taxes"
+    Gtk::Label*      m_samson = nullptr;    // s019a: Samson's places, locked
+    std::string      m_home_dir;            // s019a
     Gtk::Label*      m_status = nullptr;
 };
 

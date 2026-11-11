@@ -66,6 +66,7 @@
 #include "core/Look.hpp"
 #include "core/Pages.hpp"
 #include "core/Paths.hpp"
+#include "core/Protection.hpp"
 #include "core/Shortcuts.hpp"
 #include "core/Catalog.hpp"
 #include "core/Facts.hpp"
@@ -1076,6 +1077,115 @@ int main(int argc, char** argv) {
             check("archive: a file at home's top goes to ~/Archive/<year> itself",
                   core::archive::folder_for(H, H + "/old-letter.txt", 2026) == "Archive/2026");
         }
+        std::error_code ec;
+        fs::remove_all(root, ec);
+    }
+
+    // ── s019a: Hands-off folders + Samson's places -- on a FIXTURE ─────────────
+    {
+        std::cout << "[hands-off]\n";
+        namespace pr = core::protection;
+        namespace cb = core::birth;
+        namespace rt = core::retention;
+        const fs::path root = fs::temp_directory_path() / ("tidy_selftest_handsoff_" + std::to_string(::getpid()));
+        fs::remove_all(root);
+        const fs::path home = root / "home";
+        make_home(home);
+        make_sweep_extras(home);
+        fs::remove_all(home / ".local");
+        put_file(home / "Samson/notes.txt", "samson's");               age(home / "Samson/notes.txt", 2020);
+        put_file(home / "Vault/ledger.txt", "samson's, moved");
+        put_file(home / "Taxes/2025.pdf", "yours");                    age(home / "Taxes/2025.pdf", 2021);
+        put_file(home / "Downloads/Keep-out/x.bin", "deep in a landing place");
+        const std::string H = fs::canonical(home).string();
+        const std::string cfg = H + "/.config";
+        {
+            std::string r;
+            check("rel_of: ~/Taxes, /home/.../Taxes, Taxes/ -> Taxes",
+                  pr::rel_of(H, "~/Taxes", r).empty() && r == "Taxes" && pr::rel_of(H, H + "/Taxes", r).empty() &&
+                  r == "Taxes" && pr::rel_of(H, " Taxes/ ", r).empty() && r == "Taxes");
+            check("rel_of: refuses home itself, outside home, ..",
+                  !pr::rel_of(H, "~", r).empty() && !pr::rel_of(H, H, r).empty() &&
+                  !pr::rel_of(H, "/etc", r).empty() && !pr::rel_of(H, "~/a/../b", r).empty() &&
+                  !pr::rel_of(H, "", r).empty());
+        }
+        check("samson: not installed (no ~/.config/samson) -> nothing of its own", pr::samson(H, cfg).empty());
+        core::settings::Settings st;
+        st.hands_off = {"Taxes", "Downloads/Keep-out"};
+        check("settings: hands_off round trip, a bad line dropped",
+              core::settings::parse(core::settings::format(st)).hands_off == st.hands_off &&
+              core::settings::parse("hands_off=/etc\nhands_off=../x\nhands_off=Taxes\n").hands_off ==
+                  std::vector<std::string>{"Taxes"});
+        latch::protect::set_owned({});
+        const auto rep0 = cb::report(H, cb::sweep(H, ""), now_s(), 2);
+        const auto in = [&](const cb::Report& r, const std::string& rel) {
+            for (const auto& b : r.items) if (b.file.path == H + "/" + rel) return true;
+            return false;
+        };
+        check("control: unprotected, the sweep sees ~/Samson, ~/Taxes, Downloads/Keep-out",
+              in(rep0, "Samson/notes.txt") && in(rep0, "Taxes/2025.pdf") && in(rep0, "Downloads/Keep-out/x.bin"));
+        fs::create_directories(home / ".config/samson");   // Samson installed, its defaults
+        check("samson: installed -> ~/Samson and its catalog",
+              pr::samson(H, cfg) == std::vector<std::string>{"Samson", ".local/share/samson"});
+        put_file(home / ".config/samson/settings.json", R"({"samson_dir":"~/Vault","second_home":"/elsewhere"})");
+        check("samson: its own settings -- samson_dir ~/Vault; a place outside home left out",
+              pr::samson(H, cfg) == std::vector<std::string>{"Vault", ".local/share/samson"});
+        fs::remove(home / ".config/samson/settings.json");
+        check("all: yours + Samson's, once each",
+              pr::all(H, cfg, st) == std::vector<std::string>{"Taxes", "Downloads/Keep-out", "Samson", ".local/share/samson"});
+        pr::apply(H, cfg, st);
+        const auto rep = cb::report(H, cb::sweep(H, ""), now_s(), 2);
+        std::string tops;
+        for (const auto& p : cb::sweep(H, "")) if (p.id == "top") tops += p.title + " ";
+        check("sweep: never ~/Samson, ~/Taxes (top folders), nor Downloads/Keep-out (deep)",
+              !in(rep, "Samson/notes.txt") && !in(rep, "Taxes/2025.pdf") && !in(rep, "Downloads/Keep-out/x.bin") &&
+              tops.find("Samson") == std::string::npos && tops.find("Taxes") == std::string::npos, tops);
+        check("sweep: the rest still seen (old-letter.txt, Downloads/old-movie.mkv)",
+              in(rep, "old-letter.txt") && in(rep, "Downloads/old-movie.mkv"));
+        check("under: the folder and anything inside it; not a neighbour",
+              pr::under("Samson") && pr::under("Samson/a/b") && pr::under("Downloads/Keep-out/x") &&
+              !pr::under("Samsonite") && !pr::under("Downloads") && !pr::under("Downloads/Keep"));
+        check("walk: the id lists' walk never enters them either", [&] {
+            for (const auto& f : core::scan::walk(H, core::filelists::roots(H)))
+                if (f.path.rfind(H + "/Samson/", 0) == 0 || f.path.rfind(H + "/Taxes/", 0) == 0) return false;
+            return true;
+        }());
+        {   // the headless look applies them itself (Samson's from its config; yours from Settings)
+            latch::protect::set_owned({});
+            const std::string data = H + "/.tidy-data-ho";
+            fs::create_directories(data);
+            core::own::write(data, core::settings::kFile, core::settings::format(st));
+            std::vector<core::due::Item> items;
+            core::due::look(H, data, "", now_s(), &items);
+            bool clean = true;
+            for (const auto& it : items)
+                clean = clean && it.path.rfind(H + "/Samson/", 0) != 0 && it.path.rfind(H + "/Taxes/", 0) != 0;
+            check("due: the headless look protects them before it walks",
+                  clean && pr::under("Samson/x") && pr::under("Taxes/x"));
+        }
+        {   // the door refuses a move into or out of one, at any depth
+            pr::apply(H, cfg, st);
+            latch::door::Door door(H, H + "/.tidy-data-ho");
+            door.load();
+            latch::door::Plan plan;
+            plan.label = "into Taxes";
+            plan.previewed = true;
+            latch::door::Action in_;
+            in_.verb = latch::door::Verb::Move;
+            in_.from = H + "/old-letter.txt";
+            in_.to = H + "/Taxes/old-letter.txt";
+            plan.actions.push_back(in_);
+            const auto r1 = door.run(plan);
+            latch::door::Plan out_ = plan;
+            out_.label = "out of Samson";
+            out_.actions[0].from = H + "/Samson/notes.txt";
+            out_.actions[0].to = H + "/notes.txt";
+            const auto r2 = door.run(out_);
+            check("door: a move into a hands-off folder, or out of Samson's, is refused -- nothing moved",
+                  !r1.ok && !r2.ok && fs::exists(home / "old-letter.txt") && fs::exists(home / "Samson/notes.txt") &&
+                  !fs::exists(home / "Taxes/old-letter.txt") && !fs::exists(home / "notes.txt"));
+        }
+        latch::protect::set_owned({});
         std::error_code ec;
         fs::remove_all(root, ec);
     }

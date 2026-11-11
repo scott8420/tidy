@@ -1,4 +1,5 @@
 #include "core/Homing.hpp"
+#include "core/Protection.hpp"
 #include "core/Projects.hpp"
 #include "core/Retention.hpp"
 
@@ -41,7 +42,7 @@ std::string folder_refusal(const std::string& rel, std::size_t max) {
         if (auto why = templates::part_refusal(p); !why.empty()) return why;
         if (projects::is_project_name(p)) return "\"" + p + "\" is a project -- pick it as a project instead";
     }
-    if (latch::protect::here(rel)) return "\"" + rel + "\" is a place Tidy never touches";
+    if (protection::under(rel)) return "\"" + rel + "\" is a place Tidy never touches";   // s019a: or inside one
     return "";
 }
 }  // namespace
@@ -174,7 +175,7 @@ std::string into_project(const std::string& project_rel, const templates::Templa
         if (projects::is_project_name(p)) return "\"" + p + "\" is a project inside a project";
     }
     const std::string rel = project_rel + "/" + chosen;
-    if (latch::protect::here(rel) || latch::protect::here(chosen)) return "\"" + chosen + "\" is a place Tidy never touches";
+    if (protection::under(rel) || protection::under(chosen)) return "\"" + chosen + "\" is a place Tidy never touches";
     if (folder) *folder = rel;
     if (route) *route = via;
     return "";
