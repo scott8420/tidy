@@ -1691,6 +1691,68 @@ int main(int argc, char** argv) {
         fs::remove_all(root);
     }
 
+    // ── s010e: ids for found projects; status in the catalog; search ────────
+    {
+        std::cout << "[project ids]\n";
+        namespace dr = latch::door;
+        namespace pj = core::projects;
+        namespace ct = core::catalog;
+        const fs::path root = fs::temp_directory_path() / ("tidy_selftest_pids_" + std::to_string(::getpid()));
+        fs::remove_all(root);
+        const std::string H = (root / "home").string(), D = (root / "data").string();
+        fs::create_directories(H + "/Writing/Jasper-project/Work");
+        fs::create_directories(H + "/Develop/gtk/tidy-project/tidy/.git");
+        fs::create_directories(H + "/Desktop/Loose-project");
+        put_file(H + "/Writing/Odd-project/.tidy-project", "id=garbage\n");      // there, not a uuid: left alone
+        int n = 0;
+        const std::vector<std::string> fixed = {"11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222",
+                                                "33333333-3333-4333-8333-333333333333"};
+        const auto gen = [&] { return fixed[static_cast<std::size_t>(n++) % fixed.size()]; };
+        const auto found = pj::find(H);
+        const auto before = tree_facts(H);
+        auto plan = pj::give_ids(found, gen);
+        check("give_ids: one Write per project without an id (code too); an odd dot file left alone",
+              found.size() == 4 && plan.actions.size() == 3 &&
+              std::all_of(plan.actions.begin(), plan.actions.end(), [](const dr::Action& a) {
+                  return a.verb == dr::Verb::Write && a.to.ends_with("/.tidy-project"); }), plan.label);
+        check("give_ids: READ-ONLY until run", tree_facts(H) == before);
+        latch::door::set_app_name("Tidy");
+        dr::Door door(H, D);
+        door.load();
+        plan.previewed = true;
+        const auto r = door.run(plan);
+        const auto again = pj::find(H);
+        std::size_t with = 0;
+        for (const auto& p : again) with += pj::is_uuid(p.id);
+        check("give_ids: run -> three ids read back; none needed now", r.ok && with == 3 &&
+              pj::give_ids(again, gen).actions.empty());
+
+        ct::Catalog cat;
+        const bool opened = cat.open(D, true);
+        for (const auto& p : again)
+            if (!p.id.empty()) cat.seen_project({p.id, p.path, p.name, "", "", "", 100, false});
+        const auto rows = cat.projects();
+        check("status: seen projects start active, outcome empty", opened && rows.size() == 3 &&
+              std::all_of(rows.begin(), rows.end(), [](const ct::ProjectRow& x) { return x.status == "active" && x.outcome.empty(); }));
+        const std::string jid = [&] { for (const auto& p : again) if (p.name == "Jasper") return p.id; return std::string(); }();
+        const bool set = cat.set_status(jid, "done", "published 2026");
+        cat.seen_project({jid, H + "/Elsewhere/Jasper-project", "Jasper", "writing-project", "", "", 200, false});
+        const auto j = cat.project(jid);
+        check("status: set; a later Look moves the path but keeps status + outcome",
+              set && j && j->status == "done" && j->outcome == "published 2026" && j->seen == 200 &&
+              j->path == H + "/Elsewhere/Jasper-project" && j->tmpl == "writing-project");
+        check("status: an unknown id changes nothing", !cat.set_status("no-such-id", "done", ""));
+        check("status: four, stable ids", pj::statuses().size() == 4 && pj::is_status("paused") && !pj::is_status("Done"));
+        check("search: every word, any field, any case",
+              pj::fits("jas DONE", {"Jasper", "done", "published 2026"}) && pj::fits("", {"x"}) &&
+              !pj::fits("jasper paused", {"Jasper", "done"}) && pj::fits("2026", {"Jasper", "done", "published 2026"}));
+        const auto u = door.undo();
+        check("give_ids: undone -- no ids on disk again (the odd one untouched)",
+              u.ok && pj::give_ids(pj::find(H), gen).actions.size() == 3 &&
+              pj::read_id(H + "/Writing/Odd-project").empty() && fs::exists(H + "/Writing/Odd-project/.tidy-project"));
+        fs::remove_all(root);
+    }
+
     // ── s009: purposes -- the learned list; assign / close -- on a FIXTURE ──
     {
         std::cout << "[purposes]\n";

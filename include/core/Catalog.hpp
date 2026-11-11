@@ -33,6 +33,17 @@ struct Entry {
 
 Entry from_facts(const facts::Facts& f, std::int64_t seen);
 
+// s010e: a project's row -- keyed by its .tidy-project id. Where it was seen
+// (path, name, template) is refreshed at each Look; status and outcome are
+// the user's and only set_status() changes them.
+struct ProjectRow {
+    std::string  id, path, name, tmpl;
+    std::string  status = "active";
+    std::string  outcome;
+    std::int64_t seen = 0;
+    bool         gone = false;
+};
+
 class Catalog {
 public:
     Catalog() = default;
@@ -55,6 +66,12 @@ public:
     std::optional<Entry> by_path(const std::string& path) const;   // the newest seen there
     std::vector<Entry> all() const;
     std::size_t count(bool include_gone = false) const;
+
+    // Projects (s010e). seen_project keeps status / outcome; a new id starts active.
+    bool seen_project(const ProjectRow& r);
+    bool set_status(const std::string& id, const std::string& status, const std::string& outcome);
+    std::optional<ProjectRow> project(const std::string& id) const;
+    std::vector<ProjectRow> projects() const;
 
 private:
     std::vector<Entry> query(const char* sql, const std::vector<std::string>& args) const;

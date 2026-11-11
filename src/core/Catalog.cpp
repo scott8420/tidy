@@ -23,7 +23,11 @@ constexpr const char* kSchema =
     "  seen INTEGER NOT NULL, gone INTEGER NOT NULL DEFAULT 0);"
     "CREATE INDEX IF NOT EXISTS files_inode ON files(dev, ino);"
     "CREATE INDEX IF NOT EXISTS files_path ON files(path);"
-    "PRAGMA user_version = 1;";
+    "CREATE TABLE IF NOT EXISTS projects ("        /* s010e */
+    "  id TEXT PRIMARY KEY, path TEXT NOT NULL, name TEXT NOT NULL DEFAULT '', tmpl TEXT NOT NULL DEFAULT '',"
+    "  status TEXT NOT NULL DEFAULT 'active', outcome TEXT NOT NULL DEFAULT '',"
+    "  seen INTEGER NOT NULL DEFAULT 0, gone INTEGER NOT NULL DEFAULT 0);"
+    "PRAGMA user_version = 2;";
 
 constexpr const char* kCols = "id, path, dev, ino, size, btime, mtime, ctime, atime, retention, purpose, role, seen, gone";
 
@@ -195,5 +199,67 @@ std::vector<Entry> Catalog::all() const { return query("ORDER BY path", {}); }
 std::size_t Catalog::count(bool include_gone) const {
     return query(include_gone ? "" : "WHERE gone = 0", {}).size();
 }
+
+// ── Projects (s010e) ────────────────────────────────────────────────────────
+bool Catalog::seen_project(const ProjectRow& r) {
+    if (!m_db || !m_rw || r.id.empty()) return false;
+    const char* sql =
+        "INSERT INTO projects (id, path, name, tmpl, seen, gone) VALUES (?,?,?,?,?,0) "
+        "ON CONFLICT(id) DO UPDATE SET path = excluded.path, name = excluded.name, tmpl = excluded.tmpl, "
+        "seen = excluded.seen, gone = 0";
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(m_db, sql, -1, &st, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_text(st, 1, r.id.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(st, 2, r.path.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(st, 3, r.name.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(st, 4, r.tmpl.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(st, 5, r.seen);
+    const bool ok = sqlite3_step(st) == SQLITE_DONE;
+    sqlite3_finalize(st);
+    return ok;
+}
+
+bool Catalog::set_status(const std::string& id, const std::string& status, const std::string& outcome) {
+    if (!m_db || !m_rw) return false;
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(m_db, "UPDATE projects SET status = ?, outcome = ? WHERE id = ?", -1, &st, nullptr) != SQLITE_OK)
+        return false;
+    sqlite3_bind_text(st, 1, status.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(st, 2, outcome.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(st, 3, id.c_str(), -1, SQLITE_TRANSIENT);
+    const bool ok = sqlite3_step(st) == SQLITE_DONE && sqlite3_changes(m_db) == 1;
+    sqlite3_finalize(st);
+    return ok;
+}
+
+namespace {
+std::vector<ProjectRow> project_query(sqlite3* db, const char* where, const std::string& arg) {
+    std::vector<ProjectRow> out;
+    if (!db) return out;
+    const std::string sql = std::string("SELECT id, path, name, tmpl, status, outcome, seen, gone FROM projects ") + where;
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &st, nullptr) != SQLITE_OK) return out;   // no table yet: none
+    if (!arg.empty()) sqlite3_bind_text(st, 1, arg.c_str(), -1, SQLITE_TRANSIENT);
+    const auto txt = [&](int c) { const auto* p = sqlite3_column_text(st, c); return p ? std::string(reinterpret_cast<const char*>(p)) : std::string(); };
+    while (sqlite3_step(st) == SQLITE_ROW) {
+        ProjectRow r;
+        r.id = txt(0); r.path = txt(1); r.name = txt(2); r.tmpl = txt(3);
+        r.status = txt(4); r.outcome = txt(5);
+        r.seen = sqlite3_column_int64(st, 6);
+        r.gone = sqlite3_column_int(st, 7) != 0;
+        out.push_back(std::move(r));
+    }
+    sqlite3_finalize(st);
+    return out;
+}
+}  // namespace
+
+std::optional<ProjectRow> Catalog::project(const std::string& id) const {
+    auto v = project_query(m_db, "WHERE id = ?", id);
+    if (v.empty()) return std::nullopt;
+    return v.front();
+}
+
+std::vector<ProjectRow> Catalog::projects() const { return project_query(m_db, "ORDER BY path", ""); }
 
 }  // namespace tidy::core::catalog

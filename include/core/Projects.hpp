@@ -17,6 +17,7 @@
 #include <latch/Door.hpp>
 
 #include <filesystem>
+#include <functional>
 #include <set>
 #include <string>
 #include <vector>
@@ -53,7 +54,18 @@ bool is_uuid(const std::string& s);
 // Empty plan + `why` if not: bad name, no category, it exists already.
 latch::door::Plan create(const templates::Template& t, const std::string& name, const std::string& home,
                          const std::string& id, std::string* why);
-std::string folder_for(const std::string& name);      // "Jasper" -> "Jasper-project"; "x-project" kept
+std::string folder_for(const std::string& name);
+
+// s010e. Ids for projects found without one: a Write of .tidy-project each,
+// one plan (code projects too -- the dot file sits at the workspace's top).
+// `new_id` makes each id (facts::new_id in the app; fixed ones in tests).
+latch::door::Plan give_ids(const std::vector<Project>& found, const std::function<std::string()>& new_id);
+
+// Status of a project's work -- the catalog's, the user's choice.
+const std::vector<std::string>& statuses();          // active, paused, done, dropped (ids, on disk)
+bool is_status(const std::string& s);
+// Search: every word of `query` found (case-insensitive) in one of `fields`.
+bool fits(const std::string& query, const std::vector<std::string>& fields);      // "Jasper" -> "Jasper-project"; "x-project" kept
 
 // Is `rel` (relative to home, the folder's own path) a -project folder name?
 bool is_project_name(const std::string& folder_name);

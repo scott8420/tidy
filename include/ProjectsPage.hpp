@@ -2,6 +2,8 @@
 #include "core/Projects.hpp"
 #include "core/Templates.hpp"
 
+#include <gtkmm/box.h>
+#include <gtkmm/button.h>
 #include <gtkmm/entry.h>
 #include <gtkmm/dropdown.h>
 #include <gtkmm/stack.h>
@@ -43,7 +45,11 @@ private:
     void on_new_preview();
 
     void on_look();
-    void fill();
+    void fill();                             // Look: find, record ids in the catalog, render
+    void render();                           // the found list, filtered by the search (s010e)
+    void status_widgets(Gtk::Box* b, const core::projects::Project& p);
+    void set_status(const std::string& id, const std::string& status, const std::string& outcome);
+    void on_undo_status();
     void preview(latch::door::Plan plan);
     void on_run();
     void on_leave(const std::string& rel, bool leave);
@@ -69,6 +75,13 @@ private:
     Gtk::Label*    m_new_where = nullptr;
     Gtk::Label*    m_new_status = nullptr;
     std::vector<core::templates::Template> m_new_templates;
+    // s010e
+    std::vector<core::projects::Project> m_found;
+    Gtk::Entry*  m_search = nullptr;
+    Gtk::Button* m_give_ids = nullptr;
+    Gtk::Button* m_undo_status = nullptr;
+    struct StatusWas { std::string id, name, status, outcome; };
+    std::vector<StatusWas> m_status_undo;   // this page's own undo (status lives in Tidy's catalog)
 };
 
 }  // namespace tidy

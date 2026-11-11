@@ -1,5 +1,6 @@
 #include "ProjectsPage.hpp"
 #include "Log.hpp"
+#include "core/Catalog.hpp"
 #include "core/Facts.hpp"
 #include "core/Own.hpp"
 #include "core/Pages.hpp"
@@ -17,6 +18,8 @@
 #include <gtkmm/scrolledwindow.h>
 #include <gtkmm/stringlist.h>
 
+#include <algorithm>
+#include <ctime>
 #include <filesystem>
 
 namespace tidy {
@@ -158,6 +161,13 @@ void ProjectsPage::build_results() {
     again->set_name("projects.again");
     again->set_valign(Gtk::Align::CENTER);
     again->signal_clicked().connect([this] { on_look(); });
+    m_search = Gtk::make_managed<Gtk::Entry>();
+    m_search->set_name("projects.search");
+    m_search->set_placeholder_text("Search: name, status, outcome...");
+    m_search->set_valign(Gtk::Align::CENTER);
+    m_search->set_width_chars(26);
+    m_search->signal_changed().connect([this] { render(); });
+    head->append(*m_search);
     head->append(*again);
     box->append(*head);
     m_list = listbox("projects.list");
@@ -167,6 +177,19 @@ void ProjectsPage::build_results() {
     m_status->set_name("projects.status");
     m_status->set_hexpand(true);
     bar->append(*m_status);
+    m_undo_status = Gtk::make_managed<Gtk::Button>("Undo status");
+    m_undo_status->set_name("projects.undo_status");
+    m_undo_status->set_sensitive(false);
+    m_undo_status->signal_clicked().connect([this] { on_undo_status(); });
+    bar->append(*m_undo_status);
+    m_give_ids = Gtk::make_managed<Gtk::Button>("Give ids...");
+    m_give_ids->set_name("projects.give_ids");
+    m_give_ids->set_tooltip_text("A .tidy-project with a new id in each project that has none -- previewed first");
+    m_give_ids->signal_clicked().connect([this] {
+        auto plan = pj::give_ids(m_found, [] { return core::facts::new_id(); });
+        if (!plan.actions.empty()) preview(std::move(plan));
+    });
+    bar->append(*m_give_ids);
     auto nw = Gtk::make_managed<Gtk::Button>("New project...");
     nw->set_name("projects.new");
     nw->signal_clicked().connect([this] { show_new(); });
@@ -313,8 +336,109 @@ void ProjectsPage::refresh_if_shown() {
 
 void ProjectsPage::fill() {
     const auto left = pj::parse_left(core::own::read(m_data_dir, pj::kFile));
-    const auto found = pj::find(m_home, left);
+    m_found = pj::find(m_home, left);
+    // Record each project with an id in the catalog (Tidy's own record): where
+    // it was seen; its status / outcome are kept.
+    const auto ts0 = tp::list(m_data_dir);
+    const auto now = static_cast<std::int64_t>(std::time(nullptr));
+    core::catalog::Catalog cat;
+    if (std::any_of(m_found.begin(), m_found.end(), [](const pj::Project& p) { return !p.id.empty(); }) &&
+        cat.open(m_data_dir, true)) {
+        for (const auto& p : m_found) {
+            if (p.id.empty()) continue;
+            const auto* t = pj::template_for(p, ts0);
+            cat.seen_project({p.id, p.path, p.name, t ? t->name : "", "", "", now, false});
+        }
+    }
+    render();
+}
+
+void ProjectsPage::status_widgets(Gtk::Box* b, const pj::Project& p) {
+    if (p.id.empty()) {
+        auto l = Gtk::make_managed<Gtk::Label>("no id");
+        l->add_css_class("dim");
+        l->set_valign(Gtk::Align::CENTER);
+        l->set_tooltip_text("Give ids... writes one (.tidy-project)");
+        b->append(*l);
+        return;
+    }
+    core::catalog::Catalog cat;
+    core::catalog::ProjectRow row;
+    if (cat.open(m_data_dir, false))
+        if (auto r = cat.project(p.id)) row = *r;
+    auto out = Gtk::make_managed<Gtk::Entry>();
+    out->set_name("projects.outcome." + p.rel);
+    out->set_placeholder_text("outcome...");
+    out->set_width_chars(16);
+    out->set_valign(Gtk::Align::CENTER);
+    out->set_text(row.outcome);
+    out->set_tooltip_text("What came of it -- Enter saves");
+    auto model = Gtk::StringList::create({});
+    guint at = 0;
+    for (guint i = 0; i < pj::statuses().size(); ++i) {
+        model->append(pj::statuses()[i]);
+        if (pj::statuses()[i] == row.status) at = i;
+    }
+    auto dd = Gtk::make_managed<Gtk::DropDown>(model);
+    dd->set_name("projects.status." + p.rel);
+    dd->set_valign(Gtk::Align::CENTER);
+    dd->set_selected(at);
+    dd->set_tooltip_text("Status of the work (Tidy's catalog; id " + p.id.substr(0, 8) + ")");
+    dd->property_selected().signal_changed().connect([this, dd, out, id = p.id] {
+        const auto i = dd->get_selected();
+        if (i < pj::statuses().size()) set_status(id, pj::statuses()[i], out->get_text());
+    });
+    out->signal_activate().connect([this, dd, out, id = p.id] {
+        const auto i = dd->get_selected();
+        if (i < pj::statuses().size()) set_status(id, pj::statuses()[i], out->get_text());
+    });
+    b->append(*out);
+    b->append(*dd);
+}
+
+void ProjectsPage::set_status(const std::string& id, const std::string& status, const std::string& outcome) {
+    core::catalog::Catalog cat;
+    if (!cat.open(m_data_dir, true)) { m_status->set_text("The catalog could not be opened."); return; }
+    const auto was = cat.project(id);
+    if (!was) { m_status->set_text("Not in the catalog yet -- Look again."); return; }
+    if (was->status == status && was->outcome == outcome) return;
+    if (!cat.set_status(id, status, outcome)) { m_status->set_text("Not saved."); return; }
+    m_status_undo.push_back({id, was->name, was->status, was->outcome});
+    m_undo_status->set_sensitive(true);
+    m_status->set_text(was->name + "-project: " + status + (outcome.empty() ? "" : " -- " + outcome));
+    if (auto lg = log::get(log::Area::Io)) lg->info("project {} status {} -> {}", id, was->status, status);
+}
+
+void ProjectsPage::on_undo_status() {
+    if (m_status_undo.empty()) return;
+    const auto w = m_status_undo.back();
+    m_status_undo.pop_back();
+    core::catalog::Catalog cat;
+    if (cat.open(m_data_dir, true) && cat.set_status(w.id, w.status, w.outcome))
+        m_status->set_text("Undone: " + w.name + "-project back to " + w.status);
+    m_undo_status->set_sensitive(!m_status_undo.empty());
+    render();
+}
+
+void ProjectsPage::render() {
+    const std::string q = m_search ? std::string(m_search->get_text()) : std::string();
     const auto ts = tp::list(m_data_dir);
+    std::vector<pj::Project> found;
+    {
+        core::catalog::Catalog cat;
+        const bool open = cat.open(m_data_dir, false);
+        for (const auto& p : m_found) {
+            std::vector<std::string> fields = {p.name, p.rel, p.category, p.code ? "code" : ""};
+            if (const auto* t = pj::template_for(p, ts)) fields.push_back(t->name);
+            if (open && !p.id.empty())
+                if (auto r = cat.project(p.id)) { fields.push_back(r->status); fields.push_back(r->outcome); }
+            if (p.id.empty()) fields.push_back("no id");
+            if (pj::fits(q, fields)) found.push_back(p);
+        }
+    }
+    const std::size_t no_id = std::count_if(m_found.begin(), m_found.end(), [](const pj::Project& p) { return p.id.empty(); });
+    m_give_ids->set_visible(no_id > 0);
+    m_give_ids->set_label("Give ids (" + std::to_string(no_id) + ")...");
     const auto cats = categories();
     clear(m_list);
 
@@ -354,6 +478,7 @@ void ProjectsPage::fill() {
             auto b = row_box();
             texts(b, p.name + "-project", "in " + shown(std::filesystem::path(p.path).parent_path().string()) +
                                               (p.code ? " -- code: stays where it is" : ""));
+            status_widgets(b, p);
             if (p.code) continue;
             auto model = Gtk::StringList::create({});
             for (const auto& c : cats) model->append(c);
@@ -403,6 +528,7 @@ void ProjectsPage::fill() {
                 }
             }
             texts(b, shown(p.path), under);
+            status_widgets(b, p);
             // Offer Fix only when the door would make something (fixes/ is always refused: Scott's).
             std::size_t doable = 0;
             if (missing)
@@ -422,14 +548,18 @@ void ProjectsPage::fill() {
             if (!p.left) continue;
             auto b = row_box();
             texts(b, p.name + "-project", "in " + shown(std::filesystem::path(p.path).parent_path().string()));
+            status_widgets(b, p);
             auto again = Gtk::make_managed<Gtk::Button>("Ask again");
             again->set_name("projects.ask." + p.rel);
             again->signal_clicked().connect([this, r = p.rel] { on_leave(r, false); });
             b->append(*again);
         }
     }
-    m_summary->set_text(found.empty() ? std::string("No -project folders found, four deep in ") + shown(m_home) :
-                        std::to_string(found.size()) + " project" + (found.size() == 1 ? "" : "s") + ": " +
+    m_summary->set_text(m_found.empty() ? std::string("No -project folders found, four deep in ") + shown(m_home) :
+                        found.empty() ? "Nothing fits \"" + q + "\" (" + std::to_string(m_found.size()) + " projects)" :
+                        (found.size() < m_found.size() ? std::to_string(found.size()) + " of " + std::to_string(m_found.size())
+                                                       : std::to_string(found.size())) +
+                        " project" + (m_found.size() == 1 ? "" : "s") + ": " +
                         std::to_string(n_place) + " to place, " + std::to_string(n_placed) + " placed, " +
                         std::to_string(n_left) + " left");
     if (auto lg = log::get(log::Area::Io)) lg->info("projects look: {} found ({} to place, {} placed, {} left)",

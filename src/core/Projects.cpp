@@ -117,6 +117,47 @@ dr::Plan create(const templates::Template& t, const std::string& name, const std
     return plan;
 }
 
+dr::Plan give_ids(const std::vector<Project>& found, const std::function<std::string()>& new_id) {
+    dr::Plan plan;
+    for (const auto& p : found) {
+        if (!p.id.empty()) continue;
+        std::error_code ec;
+        if (fs::exists(fs::symlink_status(p.path + "/" + kIdFile, ec))) continue;   // there, but not a uuid: left alone
+        dr::Action w;
+        w.verb = dr::Verb::Write;
+        w.to = p.path + "/" + kIdFile;
+        w.content = id_text(new_id());
+        w.reason = "the project's id";
+        plan.actions.push_back(w);
+    }
+    if (!plan.actions.empty())
+        plan.label = "Ids: " + std::to_string(plan.actions.size()) + " project" + (plan.actions.size() == 1 ? "" : "s");
+    return plan;
+}
+
+const std::vector<std::string>& statuses() {
+    static const std::vector<std::string> s = {"active", "paused", "done", "dropped"};
+    return s;
+}
+
+bool is_status(const std::string& s) {
+    return std::find(statuses().begin(), statuses().end(), s) != statuses().end();
+}
+
+bool fits(const std::string& query, const std::vector<std::string>& fields) {
+    const auto low = [](std::string x) {
+        for (auto& c : x) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        return x;
+    };
+    std::string hay;
+    for (const auto& f : fields) hay += low(f) + "\n";
+    std::istringstream in(low(query));
+    std::string word;
+    while (in >> word)
+        if (hay.find(word) == std::string::npos) return false;
+    return true;
+}
+
 std::vector<Project> find(const std::string& home, const std::set<std::string>& left) {
     std::vector<Project> out;
     const auto walk = [&](const fs::path& at, const std::string& rel, int depth, auto& self) -> void {
