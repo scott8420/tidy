@@ -78,6 +78,10 @@ public:
     ~Shell() override;
 
     void build_ui();                               // category: glue
+    // s012c: what the tile asks for (tidy --page / --new-project / --background).
+    void go(const std::string& page);              // category: glue: a page, its sidebar row selected
+    void new_project_from(const std::string& template_name);   // category: glue: Projects -> New project, that template
+    void open_background();                        // category: glue: the Background scan window
 
 private:
     // ── zones ──────────────────────────────────────────────────────────────

@@ -283,6 +283,13 @@ void ProjectsPage::build_new() {
     add(*box, "new");
 }
 
+void ProjectsPage::new_from(const std::string& name) {
+    show_new();
+    for (std::size_t i = 0; i < m_new_templates.size(); ++i)
+        if (m_new_templates[i].name == name) m_new_tpl->set_selected(static_cast<guint>(i));
+    m_new_name->grab_focus();
+}
+
 void ProjectsPage::show_new() {
     m_new_templates = tp::list(m_data_dir);
     auto names = Gtk::StringList::create({});

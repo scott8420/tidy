@@ -53,6 +53,9 @@ while IFS= read -r p; do
     fi
 done < "$MANIFEST"
 "${SUDO[@]}" rmdir --ignore-fail-on-non-empty "$PREFIX/share/$APP" 2>/dev/null || true
+# s012c: the tile's folders, once empty.
+EXTDIR="$PREFIX/share/gnome-shell/extensions/tidy@scott8420.github.io"
+"${SUDO[@]}" rmdir --ignore-fail-on-non-empty "$EXTDIR/icons" "$EXTDIR" 2>/dev/null || true
 
 ICONDIR="$PREFIX/share/icons/hicolor"
 APPDIR="$PREFIX/share/applications"

@@ -61,6 +61,14 @@ put "$tmp_desktop"                                     "$APPDIR/$APP_ID.desktop"
 put "data/$APP_ID.svg"                                 "$ICONDIR/scalable/apps/$APP_ID.svg"                   644
 put "resources/icons/scalable/apps/$APP-logo-symbolic.svg" "$ICONDIR/symbolic/apps/$APP_ID-symbolic.svg"      644
 
+# s012c: the Quick Settings tile (a GNOME Shell extension). Read-only; it runs
+# the tidy installed above. GNOME looks in <prefix>/share/gnome-shell/extensions.
+EXT_UUID=tidy@scott8420.github.io
+EXTDIR="$PREFIX/share/gnome-shell/extensions/$EXT_UUID"
+for f in metadata.json extension.js icons/tidy-symbolic.svg; do
+    put "extension/$EXT_UUID/$f" "$EXTDIR/$f" 644
+done
+
 manifest_tmp="$(mktemp)"
 printf '%s\n' "${written[@]}" "$MANIFEST" > "$manifest_tmp"
 "${SUDO[@]}" install -D -m 644 "$manifest_tmp" "$MANIFEST"
@@ -72,3 +80,4 @@ command -v update-desktop-database >/dev/null && "${SUDO[@]}" update-desktop-dat
 echo "Installed Tidy to $PREFIX"
 echo "  manifest: $MANIFEST"
 case ":$PATH:" in *":$BINDIR:"*) ;; *) echo "  note: $BINDIR is not on your PATH" ;; esac
+echo "  the tile: gnome-extensions enable $EXT_UUID   (first time: log out and in -- Wayland loads new extensions at login)"

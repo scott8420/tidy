@@ -27,7 +27,28 @@ Glib::RefPtr<App> App::create() {
     return Glib::make_refptr_for_instance(new App());
 }
 
-App::App() : Gtk::Application("io.github.scott8420.Tidy") {}
+App::App() : Gtk::Application("io.github.scott8420.Tidy", Gio::Application::Flags::HANDLES_COMMAND_LINE) {}
+
+// s012c: the Quick Settings tile starts `tidy --page due`, `tidy --new-project
+// art-project`, `tidy --background`. A second launch hands its command line
+// to the running Tidy (GApplication), so the tile never opens a second window.
+int App::on_command_line(const Glib::RefPtr<Gio::ApplicationCommandLine>& cl) {
+    int argc = 0;
+    char** argv = cl->get_arguments(argc);
+    std::vector<std::string> args(argv + (argc > 0 ? 1 : 0), argv + argc);
+    g_strfreev(argv);
+    activate();                       // the window, made once
+    if (!m_shell) return 0;
+    for (std::size_t i = 0; i < args.size(); ++i) {
+        const auto& a = args[i];
+        const bool more = i + 1 < args.size();
+        if (a == "--page" && more) m_shell->go(args[++i]);
+        else if (a == "--new-project" && more) m_shell->new_project_from(args[++i]);
+        else if (a == "--background") m_shell->open_background();
+        else if (auto lg = log::get(log::Area::App)) lg->warn("command line: '{}' not known", a);
+    }
+    return 0;
+}
 
 // The SHORTCUT-REGISTRY paradigm's other consumer. Accelerators are an
 // application-scope concern (they survive window construction order), so they
@@ -46,6 +67,8 @@ void App::on_startup() {
 }
 
 void App::on_activate() {
+    // s012c: a second activation (the tile, a second launch) presents the one window.
+    if (m_shell) { m_shell->present(); return; }
     // ── THE DESKTOP'S LIGHT/DARK PREFERENCE, FIRST, BEFORE ANY WINDOW ───────
     // GTK4 does not follow it on its own and Tidy does not link libadwaita,
     // so the app has to ask (see Appearance.hpp). Ahead of `new Shell()` on

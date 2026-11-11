@@ -1,0 +1,8 @@
+{
+  "uuid": "tidy@scott8420.github.io",
+  "name": "Tidy",
+  "description": "Tidy in Quick Settings: what needs attention, Scan now, a new project of a type, the background scan.",
+  "shell-version": ["47", "48", "49", "50"],
+  "url": "https://github.com/scott8420/tidy",
+  "version": 1
+}

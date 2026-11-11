@@ -39,6 +39,9 @@ public:
     // s010f1: the loose background rescan -- find + record (read-only on the
     // home); the list re-renders if shown. Returns the summary line.
     std::string rescan();
+    // s012c: the tile's "New project -> <template>": the form, that template
+    // picked, the name box focused. Nothing is made until Preview + Do it.
+    void new_from(const std::string& template_name);
 
 private:
     void build_start();

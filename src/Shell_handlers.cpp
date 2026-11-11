@@ -226,3 +226,26 @@ void Shell::on_background() {  // handler
 }
 
 }  // namespace tidy
+
+namespace tidy {
+
+// s012c: the tile's requests, through App::on_command_line.
+void Shell::go(const std::string& page) {  // glue
+    bool selected = false;
+    for (int i = 0; auto* r = m_nav.get_row_at_index(i); ++i)
+        if (std::string(r->get_name()) == "nav." + page) { m_nav.select_row(*r); selected = true; }
+    if (!selected) on_nav(page);       // the look off: GTK's own sidebar follows the stack
+    present();
+}
+
+void Shell::new_project_from(const std::string& name) {  // glue
+    go("projects");
+    if (m_projects) m_projects->new_from(name);
+}
+
+void Shell::open_background() {  // glue
+    present();
+    on_background();
+}
+
+}  // namespace tidy

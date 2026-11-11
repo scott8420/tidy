@@ -15,7 +15,8 @@ public:
 protected:
     App();
     void on_activate() override;
-    void on_startup() override;   // accelerators, driven from core::shortcut_registry()
+    void on_startup() override;
+    int on_command_line(const Glib::RefPtr<Gio::ApplicationCommandLine>& cl) override;   // s012c: --page / --new-project / --background   // accelerators, driven from core::shortcut_registry()
 
 private:
     Shell* m_shell = nullptr;   // owned by the application via add_window
