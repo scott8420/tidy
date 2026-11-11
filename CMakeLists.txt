@@ -94,6 +94,7 @@ add_library(tidy_core STATIC
     src/core/Projects.cpp    # projects: found, categorized; place / fix as door plans (s008)
     src/core/Templates.cpp   # templates: the tree, roles, routes; lift = proposal; drift; builder undo (s007)
     src/core/Starters.cpp    # the built-in templates: the creative base + its kinds (s010a)
+    src/core/Rescan.cpp      # what a look tells the catalog: moved by id, gone, copies (s010f1)
 )
 target_include_directories(tidy_core PUBLIC include)
 target_link_libraries(tidy_core PUBLIC latch::latch PkgConfig::SQLITE)

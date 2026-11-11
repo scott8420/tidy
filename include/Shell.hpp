@@ -90,6 +90,7 @@ private:
     void on_nav(const std::string& page);          // category: handler: a sidebar row -> page + tint
     void on_about();                               // category: handler: the About window (hide-on-close)
     void on_settings();                            // category: handler: the Settings window (s006a)
+    void arm_rescan();                             // handler: the loose background rescan (s010f1)
     void on_shortcuts();                           // category: handler: the keyboard reference
     void on_dump_registry();                       // category: handler: print the live widget tree
     void on_activity_undo();                       // category: handler: undo the newest batch, through the door
@@ -155,6 +156,7 @@ private:
     std::unique_ptr<SettingsWindow>  m_settings_win;
     core::settings::Settings         m_settings;   // read at build_ui; written only by core::own
     std::unique_ptr<ShortcutsDialog> m_shortcuts;
+    sigc::connection                 m_rescan;     // s010f1: every rescan_minutes; 0 = none
 };
 
 }  // namespace tidy

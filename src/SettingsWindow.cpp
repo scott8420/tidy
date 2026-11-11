@@ -49,6 +49,25 @@ SettingsWindow::SettingsWindow(Gtk::Window& parent, SaveFn on_save) : m_save(std
     box->append(*row);
     box->append(*text("An undecided file born and unread this long is proposed as Ephemeral.", "dim"));
 
+    auto prj = text("Projects", "heading");
+    prj->set_margin_top(14);
+    box->append(*prj);
+    auto row2 = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::HORIZONTAL, 10);
+    auto pre2 = text("Look again every");
+    pre2->set_wrap(false);
+    row2->append(*pre2);
+    m_rescan = Gtk::make_managed<Gtk::SpinButton>(
+        Gtk::Adjustment::create(st::kRescanDefault, st::kRescanMin, st::kRescanMax, 1, 10));
+    m_rescan->set_name("settings.rescan_minutes");
+    m_rescan->set_numeric(true);
+    row2->append(*m_rescan);
+    auto post2 = text("minutes (0 = never)");
+    post2->set_wrap(false);
+    row2->append(*post2);
+    box->append(*row2);
+    box->append(*text("While Tidy runs, and once at launch: finds your projects again, read-only. "
+                      "A moved one is followed by its id; one not found is marked gone, never forgotten.", "dim"));
+
     auto junk = text("Junk list", "heading");
     junk->set_margin_top(14);
     box->append(*junk);
@@ -88,6 +107,7 @@ SettingsWindow::~SettingsWindow() = default;
 
 void SettingsWindow::show(const st::Settings& current) {
     m_days->set_value(current.aging_days);
+    m_rescan->set_value(current.rescan_minutes);
     std::string lines;
     for (const auto& j : current.junk) lines += j + "\n";
     m_junk->get_buffer()->set_text(lines);
@@ -98,6 +118,7 @@ void SettingsWindow::show(const st::Settings& current) {
 void SettingsWindow::on_save_clicked() {
     st::Settings s;
     s.aging_days = m_days->get_value_as_int();
+    s.rescan_minutes = m_rescan->get_value_as_int();
     s.junk = st::patterns_of(m_junk->get_buffer()->get_text());
     const std::string err = m_save ? m_save(s) : std::string("nothing to save to");
     if (err.empty()) set_visible(false);

@@ -264,6 +264,18 @@ std::optional<ProjectRow> Catalog::project(const std::string& id) const {
 
 std::vector<ProjectRow> Catalog::projects() const { return project_query(m_db, "ORDER BY path", ""); }
 
+bool Catalog::mark_project_gone(const std::string& id, std::int64_t when) {
+    if (!m_db || !m_rw) return false;
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(m_db, "UPDATE projects SET gone = 1, seen = ? WHERE id = ? AND gone = 0", -1, &st, nullptr) != SQLITE_OK)
+        return false;
+    sqlite3_bind_int64(st, 1, when);
+    sqlite3_bind_text(st, 2, id.c_str(), -1, SQLITE_TRANSIENT);
+    const bool ok = sqlite3_step(st) == SQLITE_DONE && sqlite3_changes(m_db) == 1;
+    sqlite3_finalize(st);
+    return ok;
+}
+
 // ── Uses (s010g) ─────────────────────────────────────────────────────────────
 namespace {
 bool use_exec(sqlite3* db, const char* sql, const std::string& a, const std::string& b) {

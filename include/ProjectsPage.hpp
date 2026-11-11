@@ -1,5 +1,6 @@
 #pragma once
 #include "core/Projects.hpp"
+#include "core/Rescan.hpp"
 #include "core/Templates.hpp"
 
 #include <gtkmm/box.h>
@@ -35,6 +36,9 @@ public:
     ProjectsPage(latch::door::Door& door, std::string home, std::string data_dir, bool fixture, Changed changed);
 
     void refresh_if_shown();                 // after an undo in Activity
+    // s010f1: the loose background rescan -- find + record (read-only on the
+    // home); the list re-renders if shown. Returns the summary line.
+    std::string rescan();
 
 private:
     void build_start();
@@ -45,7 +49,8 @@ private:
     void on_new_preview();
 
     void on_look();
-    void fill();                             // Look: find, record ids in the catalog, render
+    void fill();
+    core::rescan::Result look();             // find + tell the catalog (s010f1)                             // Look: find, record ids in the catalog, render
     void render();                           // the found list, filtered by the search (s010e)
     void status_widgets(Gtk::Box* b, const core::projects::Project& p);
     void set_status(const std::string& id, const std::string& status, const std::string& outcome);

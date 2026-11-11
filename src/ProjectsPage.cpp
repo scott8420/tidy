@@ -3,6 +3,7 @@
 #include "core/Catalog.hpp"
 #include "core/Facts.hpp"
 #include "core/Own.hpp"
+#include "core/Rescan.hpp"
 #include "core/Pages.hpp"
 #include "core/Templates.hpp"
 
@@ -335,22 +336,41 @@ void ProjectsPage::refresh_if_shown() {
 }
 
 void ProjectsPage::fill() {
+    look();
+    render();
+}
+
+// Find, then tell the catalog (s010f1): seen / moved by id / back / gone.
+// Read-only on the home; the catalog is opened for writing only if there is
+// an id to record or a catalog already holding projects.
+core::rescan::Result ProjectsPage::look() {
     const auto left = pj::parse_left(core::own::read(m_data_dir, pj::kFile));
     m_found = pj::find(m_home, left);
-    // Record each project with an id in the catalog (Tidy's own record): where
-    // it was seen; its status / outcome are kept.
-    const auto ts0 = tp::list(m_data_dir);
-    const auto now = static_cast<std::int64_t>(std::time(nullptr));
+    core::rescan::Result r;
+    r.found = m_found.size();
+    const bool any_id = std::any_of(m_found.begin(), m_found.end(), [](const pj::Project& p) { return !p.id.empty(); });
+    std::error_code ec;
     core::catalog::Catalog cat;
-    if (std::any_of(m_found.begin(), m_found.end(), [](const pj::Project& p) { return !p.id.empty(); }) &&
-        cat.open(m_data_dir, true)) {
-        for (const auto& p : m_found) {
-            if (p.id.empty()) continue;
-            const auto* t = pj::template_for(p, ts0);
-            cat.seen_project({p.id, p.path, p.name, t ? t->name : "", "", "", now, false});
+    if ((any_id || std::filesystem::exists(core::catalog::Catalog::path_in(m_data_dir), ec)) && cat.open(m_data_dir, true))
+        r = core::rescan::record(m_found, tp::list(m_data_dir), cat, static_cast<std::int64_t>(std::time(nullptr)));
+    for (const auto& t : r.twins)
+        if (auto lg = log::get(log::Area::Io)) lg->warn("projects: {} carries an id already seen -- a copy?", t);
+    return r;
+}
+
+std::string ProjectsPage::rescan() {
+    const auto r = look();
+    const auto line = core::rescan::summary(r);
+    if (get_visible_child_name() == "results") {
+        render();
+        if (line != "no change") {
+            char hm[8];
+            const auto t = std::time(nullptr);
+            std::strftime(hm, sizeof hm, "%H:%M", std::localtime(&t));
+            m_status->set_text(std::string("Looked again at ") + hm + ": " + line);
         }
     }
-    render();
+    return line;
 }
 
 void ProjectsPage::status_widgets(Gtk::Box* b, const pj::Project& p) {
@@ -676,13 +696,35 @@ void ProjectsPage::render() {
             b->append(*again);
         }
     }
+    // s010f1: in the catalog, not found at the last look -- kept, never deleted.
+    std::size_t n_gone = 0;
+    {
+        core::catalog::Catalog cat;
+        if (cat.open(m_data_dir, false)) {
+            std::vector<core::catalog::ProjectRow> gone;
+            for (const auto& r : cat.projects())
+                if (r.gone && pj::fits(q, {r.name, r.path, r.status, r.outcome, "gone"})) gone.push_back(r);
+            n_gone = gone.size();
+            if (!gone.empty()) {
+                section("Gone -- not found at the last look; kept, and back when seen again");
+                for (const auto& r : gone) {
+                    auto b = row_box();
+                    char day[16] = "";
+                    const std::time_t t = r.seen;
+                    std::strftime(day, sizeof day, "%Y-%m-%d", std::localtime(&t));
+                    texts(b, r.name + "-project", "last at " + shown(r.path) + " -- missed " + day + " -- " + r.status +
+                                                      (r.outcome.empty() ? "" : ": " + r.outcome));
+                }
+            }
+        }
+    }
     m_summary->set_text(m_found.empty() ? std::string("No -project folders found, four deep in ") + shown(m_home) :
                         found.empty() ? "Nothing fits \"" + q + "\" (" + std::to_string(m_found.size()) + " projects)" :
                         (found.size() < m_found.size() ? std::to_string(found.size()) + " of " + std::to_string(m_found.size())
                                                        : std::to_string(found.size())) +
                         " project" + (m_found.size() == 1 ? "" : "s") + ": " +
                         std::to_string(n_place) + " to place, " + std::to_string(n_placed) + " placed, " +
-                        std::to_string(n_left) + " left");
+                        std::to_string(n_left) + " left" + (n_gone ? ", " + std::to_string(n_gone) + " gone" : ""));
     if (auto lg = log::get(log::Area::Io)) lg->info("projects look: {} found ({} to place, {} placed, {} left)",
                                                     found.size(), n_place, n_placed, n_left);
 }

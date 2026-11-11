@@ -30,6 +30,7 @@ private:
 
     SaveFn           m_save;
     Gtk::SpinButton* m_days = nullptr;
+    Gtk::SpinButton* m_rescan = nullptr;     // s010f1
     Gtk::TextView*   m_junk = nullptr;
     Gtk::Label*      m_status = nullptr;
 };

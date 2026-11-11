@@ -79,6 +79,7 @@
 #include "core/Templates.hpp"
 #include "core/Starters.hpp"
 #include "core/Projects.hpp"
+#include "core/Rescan.hpp"
 #include "core/Purposes.hpp"
 
 #include <latch/Door.hpp>
@@ -1775,6 +1776,60 @@ int main(int argc, char** argv) {
         check("give_ids: undone -- no ids on disk again (the odd one untouched)",
               u.ok && pj::give_ids(pj::find(H), gen).actions.size() == 3 &&
               pj::read_id(H + "/Writing/Odd-project").empty() && fs::exists(H + "/Writing/Odd-project/.tidy-project"));
+        fs::remove_all(root);
+    }
+
+    // ── s010f1: the rescan -- moved by id, gone, back, copies; read-only ──
+    {
+        std::cout << "[rescan]\n";
+        namespace pj = core::projects;
+        namespace ct = core::catalog;
+        namespace rs = core::rescan;
+        namespace st = core::settings;
+        const fs::path root = fs::temp_directory_path() / ("tidy_selftest_rescan_" + std::to_string(::getpid()));
+        fs::remove_all(root);
+        const std::string H = (root / "home").string(), D = (root / "data").string();
+        const std::string A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+        put_file(H + "/Writing/Book-project/.tidy-project", pj::id_text(A));
+        put_file(H + "/Art/Cover-project/.tidy-project", pj::id_text(B));
+        fs::create_directories(H + "/Art/Plain-project");
+        ct::Catalog cat;
+        const bool opened = cat.open(D, true);
+        const auto before = tree_facts(H);
+        auto r = rs::record(pj::find(H), {}, cat, 100);
+        check("rescan: first look -- 3 found, 2 ids, 2 new, nothing gone", opened && r.found == 3 && r.with_id == 2 &&
+              r.added == 2 && r.moved == 0 && r.gone == 0 && rs::summary(r) == "2 new", rs::summary(r));
+        check("rescan: READ-ONLY on the home", tree_facts(H) == before);
+        cat.set_status(A, "paused", "waiting on the cover");
+        cat.add_use(A, B);
+        fs::create_directories(H + "/Books");
+        fs::rename(H + "/Writing/Book-project", H + "/Books/Book-project");
+        r = rs::record(pj::find(H), {}, cat, 200);
+        const auto a = cat.project(A);
+        check("rescan: a moved project is followed by id -- status, outcome, uses kept",
+              r.moved == 1 && r.added == 0 && a && a->path == H + "/Books/Book-project" && a->status == "paused" &&
+              a->outcome == "waiting on the cover" && cat.uses().size() == 1, rs::summary(r));
+        fs::rename(H + "/Art/Cover-project", root / "Cover-project");          // out of the home
+        r = rs::record(pj::find(H), {}, cat, 300);
+        const auto b = cat.project(B);
+        check("rescan: not found -> gone, kept (row, uses); counted once",
+              r.gone == 1 && b && b->gone && b->seen == 300 && cat.uses().size() == 1 &&
+              rs::record(pj::find(H), {}, cat, 400).gone == 0, rs::summary(r));
+        fs::rename(root / "Cover-project", H + "/Art/Cover-project");
+        r = rs::record(pj::find(H), {}, cat, 500);
+        check("rescan: seen again -> back", r.back == 1 && cat.project(B) && !cat.project(B)->gone, rs::summary(r));
+        fs::create_directories(H + "/Desktop");
+        fs::copy(H + "/Art/Cover-project", H + "/Desktop/Cover-project", fs::copy_options::recursive);
+        r = rs::record(pj::find(H), {}, cat, 600);
+        check("rescan: a copy (same id twice) -> one row, the copy counted",
+              r.twins.size() == 1 && cat.projects().size() == 2 && rs::summary(r).find("cop") != std::string::npos,
+              rs::summary(r));
+        check("rescan: nothing new -> \"no change\"", rs::summary(rs::Result{}) == "no change");
+        check("rescan: the setting -- default 10, 0 = never, clamped, round trip",
+              st::Settings{}.rescan_minutes == 10 && st::parse("rescan_minutes=0").rescan_minutes == 0 &&
+              st::parse("rescan_minutes=99999").rescan_minutes == st::kRescanMax &&
+              st::parse("rescan_minutes=-3").rescan_minutes == 0 &&
+              st::parse(st::format(st::parse("rescan_minutes=25\naging_days=7"))).rescan_minutes == 25);
         fs::remove_all(root);
     }
 

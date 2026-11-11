@@ -4,6 +4,9 @@
 #include "AboutWindow.hpp"
 #include "ShortcutsDialog.hpp"
 #include "SettingsWindow.hpp"
+
+#include <glibmm/main.h>
+#include <chrono>
 #include "core/Own.hpp"
 #include "Log.hpp"
 #include "Registry.hpp"
@@ -49,11 +52,13 @@ void Shell::on_settings() {  // handler: the Settings window
             const std::string err = core::own::write(m_data_dir, core::settings::kFile, core::settings::format(s));
             if (!err.empty()) return err;
             m_settings = s;
+            arm_rescan();
             if (m_clo_states && m_clo_states->get_visible_child_name() == "results") fill_closet();
     if (m_projects) m_projects->refresh_if_shown();
     if (m_purposes) m_purposes->refresh_if_shown();
             if (auto lg = log::get(log::Area::Shell))
-                lg->info("settings saved: aging {} days, {} junk patterns", s.aging_days, s.junk.size());
+                lg->info("settings saved: aging {} days, {} junk patterns, rescan every {} min", s.aging_days,
+                         s.junk.size(), s.rescan_minutes);
             return std::string();
         });
     m_settings_win->show(m_settings);
@@ -150,4 +155,22 @@ void Shell::on_dump_registry() {  // handler: print the live widget tree (also c
     registry::dump();
 }
 
+// s010f1: the loose background rescan ("a file monitor of a loose kind",
+// Scott). Projects only, READ-ONLY on the home: find, record ids in the
+// catalog (moves followed by id, gone marked). Every rescan_minutes while
+// Tidy runs; 0 = never. On the main loop -- find() is four folders deep;
+// its time is logged, and it moves to a thread if that ever shows.
+void Shell::arm_rescan() {  // handler
+    m_rescan.disconnect();
+    if (!m_projects || m_settings.rescan_minutes <= 0) return;
+    m_rescan = Glib::signal_timeout().connect_seconds([this] {
+        const auto t0 = std::chrono::steady_clock::now();
+        const auto line = m_projects->rescan();
+        const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
+        if (auto lg = log::get(log::Area::Shell)) lg->info("rescan: {} ({} ms)", line, ms);
+        return true;
+    }, static_cast<unsigned>(m_settings.rescan_minutes) * 60u);
+}
+
 }  // namespace tidy
+

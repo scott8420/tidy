@@ -2,11 +2,13 @@
 #include "AboutWindow.hpp"      // complete types for the unique_ptr dtors
 #include "ShortcutsDialog.hpp"
 #include "SettingsWindow.hpp"
+#include "ProjectsPage.hpp"
 #include "core/Own.hpp"
 #include "Log.hpp"
 #include "core/Paths.hpp"
 
 #include <latch/Door.hpp>
+#include <glibmm/main.h>
 #include <glibmm/miscutils.h>
 
 #include <cstdlib>
@@ -57,6 +59,14 @@ void Shell::build_ui() {
     build_shell();     // zone
     build_pages();     // zone (+ the look's sidebar over them)
     bind_actions();    // bindings
+
+    // s010f1: once at launch (when the loop is idle), then every N minutes.
+    if (m_projects && m_settings.rescan_minutes > 0)
+        Glib::signal_idle().connect_once([this] {
+            const auto line = m_projects->rescan();
+            if (auto lg = log::get(log::Area::Shell)) lg->info("rescan at launch: {}", line);
+        });
+    arm_rescan();
 
     if (auto lg = log::get(log::Area::Shell))
         lg->info("ready -- latch says '{}'; home {}{}; records at {}; {} batches",

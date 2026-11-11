@@ -17,9 +17,13 @@ namespace tidy::core::settings {
 inline constexpr const char* kFile = "settings.ini";
 inline constexpr int kAgingDefault = 30;
 inline constexpr int kAgingMin = 1, kAgingMax = 3650;
+// s010f1: Tidy looks for projects again this often while it runs (and once
+// at launch) -- read-only; the catalog follows moves by id, marks gone. 0 = never.
+inline constexpr int kRescanDefault = 10, kRescanMin = 0, kRescanMax = 1440;
 
 struct Settings {
     int aging_days = kAgingDefault;
+    int rescan_minutes = kRescanDefault;
     std::vector<std::string> junk;
     bool operator==(const Settings&) const = default;
 };

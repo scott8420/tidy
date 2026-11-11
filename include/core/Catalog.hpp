@@ -73,6 +73,7 @@ public:
     bool set_status(const std::string& id, const std::string& status, const std::string& outcome);
     std::optional<ProjectRow> project(const std::string& id) const;
     std::vector<ProjectRow> projects() const;
+    bool mark_project_gone(const std::string& id, std::int64_t when);   // s010f1: not found at a look
 
     // Uses (s010g): `project` is made with `used` (both project ids). The rules
     // (no self, no twice, no loop) are core::projects::can_use -- checked by the

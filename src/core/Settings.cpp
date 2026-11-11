@@ -28,6 +28,10 @@ Settings parse(const std::string& text) {
             try {
                 s.aging_days = std::clamp(std::stoi(v), kAgingMin, kAgingMax);
             } catch (...) {}
+        } else if (k == "rescan_minutes") {
+            try {
+                s.rescan_minutes = std::clamp(std::stoi(v), kRescanMin, kRescanMax);
+            } catch (...) {}
         } else if (k == "junk" && !v.empty() &&
                    std::find(s.junk.begin(), s.junk.end(), v) == s.junk.end()) {
             s.junk.push_back(v);
@@ -40,6 +44,7 @@ std::string format(const Settings& s) {
     std::ostringstream o;
     o << "# Tidy settings -- written by Tidy (Settings). One junk pattern per line.\n";
     o << "aging_days=" << std::clamp(s.aging_days, kAgingMin, kAgingMax) << "\n";
+    o << "rescan_minutes=" << std::clamp(s.rescan_minutes, kRescanMin, kRescanMax) << "\n";
     for (const auto& j : s.junk) o << "junk=" << j << "\n";
     return o.str();
 }
