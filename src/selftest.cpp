@@ -43,6 +43,14 @@
 //   * lift       -- a proposal at template depth; READ-ONLY (nothing changed);
 //   * drift      -- missing / extra at template depth; free below it; adopt.
 //
+// s008, projects (MOVES, through the door, on a FIXTURE):
+//   * find       -- every -project, never inside one, never in fixes / hidden;
+//                   category = where it lives; code projects known; READ-ONLY;
+//   * place      -- an uncategorized one moved WHOLE (every inode kept), undone
+//                   back exactly; code / placed / landing refused;
+//   * fix        -- the template's missing folders made (fixes/ refused by the
+//                   door: Scott's); undone; "left" remembered.
+//
 //   ./build/tidy_selftest
 //   ./build/tidy_selftest --fixture DIR   make a fixture home at DIR (tagged,
 //                                         one atomic save carried) and stop:
@@ -64,6 +72,7 @@
 #include "core/Settings.hpp"
 #include "core/Own.hpp"
 #include "core/Templates.hpp"
+#include "core/Projects.hpp"
 
 #include <latch/Door.hpp>
 #include <latch/Protect.hpp>
@@ -248,6 +257,16 @@ void make_projects(const fs::path& home) {
     put_file(j / "Graphics/Covers/cover.png", "png");
     std::error_code ec;
     fs::create_directory_symlink(j / "docs", j / "link-to-docs", ec);
+    // s008: a code project in Develop/gtk, loose ones to place, ones never listed.
+    const fs::path t = home / "Develop/gtk/tidy-project";
+    fs::create_directories(t / ".git");
+    put_file(t / "CMakeLists.txt", "project(tidy)");
+    fs::create_directories(t / "nested-project");                 // never inside a project
+    put_file(home / "Desktop/Essay-project/draft.odt", "draft");
+    put_file(home / "Desktop/Essay-project/Research/notes.txt", "notes");
+    fs::create_directories(home / "Stray-project");
+    fs::create_directories(home / "Develop/fixes/Hidden-project");  // protected: never listed
+    fs::create_directories(home / ".cache/Cached-project");        // hidden: never listed
     const fs::path m = home / "Writing/Mary-project";
     for (const char* d : {"backups", "docs", "scripts", "Graphics/Covers", "Manuscript/Ch1", "Research/Sources/Deep", "Notes"})
         fs::create_directories(m / d);
@@ -1345,6 +1364,114 @@ int main(int argc, char** argv) {
               tp::drift(ab.tpl(), tp::folders_of(H + "/Writing/Mary-project")).empty() && ab.edits() == 3 &&
               ab.save_refusal({"writing-project"}).empty());
         check("drift: READ-ONLY -- the projects untouched", tree_facts(H + "/Writing") == writing);
+        fs::remove_all(root);
+    }
+
+    // ── s008: projects -- found, placed whole, fixed -- on a FIXTURE ────────
+    {
+        std::cout << "[projects]\n";
+        namespace pj = core::projects;
+        namespace tp = core::templates;
+        namespace dr = latch::door;
+        const fs::path root = fs::temp_directory_path() / ("tidy_selftest_projects_" + std::to_string(::getpid()));
+        fs::remove_all(root);
+        const fs::path home = root / "home";
+        make_home(home);
+        make_projects(home);
+        fs::remove_all(home / ".local");
+        const std::string H = fs::canonical(home).string();
+        const std::string D = core::paths::data_dir(H, nullptr);
+
+        check("projects: the suffix is the declaration; category = where it lives",
+              pj::is_project_name("Jasper-project") && !pj::is_project_name("-project") && !pj::is_project_name("project") &&
+              pj::category_of("Writing/Jasper-project") == "Writing" && pj::category_of("Develop/gtk/tidy-project") == "Develop" &&
+              pj::category_of("Desktop/Essay-project").empty() && pj::category_of("Stray-project").empty());
+
+        const auto before = tree_facts(H);
+        const auto found = pj::find(H);
+        const auto after = tree_facts(H);
+        std::string rels;
+        for (const auto& p : found) rels += p.rel + (p.code ? "(code)" : "") + (p.category.empty() ? "(uncat)" : "") + " ";
+        check("find: five projects -- never inside one, never in fixes/ or a hidden folder",
+              found.size() == 5 && rels.find("nested") == std::string::npos && rels.find("Hidden") == std::string::npos &&
+              rels.find("Cached") == std::string::npos, rels);
+        const auto by = [&](const std::string& rel) -> const pj::Project* {
+            for (const auto& p : found) if (p.rel == rel) return &p;
+            return nullptr;
+        };
+        check("find: tidy-project is code, in Develop; Essay and Stray uncategorized; names without the suffix",
+              by("Develop/gtk/tidy-project") && by("Develop/gtk/tidy-project")->code &&
+              by("Develop/gtk/tidy-project")->category == "Develop" && by("Desktop/Essay-project") &&
+              by("Desktop/Essay-project")->category.empty() && by("Stray-project") && by("Writing/Jasper-project")->name == "Jasper", rels);
+        check("find: READ-ONLY -- nothing changed", before == after);
+
+        const std::set<std::string> left = {"Stray-project"};
+        check("left: projects.ini round trip; find marks a left one",
+              pj::parse_left(pj::format_left(left)) == left && pj::find(H, left).size() == 5 && [&] {
+                  for (const auto& p : pj::find(H, left)) if (p.rel == "Stray-project") return p.left;
+                  return false; }());
+
+        std::string why;
+        const bool r1 = pj::place(*by("Develop/gtk/tidy-project"), H, "Writing", &why).actions.empty() && !why.empty();
+        const bool r2 = pj::place(*by("Writing/Jasper-project"), H, "Essays", &why).actions.empty();
+        const bool r3 = pj::place(*by("Desktop/Essay-project"), H, "Downloads", &why).actions.empty() &&
+                        pj::place(*by("Desktop/Essay-project"), H, ".x", &why).actions.empty();
+        check("place: a code project, a placed one, a landing place, a hidden category -- refused", r1 && r2 && r3);
+
+        latch::door::set_app_name("Tidy");
+        dr::Door door(H, D);
+        door.load();
+        const auto essay_before = tree_facts(H + "/Desktop/Essay-project");
+        auto plan = pj::place(*by("Desktop/Essay-project"), H, "Essays", &why);
+        check("place: a plan -- make ~/Essays, move the project whole", plan.actions.size() == 2 &&
+              plan.actions[0].verb == dr::Verb::MakeDir && plan.actions[1].verb == dr::Verb::Move, why);
+        const auto refused_unpreviewed = !door.run(plan).ok && fs::exists(H + "/Desktop/Essay-project");
+        plan.previewed = true;
+        const auto r = door.run(plan);
+        std::map<std::string, std::string> moved;
+        for (const auto& [k, v] : tree_facts(H + "/Essays/Essay-project"))
+            moved[H + "/Desktop/Essay-project" + k.substr((H + "/Essays/Essay-project").size())] = v;
+        // A rename keeps inode, size, mtime; ctime of the moved folder itself may change.
+        const auto strip_ctime = [](std::map<std::string, std::string> m) {
+            for (auto& [k, v] : m) v = v.substr(0, v.rfind('/'));
+            return m;
+        };
+        check("place: refused unpreviewed; then moved WHOLE -- every file and folder the same inode, size, mtime",
+              refused_unpreviewed && r.ok && !fs::exists(H + "/Desktop/Essay-project") &&
+              strip_ctime(moved) == strip_ctime(essay_before) && moved.size() == 3,
+              std::to_string(moved.size()) + " " + (r.messages.empty() ? "" : r.messages.front()));
+        const auto u = door.undo();
+        check("place: undone -- back on the Desktop, ~/Essays gone, the same tree",
+              u.ok && fs::exists(H + "/Desktop/Essay-project/Research/notes.txt") && !fs::exists(H + "/Essays") &&
+              strip_ctime(tree_facts(H + "/Desktop/Essay-project")) == strip_ctime(essay_before));
+
+        // Fix: Mary against a writing template.
+        auto t = tp::shell("writing-project", "Writing");
+        t.folders.push_back({"Final", tp::Role::Product});
+        t.folders.push_back({"Graphics", tp::Role::Input});
+        t.folders.push_back({"Graphics/Covers", tp::Role::Input});
+        const std::vector<tp::Template> ts = {t};
+        const auto* mary = by("Writing/Mary-project");
+        check("fix: the template for a project is its category's", pj::template_for(*mary, ts) == &ts[0] &&
+              !pj::template_for(*by("Desktop/Essay-project"), ts));
+        const auto dft = tp::drift(t, tp::folders_of(mary->path));
+        auto fp = pj::fix(*mary, dft);
+        std::size_t refused = 0;
+        for (const auto& a : fp.actions) refused += !door.refusal(a).empty();
+        check("fix: MakeDir for each missing folder (fixes/ and Final/); the door refuses fixes/ -- it is Scott's",
+              fp.actions.size() == 2 && refused == 1 && !door.refusal(fp.actions[0]).empty() == (fp.actions[0].to.ends_with("/fixes")),
+              std::to_string(fp.actions.size()) + "/" + std::to_string(refused));
+        std::erase_if(fp.actions, [&](const dr::Action& a) { return !door.refusal(a).empty(); });
+        fp.previewed = true;
+        const auto fr = door.run(fp);
+        const auto left_drift = tp::drift(t, tp::folders_of(mary->path));
+        check("fix: Final/ made; missing now only fixes/ (refused); the extras never moved",
+              fr.ok && fs::is_directory(mary->path + "/Final") && left_drift.size() == 4 &&
+              std::count(left_drift.begin(), left_drift.end(), tp::Drift{tp::Drift::Kind::Missing, "fixes"}) &&
+              fs::is_directory(mary->path + "/Notes"));
+        door.undo();
+        check("fix: undone -- Final/ gone again", !fs::exists(mary->path + "/Final"));
+        check("fix: nothing missing -> an empty plan", pj::fix(*mary, {}).actions.empty());
         fs::remove_all(root);
     }
 

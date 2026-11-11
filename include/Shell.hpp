@@ -41,6 +41,8 @@
 //                                         Shell_helpers.cpp  (fill_closet) -- s005
 //   "Where are the settings?"         -> Shell_handlers.cpp (on_settings), SettingsWindow,
 //                                         core::settings; written by core::own (s006a)
+//   "Where are projects found / moved?"-> ProjectsPage (core::projects; plans through
+//                                         m_door, previewed; undone in Activity, s008)
 //   "Where are templates built?"      -> TemplatesPage (its own class; core::templates;
 //                                         written by core::own, s007)
 //   "Where does the Closet decide?"    -> Shell_handlers.cpp (on_closet_accept /
@@ -57,6 +59,7 @@ namespace Gtk { class CheckButton; class DropDown; }
 namespace tidy {
 
 class AboutWindow;
+class ProjectsPage;
 class SettingsWindow;
 class ShortcutsDialog;
 
@@ -141,6 +144,8 @@ private:
     Gtk::Label*    m_clo_prev_status = nullptr;
     Gtk::Button*   m_clo_prev_run = nullptr;
     std::optional<latch::door::Plan> m_clo_plan;   // shown, not yet run
+
+    ProjectsPage* m_projects = nullptr;           // s008 (managed by the stack)
 
     std::unique_ptr<AboutWindow>     m_about;
     std::unique_ptr<SettingsWindow>  m_settings_win;

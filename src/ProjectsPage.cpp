@@ -1,0 +1,387 @@
+#include "ProjectsPage.hpp"
+#include "Log.hpp"
+#include "core/Own.hpp"
+#include "core/Pages.hpp"
+#include "core/Templates.hpp"
+
+#include <gtkmm/box.h>
+#include <gtkmm/button.h>
+#include <gtkmm/dropdown.h>
+#include <gtkmm/image.h>
+#include <gtkmm/label.h>
+#include <gtkmm/listbox.h>
+#include <gtkmm/listboxrow.h>
+#include <gtkmm/scrolledwindow.h>
+#include <gtkmm/stringlist.h>
+
+#include <filesystem>
+
+namespace tidy {
+
+namespace pj = core::projects;
+namespace tp = core::templates;
+namespace dr = latch::door;
+
+namespace {
+Gtk::Label* label(const std::string& text, const char* css, float x = 0.5f) {
+    auto l = Gtk::make_managed<Gtk::Label>(text);
+    if (css) l->add_css_class(css);
+    l->set_xalign(x);
+    l->set_wrap(true);
+    l->set_justify(x == 0.5f ? Gtk::Justification::CENTER : Gtk::Justification::LEFT);
+    return l;
+}
+Gtk::Image* hero(int px) {
+    auto i = Gtk::make_managed<Gtk::Image>();
+    i->set_from_icon_name("tidy-hero-projects");
+    i->set_pixel_size(px);
+    return i;
+}
+Gtk::Box* head_box(Gtk::Label** summary, const std::string& title, const std::string& name) {
+    auto head = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::HORIZONTAL, 14);
+    head->set_margin_start(32);
+    head->set_margin_end(32);
+    head->set_margin_top(24);
+    head->set_margin_bottom(12);
+    head->append(*hero(48));
+    auto titles = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::VERTICAL, 4);
+    titles->append(*label(title, "hero-title", 0.0f));
+    *summary = label("", "dim", 0.0f);
+    (*summary)->set_name(name);
+    (*summary)->set_selectable(true);
+    titles->append(**summary);
+    titles->set_hexpand(true);
+    head->append(*titles);
+    return head;
+}
+Gtk::ScrolledWindow* scrolled(Gtk::Widget& child) {
+    auto s = Gtk::make_managed<Gtk::ScrolledWindow>();
+    s->set_vexpand(true);
+    s->set_margin_start(32);
+    s->set_margin_end(32);
+    s->set_margin_bottom(16);
+    s->set_child(child);
+    return s;
+}
+Gtk::ListBox* listbox(const std::string& name) {
+    auto l = Gtk::make_managed<Gtk::ListBox>();
+    l->set_name(name);
+    l->set_selection_mode(Gtk::SelectionMode::NONE);
+    return l;
+}
+void clear(Gtk::ListBox* l) {
+    while (auto* row = l->get_row_at_index(0)) l->remove(*row);
+}
+Gtk::Box* bar_box() {
+    auto bar = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::HORIZONTAL, 10);
+    bar->add_css_class("act-bar");
+    return bar;
+}
+}  // namespace
+
+ProjectsPage::ProjectsPage(dr::Door& door, std::string home, std::string data_dir, bool fixture, Changed changed)
+    : m_door(door), m_home(std::move(home)), m_data_dir(std::move(data_dir)), m_fixture(fixture),
+      m_changed(std::move(changed)) {
+    set_name("projects.states");
+    build_start();
+    build_results();
+    build_preview();
+    set_visible_child("start");
+}
+
+std::string ProjectsPage::shown(const std::string& path) const {
+    if (path == m_home) return "~";
+    if (path.rfind(m_home + "/", 0) == 0) return "~" + path.substr(m_home.size());
+    return path;
+}
+
+void ProjectsPage::build_start() {
+    const auto* p = core::pages::find("projects");
+    auto start = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::VERTICAL, 14);
+    start->set_name("projects.start");
+    start->set_valign(Gtk::Align::CENTER);
+    start->set_halign(Gtk::Align::CENTER);
+    start->set_margin(40);
+    start->append(*hero(128));
+    start->append(*label(p ? p->title : "Projects", "hero-title"));
+    auto sub = label(p ? p->promise : "", "hero-sub");
+    sub->set_max_width_chars(52);
+    start->append(*sub);
+    auto note = label(std::string("Look finds every folder named <name>-project, four deep in your home. Where it lives is its ") +
+                      "category. One on the Desktop, in Downloads or loose in the home is asked about once: place it, "
+                      "or leave it. Each placed one is checked against its category's template. Every move is a "
+                      "preview first, and undoable from Activity." +
+                      (m_fixture ? "\n(a FIXTURE home: " + m_home + ")" : ""), "dim");
+    note->set_name("projects.note");
+    note->set_max_width_chars(60);
+    note->set_selectable(true);
+    start->append(*note);
+    auto orb = Gtk::make_managed<Gtk::Button>("Look");
+    orb->set_name("projects.look");
+    orb->add_css_class("orb");
+    orb->set_halign(Gtk::Align::CENTER);
+    orb->set_margin_top(18);
+    orb->set_tooltip_text("Find the projects -- nothing is moved");
+    orb->signal_clicked().connect([this] { on_look(); });
+    start->append(*orb);
+    add(*start, "start");
+}
+
+void ProjectsPage::build_results() {
+    auto box = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::VERTICAL, 0);
+    box->set_name("projects.results");
+    auto head = head_box(&m_summary, "Projects", "projects.summary");
+    auto again = Gtk::make_managed<Gtk::Button>("Look again");
+    again->set_name("projects.again");
+    again->set_valign(Gtk::Align::CENTER);
+    again->signal_clicked().connect([this] { on_look(); });
+    head->append(*again);
+    box->append(*head);
+    m_list = listbox("projects.list");
+    box->append(*scrolled(*m_list));
+    auto bar = bar_box();
+    m_status = label("Place or leave what is uncategorized; fix what drifted. Every move is previewed first.", "dim", 0.0f);
+    m_status->set_name("projects.status");
+    m_status->set_hexpand(true);
+    bar->append(*m_status);
+    box->append(*bar);
+    add(*box, "results");
+}
+
+void ProjectsPage::build_preview() {
+    auto box = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::VERTICAL, 0);
+    box->set_name("projects.preview");
+    box->append(*head_box(&m_prev_summary, "Preview", "projects.preview.summary"));
+    m_prev_list = listbox("projects.preview.list");
+    box->append(*scrolled(*m_prev_list));
+    auto bar = bar_box();
+    m_prev_status = label("", "dim", 0.0f);
+    m_prev_status->set_name("projects.preview.status");
+    m_prev_status->set_hexpand(true);
+    bar->append(*m_prev_status);
+    auto back = Gtk::make_managed<Gtk::Button>("Back");
+    back->set_name("projects.preview.back");
+    back->signal_clicked().connect([this] { m_plan.reset(); set_visible_child("results"); });
+    bar->append(*back);
+    m_prev_run = Gtk::make_managed<Gtk::Button>("Do it");
+    m_prev_run->set_name("projects.preview.run");
+    m_prev_run->add_css_class("act");
+    m_prev_run->signal_clicked().connect([this] { on_run(); });
+    bar->append(*m_prev_run);
+    box->append(*bar);
+    add(*box, "preview");
+}
+
+// The categories to offer: each template's, then the home's top folders --
+// not hidden, not a landing place, not a project.
+std::vector<std::string> ProjectsPage::categories() const {
+    std::vector<std::string> out;
+    const auto add = [&](const std::string& c) {
+        if (!c.empty() && std::find(out.begin(), out.end(), c) == out.end()) out.push_back(c);
+    };
+    for (const auto& t : tp::list(m_data_dir)) add(t.category);
+    std::vector<std::string> tops;
+    std::error_code ec;
+    for (std::filesystem::directory_iterator it(m_home, ec), end; !ec && it != end; it.increment(ec)) {
+        const auto fn = it->path().filename().string();
+        if (fn.empty() || fn[0] == '.' || fn == "Desktop" || fn == "Downloads" || pj::is_project_name(fn)) continue;
+        if (it->is_directory(ec) && !it->is_symlink(ec)) tops.push_back(fn);
+    }
+    std::sort(tops.begin(), tops.end());
+    for (const auto& t : tops) add(t);
+    return out;
+}
+
+void ProjectsPage::on_look() {
+    fill();
+    set_visible_child("results");
+}
+
+void ProjectsPage::refresh_if_shown() {
+    if (get_visible_child_name() == "results") fill();
+}
+
+void ProjectsPage::fill() {
+    const auto left = pj::parse_left(core::own::read(m_data_dir, pj::kFile));
+    const auto found = pj::find(m_home, left);
+    const auto ts = tp::list(m_data_dir);
+    const auto cats = categories();
+    clear(m_list);
+
+    const auto section = [&](const std::string& text) {
+        auto l = label(text, "heading", 0.0f);
+        l->set_margin_top(12);
+        l->set_margin_start(4);
+        auto row = Gtk::make_managed<Gtk::ListBoxRow>();
+        row->set_activatable(false);
+        row->set_child(*l);
+        m_list->append(*row);
+    };
+    const auto row_box = [&] {
+        auto b = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::HORIZONTAL, 10);
+        b->set_margin(8);
+        auto row = Gtk::make_managed<Gtk::ListBoxRow>();
+        row->set_activatable(false);
+        row->set_child(*b);
+        m_list->append(*row);
+        return b;
+    };
+    const auto texts = [&](Gtk::Box* b, const std::string& top, const std::string& under) {
+        auto t = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::VERTICAL, 2);
+        t->set_hexpand(true);
+        t->append(*label(top, nullptr, 0.0f));
+        t->append(*label(under, "dim", 0.0f));
+        b->append(*t);
+    };
+
+    std::size_t n_place = 0, n_placed = 0, n_left = 0;
+    for (const auto& p : found) (p.category.empty() ? (p.left ? n_left : n_place) : n_placed)++;
+
+    if (n_place) {
+        section("To place -- uncategorized, asked once");
+        for (const auto& p : found) {
+            if (!p.category.empty() || p.left) continue;
+            auto b = row_box();
+            texts(b, p.name + "-project", "in " + shown(std::filesystem::path(p.path).parent_path().string()) +
+                                              (p.code ? " -- code: stays where it is" : ""));
+            if (p.code) continue;
+            auto model = Gtk::StringList::create({});
+            for (const auto& c : cats) model->append(c);
+            auto dd = Gtk::make_managed<Gtk::DropDown>(model);
+            dd->set_name("projects.category." + p.rel);
+            dd->set_tooltip_text("The category -- the home folder it will live in");
+            b->append(*dd);
+            auto place = Gtk::make_managed<Gtk::Button>("Place...");
+            place->set_name("projects.place." + p.rel);
+            place->set_sensitive(!cats.empty());
+            place->signal_clicked().connect([this, p, dd, cats] {
+                const auto i = dd->get_selected();
+                if (i >= cats.size()) return;
+                std::string why;
+                auto plan = pj::place(p, m_home, cats[i], &why);
+                if (plan.actions.empty()) { m_status->set_text(why); return; }
+                preview(std::move(plan));
+            });
+            b->append(*place);
+            auto leave = Gtk::make_managed<Gtk::Button>("Leave it here");
+            leave->set_name("projects.leave." + p.rel);
+            leave->set_tooltip_text("Not asked again (remembered in Tidy's records)");
+            leave->signal_clicked().connect([this, r = p.rel] { on_leave(r, true); });
+            b->append(*leave);
+        }
+    }
+    if (n_placed) {
+        section("Placed -- category is where it lives");
+        for (const auto& p : found) {
+            if (p.category.empty()) continue;
+            auto b = row_box();
+            const auto* t = pj::template_for(p, ts);
+            std::string under = "~/" + p.category + (p.code ? " -- code" : "");
+            std::vector<tp::Drift> d;
+            std::size_t missing = 0;
+            if (!t) under += " -- no template for " + p.category;
+            else {
+                d = tp::drift(*t, tp::folders_of(p.path));
+                for (const auto& x : d) missing += x.kind == tp::Drift::Kind::Missing;
+                const std::size_t extra = d.size() - missing;
+                if (d.empty()) under += " -- matches " + t->name;
+                else {
+                    under += " -- " + t->name + ": ";
+                    for (const auto& x : d)
+                        under += std::string(x.kind == tp::Drift::Kind::Missing ? "-" : "+") + x.path + "  ";
+                    under += "(" + std::to_string(missing) + " missing, " + std::to_string(extra) + " extra)";
+                }
+            }
+            texts(b, shown(p.path), under);
+            // Offer Fix only when the door would make something (fixes/ is always refused: Scott's).
+            std::size_t doable = 0;
+            if (missing)
+                for (const auto& a : pj::fix(p, d).actions) doable += m_door.refusal(a).empty();
+            if (doable) {
+                auto fix = Gtk::make_managed<Gtk::Button>("Fix...");
+                fix->set_name("projects.fix." + p.rel);
+                fix->set_tooltip_text("Make the folders the template names and it lacks -- extras are never moved");
+                fix->signal_clicked().connect([this, p, d] { preview(pj::fix(p, d)); });
+                b->append(*fix);
+            }
+        }
+    }
+    if (n_left) {
+        section("Left where they are -- your answer");
+        for (const auto& p : found) {
+            if (!p.left) continue;
+            auto b = row_box();
+            texts(b, p.name + "-project", "in " + shown(std::filesystem::path(p.path).parent_path().string()));
+            auto again = Gtk::make_managed<Gtk::Button>("Ask again");
+            again->set_name("projects.ask." + p.rel);
+            again->signal_clicked().connect([this, r = p.rel] { on_leave(r, false); });
+            b->append(*again);
+        }
+    }
+    m_summary->set_text(found.empty() ? std::string("No -project folders found, four deep in ") + shown(m_home) :
+                        std::to_string(found.size()) + " project" + (found.size() == 1 ? "" : "s") + ": " +
+                        std::to_string(n_place) + " to place, " + std::to_string(n_placed) + " placed, " +
+                        std::to_string(n_left) + " left");
+    if (auto lg = log::get(log::Area::Io)) lg->info("projects look: {} found ({} to place, {} placed, {} left)",
+                                                    found.size(), n_place, n_placed, n_left);
+}
+
+void ProjectsPage::on_leave(const std::string& rel, bool leave) {
+    auto left = pj::parse_left(core::own::read(m_data_dir, pj::kFile));
+    if (leave) left.insert(rel); else left.erase(rel);
+    const auto err = core::own::write(m_data_dir, pj::kFile, pj::format_left(left));
+    fill();
+    m_status->set_text(!err.empty() ? "Not remembered: " + err :
+                       leave ? "Left where it is -- not asked again. \"Ask again\" undoes it."
+                             : "It will be asked about again.");
+}
+
+void ProjectsPage::preview(dr::Plan plan) {
+    clear(m_prev_list);
+    std::size_t refused = 0;
+    for (const auto& a : plan.actions) {
+        const std::string why = m_door.refusal(a);
+        refused += !why.empty();
+        std::string text = a.verb == dr::Verb::Move ? "move  " + shown(a.from) + "  ->  " + shown(a.to) + "   (whole)"
+                                                    : std::string(dr::verb_name(a.verb)) + "  " + shown(a.to);
+        if (!a.reason.empty()) text += "     -- " + a.reason;
+        if (!why.empty()) text += "     -- REFUSED: " + why;
+        auto l = label(text, why.empty() ? nullptr : "dim", 0.0f);
+        l->set_margin(4);
+        auto row = Gtk::make_managed<Gtk::ListBoxRow>();
+        row->set_activatable(false);
+        row->set_child(*l);
+        m_prev_list->append(*row);
+    }
+    m_prev_summary->set_text(plan.label + "   |   " + std::to_string(plan.actions.size()) + " step" +
+                             (plan.actions.size() == 1 ? "" : "s"));
+    m_prev_status->set_text(refused ? std::to_string(refused) + " step(s) the door refuses -- they will not happen"
+                                    : "Every step can be undone from Activity.");
+    m_prev_run->set_sensitive(plan.actions.size() > refused);
+    m_plan = std::move(plan);
+    set_visible_child("preview");
+}
+
+void ProjectsPage::on_run() {
+    if (!m_plan) return;
+    auto plan = std::move(*m_plan);
+    m_plan.reset();
+    std::erase_if(plan.actions, [&](const dr::Action& a) { return !m_door.refusal(a).empty(); });   // shown as refused
+    if (plan.label.rfind("Fix: ", 0) == 0) {   // the label names what will happen, refusals dropped
+        const auto n = plan.actions.size();
+        plan.label = plan.label.substr(0, plan.label.find(" -- ")) + " -- " + std::to_string(n) + " folder" +
+                     (n == 1 ? "" : "s") + " made";
+    }
+    plan.previewed = true;   // shown in full by preview() (RULES: preview first)
+    const auto r = m_door.run(plan);
+    if (m_changed) m_changed();
+    fill();
+    set_visible_child("results");
+    m_status->set_text(r.ok ? "Done: " + plan.label + " (" + std::to_string(r.done) + " steps) -- undo in Activity"
+                            : plan.label + ": " + std::to_string(r.done) + " done, " + std::to_string(r.failed) +
+                                  " not -- " + (r.messages.empty() ? std::string() : r.messages.front()));
+    if (auto lg = log::get(log::Area::Door))
+        lg->info("projects run '{}': {} done, {} failed", plan.label, r.done, r.failed);
+}
+
+}  // namespace tidy
