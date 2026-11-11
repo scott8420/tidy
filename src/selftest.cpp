@@ -83,6 +83,7 @@
 #include "core/FileLists.hpp"
 #include "core/Homing.hpp"
 #include "core/Purposes.hpp"
+#include "core/Due.hpp"
 
 #include <latch/Door.hpp>
 #include <latch/Protect.hpp>
@@ -1993,6 +1994,107 @@ int main(int argc, char** argv) {
             for (const auto& x : w.replaces) door.replace_own(x.path, x.text);
             return !fl::stale(core::scan::walk(H, fl::roots(H))).any();
         }());
+        fs::remove_all(root);
+    }
+
+    // ── s012a: the trigger -- what is due; the headless look ──
+    {
+        std::cout << "[due]\n";
+        namespace du = core::due;
+        namespace rt = core::retention;
+        const std::int64_t now = 2000000000, day = 86400;
+        const auto mk = [&](const std::string& name, const std::string& level, int born_days, int read_days,
+                            int changed_days, int ctime_days, const std::string& purpose = "") {
+            core::facts::Facts f;
+            f.path = "/h/Documents/" + name;
+            f.btime = now - born_days * day; f.has_btime = true;
+            f.atime = now - read_days * day; f.mtime = now - changed_days * day; f.ctime = now - ctime_days * day;
+            f.tags.retention = level; f.tags.purpose = purpose;
+            return f;
+        };
+        core::purposes::Book book;
+        core::purposes::add(book, "Taxes 2025");
+        core::purposes::add(book, "House");
+        core::purposes::set_closed(book, "taxes-2025", true);
+        core::settings::Settings st;
+        const std::vector<core::facts::Facts> files = {
+            mk("eph-old.png", "ephemeral", 40, 40, 40, 40),       // due: remove
+            mk("eph-read.png", "ephemeral", 40, 2, 40, 40),       // read lately: no
+            mk("eph-new.png", "ephemeral", 5, 5, 5, 5),           // young: no
+            mk("held-8y.pdf", "held", 4000, 4000, 4000, 8 * 365 + 2),   // due: remove
+            mk("held-6y.pdf", "held", 4000, 4000, 4000, 6 * 365),       // no
+            mk("hist-old.odt", "historical", 900, 400, 400, 400),       // due: archive
+            mk("hist-edited.odt", "historical", 900, 400, 10, 10),      // changed lately: no
+            mk("w2.pdf", "until-done", 100, 100, 100, 100, "taxes-2025"),   // closed: settle
+            mk("roof.pdf", "until-done", 100, 100, 100, 100, "house"),      // open: no
+            mk("lost.pdf", "until-done", 100, 100, 100, 100, "gone-purpose"),   // unknown: settle
+            mk("bare.pdf", "until-done", 100, 100, 100, 100),                   // none: settle
+            mk("und.png", "undecided", 900, 900, 900, 900),
+            mk("keep.png", "keep", 9000, 9000, 9000, 9000),
+            mk("hands.png", "hands-off", 9000, 9000, 9000, 9000),
+            mk("plain.png", "", 9000, 9000, 9000, 9000),
+        };
+        auto items = du::due(files, book, st, now);
+        const auto names = [](const std::vector<du::Item>& v, du::To to) {
+            std::string s;
+            for (const auto& i : v) if (i.to == to) s += fs::path(i.path).filename().string() + " ";
+            return s;
+        };
+        check("due: Ephemeral born + unread aging_days -> remove; read lately or young: not",
+              names(items, du::To::Remove).find("eph-old.png") != std::string::npos &&
+              names(items, du::To::Remove).find("eph-read") == std::string::npos &&
+              names(items, du::To::Remove).find("eph-new") == std::string::npos, names(items, du::To::Remove));
+        check("due: Held past held_years (ctime) -> remove; 6 of 7 years: not",
+              names(items, du::To::Remove) == "eph-old.png held-8y.pdf ", names(items, du::To::Remove));
+        check("due: Historical unread + unchanged archive_days -> archive; changed lately: not",
+              names(items, du::To::Archive) == "hist-old.odt ", names(items, du::To::Archive));
+        check("due: Until done -- purpose closed, unknown or none -> settle; open: not",
+              names(items, du::To::Settle) == "bare.pdf lost.pdf w2.pdf ", names(items, du::To::Settle));
+        check("due: Undecided, Keep, Hands-off, untagged: never due; sorted remove, archive, settle",
+              items.size() == 6 && items.front().to == du::To::Remove && items.back().to == du::To::Settle);
+        st.held_years = 5;
+        st.archive_days = 500;
+        items = du::due(files, book, st, now);
+        check("due: the settings decide (held 5 years -> 6y due; archive 500 days -> 400 not)",
+              names(items, du::To::Remove).find("held-6y.pdf") != std::string::npos &&
+              names(items, du::To::Archive).empty(), names(items, du::To::Remove));
+        check("settings (s012a): held_years / archive_days -- defaults 7 / 365, round trip, clamped",
+              core::settings::Settings{}.held_years == 7 && core::settings::Settings{}.archive_days == 365 &&
+              core::settings::parse(core::settings::format(st)) == st &&
+              core::settings::parse("held_years=0\narchive_days=99999\n").held_years == 1 &&
+              core::settings::parse("held_years=0\narchive_days=99999\n").archive_days == 3650);
+
+        du::Attention a{3, 2, 1, 9, 1, now, 12};
+        check("attention: format -> parse; total 16; junk ignored", du::parse(du::format(a)) == a &&
+              a.total() == 16 && du::parse("remove=x\nlists=-3\n# c\ncloset=2\n").closet == 2 &&
+              du::parse("lists=-3\n").lists == 0);
+        check("attention: the line", du::line(a) == "16 need attention: 3 to remove, 2 to archive, 1 to settle, "
+                                                    "9 in the Closet, 1 id list" &&
+              du::line(du::Attention{}) == "nothing needs attention", du::line(a));
+
+        // The headless look on a fixture: READ-ONLY on the home.
+        const fs::path root = fs::temp_directory_path() / ("tidy_selftest_due_" + std::to_string(::getpid()));
+        fs::remove_all(root);
+        const std::string H = (root / "home").string();
+        put_file(H + "/Downloads/old.png", "old");
+        xset(H + "/Downloads/old.png", core::facts::kRetention, "ephemeral");
+        put_file(H + "/Documents/note.txt", "undecided");
+        const auto w = du::where(H.c_str(), "/nonexistent", nullptr, nullptr);
+        check("where: TIDY_HOME -> a fixture, records inside it; else HOME",
+              w.fixture && w.home == fs::canonical(H).string() && w.data_dir.rfind(w.home, 0) == 0 &&
+              !du::where("/no/such/dir", "/home/x", nullptr, nullptr).fixture &&
+              du::where(nullptr, "/home/x", nullptr, nullptr).home == "/home/x");
+        const auto before = tree_facts(H);
+        const auto later = static_cast<std::int64_t>(std::time(nullptr)) + 400 * day;   // everything aged
+        std::vector<du::Item> got;
+        const auto look = du::look(w.home, w.data_dir, "", later, &got);
+        check("look: the fixture judged -- 1 to remove; the Closet counted like the Closet",
+              look.remove == 1 && got.size() == 1 && got[0].path.ends_with("/Downloads/old.png") &&
+              look.closet == core::closet::view(core::birth::report(w.home, core::birth::places(w.home, "")), later,
+                                                core::settings::Settings{}).proposed.size(),
+              du::line(look));
+        check("look: READ-ONLY -- the home's files untouched, no records folder made",
+              tree_facts(H) == before && !fs::exists(w.data_dir));
         fs::remove_all(root);
     }
 

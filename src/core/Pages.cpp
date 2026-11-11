@@ -8,7 +8,7 @@ const std::vector<Page>& all() {
         {"closet", "The Closet",
          "The undecided wait here until someone decides. Decided files never visit.", "s006"},
         {"due", "Due",
-         "What is due to archive or to go. Tidy proposes; it never acts on its own.", "s011"},
+         "What is due to archive or to go. Tidy proposes; it never acts on its own.", "s012"},
         {"projects", "Projects",
          "Each <name>-project is found, placed by category, and moved whole.", "s008"},
         {"templates", "Templates",

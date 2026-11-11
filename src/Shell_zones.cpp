@@ -7,6 +7,7 @@
 #include "ProjectsPage.hpp"
 #include "PurposesPage.hpp"
 #include "HomePage.hpp"
+#include "DuePage.hpp"
 
 #include <gtkmm/button.h>
 #include <gtkmm/checkbutton.h>
@@ -137,6 +138,12 @@ void Shell::build_page(const std::string& id) {  // zone: a page's hero
         m_purposes = Gtk::make_managed<PurposesPage>(*m_door, m_home, m_data_dir, m_fixture,
                                                      [this] { return user_dirs_text(); }, [this] { refresh_activity(); });
         m_stack.add(*m_purposes, id, pp ? pp->title : "Purposes");
+        return;
+    }
+    if (id == "due") {                                     // s012a: the trigger's page (read-only)
+        const auto* pp = core::pages::find(id);
+        m_due = Gtk::make_managed<DuePage>(m_home, m_data_dir, m_fixture, [this] { return user_dirs_text(); });
+        m_stack.add(*m_due, id, pp ? pp->title : "Due");
         return;
     }
     if (id == "home") {                                    // s011: files home -- moves through the door

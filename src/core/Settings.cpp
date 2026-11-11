@@ -32,6 +32,14 @@ Settings parse(const std::string& text) {
             try {
                 s.rescan_minutes = std::clamp(std::stoi(v), kRescanMin, kRescanMax);
             } catch (...) {}
+        } else if (k == "held_years") {
+            try {
+                s.held_years = std::clamp(std::stoi(v), kHeldMin, kHeldMax);
+            } catch (...) {}
+        } else if (k == "archive_days") {
+            try {
+                s.archive_days = std::clamp(std::stoi(v), kArchiveMin, kArchiveMax);
+            } catch (...) {}
         } else if (k == "home") {
             s.home_set = true;
             if (!v.empty() && std::find(s.home.begin(), s.home.end(), v) == s.home.end()) s.home.push_back(v);
@@ -47,6 +55,8 @@ std::string format(const Settings& s) {
     std::ostringstream o;
     o << "# Tidy settings -- written by Tidy (Settings). One junk pattern per line.\n";
     o << "aging_days=" << std::clamp(s.aging_days, kAgingMin, kAgingMax) << "\n";
+    o << "held_years=" << std::clamp(s.held_years, kHeldMin, kHeldMax) << "\n";
+    o << "archive_days=" << std::clamp(s.archive_days, kArchiveMin, kArchiveMax) << "\n";
     o << "rescan_minutes=" << std::clamp(s.rescan_minutes, kRescanMin, kRescanMax) << "\n";
     for (const auto& j : s.junk) o << "junk=" << j << "\n";
     if (s.home_set) {

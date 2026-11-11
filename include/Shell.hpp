@@ -67,6 +67,7 @@ class ProjectsPage;
 class IdListsWindow;
 class PurposesPage;
 class HomePage;
+class DuePage;
 class SettingsWindow;
 class ShortcutsDialog;
 
@@ -158,7 +159,8 @@ private:
 
     ProjectsPage* m_projects = nullptr;           // s008 (managed by the stack)
     PurposesPage* m_purposes = nullptr;           // s009 (managed by the stack)
-    HomePage*     m_home_page = nullptr;          // s011 files home (managed by the stack)
+    HomePage*     m_home_page = nullptr;
+    DuePage*      m_due = nullptr;                // s012a the trigger (managed by the stack)          // s011 files home (managed by the stack)
 
     std::unique_ptr<AboutWindow>     m_about;
     std::unique_ptr<SettingsWindow>  m_settings_win;

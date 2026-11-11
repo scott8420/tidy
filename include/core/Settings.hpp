@@ -21,8 +21,16 @@ inline constexpr int kAgingMin = 1, kAgingMax = 3650;
 // at launch) -- read-only; the catalog follows moves by id, marks gone. 0 = never.
 inline constexpr int kRescanDefault = 10, kRescanMin = 0, kRescanMax = 1440;
 
+// s012a the trigger: Held decays this many years after it became Held (the
+// clock: ctime -- late, never early); Historical is due to archive once
+// unread and unchanged this many days.
+inline constexpr int kHeldDefault = 7, kHeldMin = 1, kHeldMax = 100;
+inline constexpr int kArchiveDefault = 365, kArchiveMin = 30, kArchiveMax = 3650;
+
 struct Settings {
     int aging_days = kAgingDefault;
+    int held_years = kHeldDefault;
+    int archive_days = kArchiveDefault;
     int rescan_minutes = kRescanDefault;
     std::vector<std::string> junk;
     // s011 files home: the type table, "*.png -> Pictures" per line (core::homing

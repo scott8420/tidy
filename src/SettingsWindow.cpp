@@ -69,6 +69,32 @@ SettingsWindow::SettingsWindow(Gtk::Window& parent, SaveFn on_save) : m_save(std
     box->append(*text("While Tidy runs, and once at launch: finds your projects again, read-only. "
                       "A moved one is followed by its id; one not found is marked gone, never forgotten.", "dim"));
 
+    // s012a: the trigger's clocks.
+    auto due = text("Due", "heading");
+    due->set_margin_top(14);
+    box->append(*due);
+    const auto spin_row = [&](const char* pre, Gtk::SpinButton*& spin, const char* name, int def, int lo, int hi,
+                              const char* post) {
+        auto row = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::HORIZONTAL, 10);
+        auto a = text(pre);
+        a->set_wrap(false);
+        row->append(*a);
+        spin = Gtk::make_managed<Gtk::SpinButton>(Gtk::Adjustment::create(def, lo, hi, 1, 10));
+        spin->set_name(name);
+        spin->set_numeric(true);
+        row->append(*spin);
+        auto b = text(post);
+        b->set_wrap(false);
+        row->append(*b);
+        box->append(*row);
+    };
+    spin_row("Held is due to remove after", m_held, "settings.held_years", st::kHeldDefault, st::kHeldMin,
+             st::kHeldMax, "years");
+    spin_row("Historical is due to archive after", m_archive, "settings.archive_days", st::kArchiveDefault,
+             st::kArchiveMin, st::kArchiveMax, "days unread and unchanged");
+    box->append(*text("Ephemeral uses the aging days above. Due only proposes -- nothing is removed or archived "
+                      "from here.", "dim"));
+
     auto junk = text("Junk list", "heading");
     junk->set_margin_top(14);
     box->append(*junk);
@@ -137,6 +163,8 @@ SettingsWindow::~SettingsWindow() = default;
 void SettingsWindow::show(const st::Settings& current) {
     m_days->set_value(current.aging_days);
     m_rescan->set_value(current.rescan_minutes);
+    m_held->set_value(current.held_years);
+    m_archive->set_value(current.archive_days);
     std::string lines;
     for (const auto& j : current.junk) lines += j + "\n";
     m_junk->get_buffer()->set_text(lines);
@@ -151,6 +179,8 @@ void SettingsWindow::on_save_clicked() {
     st::Settings s;
     s.aging_days = m_days->get_value_as_int();
     s.rescan_minutes = m_rescan->get_value_as_int();
+    s.held_years = m_held->get_value_as_int();
+    s.archive_days = m_archive->get_value_as_int();
     s.junk = st::patterns_of(m_junk->get_buffer()->get_text());
     // The type table: every line must read, or nothing is saved (says which).
     std::vector<core::homing::TypeRoute> table;

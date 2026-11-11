@@ -31,6 +31,8 @@ private:
     SaveFn           m_save;
     Gtk::SpinButton* m_days = nullptr;
     Gtk::SpinButton* m_rescan = nullptr;     // s010f1
+    Gtk::SpinButton* m_held = nullptr;       // s012a
+    Gtk::SpinButton* m_archive = nullptr;    // s012a
     Gtk::TextView*   m_junk = nullptr;
     Gtk::TextView*   m_home = nullptr;      // s011: the type table
     Gtk::Label*      m_status = nullptr;

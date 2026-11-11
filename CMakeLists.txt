@@ -96,6 +96,7 @@ add_library(tidy_core STATIC
     src/core/Starters.cpp    # the built-in templates: the creative base + its kinds (s010a)
     src/core/FileLists.cpp   # CVS-style .tidy-files per folder: write, re-find lost ids (s010f2)
     src/core/Rescan.cpp      # what a look tells the catalog: moved by id, gone, copies (s010f1)
+    src/core/Due.cpp         # the trigger: what is due; the headless look; attention.ini (s012a)
     src/core/Homing.cpp      # files home: by type (subfolder required) or into a project; "name (2)" (s011)
 )
 target_include_directories(tidy_core PUBLIC include)
@@ -148,6 +149,7 @@ add_executable(tidy
     src/ProjectsPage.cpp
     src/PurposesPage.cpp
     src/HomePage.cpp
+    src/DuePage.cpp
     src/ShortcutsDialog.cpp
     src/Registry.cpp
     src/Log.cpp
