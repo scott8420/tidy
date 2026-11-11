@@ -43,6 +43,8 @@
 //                                         core::settings; written by core::own (s006a)
 //   "Where are projects found / moved?"-> ProjectsPage (core::projects; plans through
 //                                         m_door, previewed; undone in Activity, s008)
+//   "Where are purposes given / closed?"-> PurposesPage (core::purposes: the learned hints;
+//                                         tag plans through m_door; the book by core::own, s009)
 //   "Where are templates built?"      -> TemplatesPage (its own class; core::templates;
 //                                         written by core::own, s007)
 //   "Where does the Closet decide?"    -> Shell_handlers.cpp (on_closet_accept /
@@ -60,6 +62,7 @@ namespace tidy {
 
 class AboutWindow;
 class ProjectsPage;
+class PurposesPage;
 class SettingsWindow;
 class ShortcutsDialog;
 
@@ -146,6 +149,7 @@ private:
     std::optional<latch::door::Plan> m_clo_plan;   // shown, not yet run
 
     ProjectsPage* m_projects = nullptr;           // s008 (managed by the stack)
+    PurposesPage* m_purposes = nullptr;           // s009 (managed by the stack)
 
     std::unique_ptr<AboutWindow>     m_about;
     std::unique_ptr<SettingsWindow>  m_settings_win;

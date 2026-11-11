@@ -51,6 +51,11 @@
 //   * fix        -- the template's missing folders made (fixes/ refused by the
 //                   door: Scott's); undone; "left" remembered.
 //
+// s009, purposes (TAGS ONLY, through the door, on a FIXTURE):
+//   * the book   -- purposes + hints, round trip; a learned list: guesses
+//                   confirmed gain, corrected lose; landing folders teach nothing;
+//   * assign / close -- Tag actions only; close follows each file's role; undone.
+//
 //   ./build/tidy_selftest
 //   ./build/tidy_selftest --fixture DIR   make a fixture home at DIR (tagged,
 //                                         one atomic save carried) and stop:
@@ -73,6 +78,7 @@
 #include "core/Own.hpp"
 #include "core/Templates.hpp"
 #include "core/Projects.hpp"
+#include "core/Purposes.hpp"
 
 #include <latch/Door.hpp>
 #include <latch/Protect.hpp>
@@ -270,6 +276,13 @@ void make_projects(const fs::path& home) {
     const fs::path m = home / "Writing/Mary-project";
     for (const char* d : {"backups", "docs", "scripts", "Graphics/Covers", "Manuscript/Ch1", "Research/Sources/Deep", "Notes"})
         fs::create_directories(m / d);
+}
+// s009: a stamp of purpose + role (the harness marking a product).
+latch::door::Plan tagging_set(const std::vector<core::facts::Facts>& fs_, const std::string& purpose, const std::string& role) {
+    core::facts::Tags t;
+    t.purpose = purpose;
+    t.role = role;
+    return core::tagging::stamp(fs_, t, "harness: roles");
 }
 // Every entry under a folder: inode, size, mtime, ctime (atime left out:
 // reading a folder may touch it). A read-only pass leaves this unchanged.
@@ -1472,6 +1485,103 @@ int main(int argc, char** argv) {
         door.undo();
         check("fix: undone -- Final/ gone again", !fs::exists(mary->path + "/Final"));
         check("fix: nothing missing -> an empty plan", pj::fix(*mary, {}).actions.empty());
+        fs::remove_all(root);
+    }
+
+    // ── s009: purposes -- the learned list; assign / close -- on a FIXTURE ──
+    {
+        std::cout << "[purposes]\n";
+        namespace pu = core::purposes;
+        namespace dr = latch::door;
+        const std::vector<std::string> landing = {"Downloads", "Desktop", "Documents", "Screenshots"};
+
+        pu::Book b;
+        std::string id;
+        check("purposes: a title -> its id; no twins", pu::slug_of("  Taxes 2025! ") == "taxes-2025" &&
+              pu::add(b, "Taxes 2025", &id).empty() && id == "taxes-2025" && !pu::add(b, "taxes 2025").empty() &&
+              pu::add(b, "House").empty() && !pu::add(b, "a|b").empty() && !pu::add(b, "!!").empty());
+        check("hints: an empty list guesses nothing", pu::guess(b, "/h/Documents/Taxes/w2.pdf", landing).purpose.empty());
+
+        pu::learn(b, "/h/Documents/Taxes/w2.pdf", "taxes-2025", {}, landing);
+        auto g = pu::guess(b, "/h/Documents/Taxes/1099.pdf", landing);
+        check("learn: a file's folder becomes a hint -> the next file there is guessed",
+              g.purpose == "taxes-2025" && g.because == "folder Taxes" && b.hints.size() == 1, g.because);
+        pu::learn(b, "/h/Downloads/f1040.pdf", "taxes-2025", {}, landing);
+        check("learn: a landing folder teaches nothing", b.hints.size() == 1 &&
+              pu::guess(b, "/h/Downloads/other.pdf", landing).purpose.empty());
+        check("teach: a name pattern by hand; names win over folders",
+              pu::teach(b, "*1040*", "taxes-2025").empty() && !pu::teach(b, "a/b", "taxes-2025").empty() &&
+              !pu::teach(b, "*x*", "nope").empty() &&
+              pu::guess(b, "/h/Downloads/f1040-sr.pdf", landing).because == "name *1040*");
+        pu::learn(b, "/h/Documents/Taxes/1099.pdf", "taxes-2025", g, landing);
+        check("learn: a confirmed guess is a yes (once, not twice)", b.hints[0].yes == 2 && b.hints[0].no == 0,
+              std::to_string(b.hints[0].yes));
+        g = pu::guess(b, "/h/Documents/Taxes/roof.pdf", landing);
+        pu::learn(b, "/h/Documents/Taxes/roof.pdf", "house", g, landing);
+        g = pu::guess(b, "/h/Documents/Taxes/roof2.pdf", landing);
+        check("learn: a corrected guess is a no, and the folder now hints the chosen one too",
+              b.hints[0].no == 1 && b.hints.back().purpose == "house" && b.hints.back().pattern == "Taxes" &&
+              g.purpose == "taxes-2025", g.purpose);   // 2 yes 1 no still beats 1 yes
+        pu::learn(b, "/h/Documents/Taxes/roof2.pdf", "house", g, landing);
+        pu::learn(b, "/h/Documents/Taxes/roof3.pdf", "house", pu::guess(b, "/h/Documents/Taxes/roof3.pdf", landing), landing);
+        check("learn: corrected often enough, the guess turns", pu::guess(b, "/h/Documents/Taxes/roof4.pdf", landing).purpose == "house");
+        pu::set_closed(b, "house", true);
+        check("guess: a closed purpose is never guessed",
+              pu::guess(b, "/h/Documents/Taxes/roof5.pdf", landing).purpose != "house");
+        check("the book: format -> parse is the same book", pu::parse(pu::format(b)) == b, pu::format(b));
+        check("close: retention follows the role",
+              pu::retention_at_close("product") == "keep" && pu::retention_at_close("history") == "historical" &&
+              pu::retention_at_close("") == "historical" && pu::retention_at_close("input") == "ephemeral" &&
+              pu::retention_at_close("incidental") == "ephemeral" &&
+              pu::retention_at_close("junk-drawer").empty());
+
+        const fs::path root = fs::temp_directory_path() / ("tidy_selftest_purposes_" + std::to_string(::getpid()));
+        fs::remove_all(root);
+        const fs::path home = root / "home";
+        make_home(home);
+        make_birth_extras(home);
+        fs::remove_all(home / ".local");
+        const std::string H = fs::canonical(home).string();
+        const std::string D = core::paths::data_dir(H, nullptr);
+        latch::door::set_app_name("Tidy");
+        dr::Door door(H, D);
+        door.load();
+        const auto facts_of = [](const std::vector<std::string>& ps) {
+            std::vector<core::facts::Facts> v;
+            for (const auto& p : ps) { core::facts::Facts f; if (core::facts::of(p, f)) v.push_back(f); }
+            return v;
+        };
+        const std::string a = H + "/Downloads/f1040.pdf", c = H + "/Documents/Taxes/w2.pdf", k = H + "/Desktop/cover-final.png";
+        const auto before = tree_facts(H + "/Documents");
+        auto plan = pu::assign(facts_of({a, c}), *b.find("taxes-2025"));
+        bool tag_only = !plan.actions.empty();
+        for (const auto& x : plan.actions) tag_only = tag_only && x.verb == dr::Verb::Tag;
+        const bool refused = !door.run(plan).ok;
+        plan.previewed = true;
+        const auto r = door.run(plan);
+        check("assign: Tag actions only; refused unpreviewed; the purpose on each file",
+              tag_only && refused && r.ok && core::facts::tags_of(a).purpose == "taxes-2025" &&
+              core::facts::tags_of(c).purpose == "taxes-2025");
+        auto strip_ctime = [](std::map<std::string, std::string> m) { for (auto& [x, v] : m) v = v.substr(0, v.rfind('/')); return m; };
+        check("assign: bytes, inode, mtime untouched", strip_ctime(tree_facts(H + "/Documents")) == strip_ctime(before));
+
+        // A product and a history file in the purpose too.
+        auto roles = tagging_set(facts_of({k}), "taxes-2025", "product");
+        roles.previewed = true;
+        door.run(roles);
+        xset(home / "Documents/Taxes/w2.pdf", core::facts::kRole, "history");   // as an app would mark it
+        auto cl = pu::close(facts_of({a, c, k}), *b.find("taxes-2025"));
+        cl.previewed = true;
+        const auto cr = door.run(cl);
+        check("close: f1040 (no role) -> Historical, w2 (history) -> Historical, the cover (product) -> Keep (already: no step)",
+              cr.ok && core::facts::tags_of(a).retention == "historical" && core::facts::tags_of(c).retention == "historical" &&
+              core::facts::tags_of(k).retention == "keep" && cl.actions.size() == 2, std::to_string(cl.actions.size()));
+        const auto u1 = door.undo();
+        check("close: undone -- the retentions as they were", u1.ok && core::facts::tags_of(a).retention.empty() &&
+              core::facts::tags_of(c).retention.empty());
+        door.undo();
+        door.undo();
+        check("assign: undone -- no purpose left", core::facts::tags_of(a).purpose.empty() && core::facts::tags_of(c).purpose.empty());
         fs::remove_all(root);
     }
 

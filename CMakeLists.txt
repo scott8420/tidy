@@ -90,6 +90,7 @@ add_library(tidy_core STATIC
     src/core/Closet.cpp      # the Closet: view + accept / decide / Junk Drawer as door plans (s006)
     src/core/Settings.cpp    # what the user sets: aging days, the junk list (s006a)
     src/core/Own.cpp         # the ONE writer of Tidy's own files -- gate-listed (s006a)
+    src/core/Purposes.cpp    # purposes + the learned hints; assign / close as tag plans (s009)
     src/core/Projects.cpp    # projects: found, categorized; place / fix as door plans (s008)
     src/core/Templates.cpp   # templates: the tree, roles, routes; lift = proposal; drift; builder undo (s007)
 )
@@ -140,6 +141,7 @@ add_executable(tidy
     src/SettingsWindow.cpp
     src/TemplatesPage.cpp
     src/ProjectsPage.cpp
+    src/PurposesPage.cpp
     src/ShortcutsDialog.cpp
     src/Registry.cpp
     src/Log.cpp

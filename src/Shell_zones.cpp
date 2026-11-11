@@ -5,6 +5,7 @@
 #include "core/Retention.hpp"
 #include "TemplatesPage.hpp"
 #include "ProjectsPage.hpp"
+#include "PurposesPage.hpp"
 
 #include <gtkmm/checkbutton.h>
 #include <gtkmm/dropdown.h>
@@ -92,6 +93,13 @@ void Shell::build_page(const std::string& id) {  // zone: a page's hero
         const auto* pp = core::pages::find(id);
         m_projects = Gtk::make_managed<ProjectsPage>(*m_door, m_home, m_data_dir, m_fixture, [this] { refresh_activity(); });
         m_stack.add(*m_projects, id, pp ? pp->title : "Projects");
+        return;
+    }
+    if (id == "purposes") {                                // s009: one decision per purpose -- tags through the door
+        const auto* pp = core::pages::find(id);
+        m_purposes = Gtk::make_managed<PurposesPage>(*m_door, m_home, m_data_dir, m_fixture,
+                                                     [this] { return user_dirs_text(); }, [this] { refresh_activity(); });
+        m_stack.add(*m_purposes, id, pp ? pp->title : "Purposes");
         return;
     }
     if (id == "templates") {                               // s007: the tree builder

@@ -1,5 +1,6 @@
 #include "Shell.hpp"
 #include "ProjectsPage.hpp"
+#include "PurposesPage.hpp"
 #include "AboutWindow.hpp"
 #include "ShortcutsDialog.hpp"
 #include "SettingsWindow.hpp"
@@ -50,6 +51,7 @@ void Shell::on_settings() {  // handler: the Settings window
             m_settings = s;
             if (m_clo_states && m_clo_states->get_visible_child_name() == "results") fill_closet();
     if (m_projects) m_projects->refresh_if_shown();
+    if (m_purposes) m_purposes->refresh_if_shown();
             if (auto lg = log::get(log::Area::Shell))
                 lg->info("settings saved: aging {} days, {} junk patterns", s.aging_days, s.junk.size());
             return std::string();
