@@ -5,6 +5,8 @@
 #include "core/Catalog.hpp"
 #include "core/Own.hpp"
 #include "core/Pages.hpp"
+#include "core/Projects.hpp"
+#include "core/Templates.hpp"
 #include "core/Retention.hpp"
 #include "core/Settings.hpp"
 #include "core/Tagging.hpp"
@@ -96,8 +98,10 @@ void SortPage::build_start() {
     sub->set_max_width_chars(52);
     start->append(*sub);
     auto note = label(std::string("Look sweeps the home for loose files. Each gets a place: kept files go home by type ") +
-                      "into a dated folder named for where they came from (~/Pictures/Desktop 2026-11); old records "
-                      "go to ~/Archive, fingerprinted; Ephemeral files and your junk list stay, labelled. Hands-off "
+                      "into a dated folder named for where they came from (~/Pictures/Desktop 2026-11); a download "
+                      "you have opened goes on to ~/Entertainment (Movies, Series/<Show>/Season 01, Books, Music); "
+                      "old records go to ~/Archive, fingerprinted; a folder moves whole; a -project goes to its "
+                      "category. Unread downloads and your junk list stay, labelled. Hands-off "
                       "folders, hidden files, projects and repos are never touched. All of it is selected -- "
                       "unselect what is wrong, then Sort. One step to undo in Activity." +
                       (m_fixture ? "\n(a FIXTURE home: " + m_home + ")" : ""), "dim");
@@ -202,7 +206,8 @@ void SortPage::fill() {
             l.now = static_cast<std::int64_t>(std::time(nullptr));
             const auto st = core::settings::parse(core::own::read(data, core::settings::kFile));
             const auto rep = core::birth::report(home, core::birth::sweep(home, dirs), l.now, st.old_years);
-            l.rows = so::rows(home, rep, st, l.now);
+            const auto found = core::projects::find(home, core::projects::parse_left(core::own::read(data, core::projects::kFile)));
+            l.rows = so::rows(home, rep, st, l.now, found, core::templates::list(data));
             return l;
         },
         [this](Look l) { show(std::move(l)); });
@@ -229,15 +234,17 @@ void SortPage::show(Look look) {
             const auto n = plural(count[k], "file");
             if (r.go == so::Go::Home) { it.header = "To ~/" + r.folder + "  (" + n + ")"; }
             else if (r.go == so::Go::Archive) { it.header = "To ~/" + r.folder + "  (" + n + ")"; it.header_sub = "Historical -- archived and fingerprinted; Back up from the Archive page."; }
-            else { it.header = "Stays where it is, labelled  (" + n + ")"; it.header_sub = "Ephemeral (Due removes it when its days are up) or your junk list (the Junk Drawer)."; }
+            else { it.header = "Stays where it is  (" + n + ")"; it.header_sub = "Unread downloads and Ephemeral files (Due proposes the Trash when their days are up), your junk list (the Junk Drawer), and projects with no category (pick one on the Projects page)."; }
         }
         home += r.go == so::Go::Home;
         arch += r.go == so::Go::Archive;
         stays += r.go == so::Go::Stays;
-        it.title = std::filesystem::path(r.born.file.path).filename().string() + "   -> " +
-                   (r.junk ? std::string("the Junk Drawer") : rt::title_of(r.level));
+        it.title = std::filesystem::path(r.born.file.path).filename().string() +
+                   (r.is_project ? std::string("   (a project, whole)")
+                    : r.folder_whole ? std::string("   (a folder, whole)")
+                    : "   -> " + (r.junk ? std::string("the Junk Drawer") : rt::title_of(r.level)));
         it.line = shown(std::filesystem::path(r.born.file.path).parent_path().string()) + "   ·   " + r.why +
-                  (r.tag ? "" : "   ·   decided already");
+                  (r.tag || r.folder_whole || r.is_project ? "" : "   ·   decided already");
         it.tooltip = r.born.file.path;
         items.push_back(std::move(it));
     }

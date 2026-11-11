@@ -127,10 +127,13 @@ const std::vector<Rule>& rules() {
          "A random image off the web is incidental -- Ephemeral."},
         {"installer-download", "A downloaded installer", rt::Level::Ephemeral,
          "An installer or disk image is spent once installed -- Ephemeral. (lean)"},
+        {"in-downloads", "Anything in Downloads", rt::Level::Ephemeral,
+         "Downloads is another junk drawer: everything there arrives Ephemeral. Read it and Sort moves it on "
+         "(~/Entertainment for movies, series, books, music); unread 30 days, Due proposes the Trash."},
         {"old", "Untouched for years", rt::Level::Historical,
          "Nobody has changed or read it in years (Settings) -- a record: Historical, and Due archives it."},
         {"download", "A download no rule knows", rt::Level::Undecided,
-         "Downloaded, but its origin says nothing yet -- Undecided, to the Closet."},
+         "Downloaded (its origin is recorded) but no longer in Downloads -- Undecided, to the Closet."},
         {"unknown", "Born unannounced", rt::Level::Undecided,
          "Nothing about its birth says its fate -- Undecided, to the Closet."},
     };
@@ -212,6 +215,12 @@ Born classify(const facts::Facts& f, const std::string& place_id, const std::str
             return fit("installer-download", rt::Level::Ephemeral,
                        "." + ext + (host.empty() ? std::string() : " from " + host) + was);
     }
+    // 3b. s020a (Scott): everything in Downloads arrives Ephemeral -- "another
+    // junk drawer by another name". Never "old": an unread download goes to the Trash, not the Archive.
+    if (place_id == "downloads")
+        return fit("in-downloads", rt::Level::Ephemeral,
+                   (host.empty() ? std::string("in Downloads") : "from " + host) + was);
+
     // 4. s019: untouched for years -> a record (Historical; Due archives it).
     if (!f.dir && now > 0 && old_years > 0) {
         const std::int64_t t = untouched_since(f);

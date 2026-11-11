@@ -66,6 +66,13 @@ const std::vector<Topic>& topics() {
           "~/Pictures/Desktop 2026-11, ~/Documents/Downloads 2026-11, ~/Pictures/Loose 2026-11 for one already "
           "loose in Pictures. Old records (Historical) go to ~/Archive/<year>, fingerprinted. Ephemeral files and "
           "your junk list stay where they are, labelled.",
+          "Downloads: everything there arrives Ephemeral. Once you have opened it, Sort moves it on: a movie to "
+          "~/Entertainment/Movies, an episode (Mobland_s01e02) to ~/Entertainment/Series/Mobland/Season 01, a book "
+          "(.epub .mobi .azw3 .cbz .cbr .pdf) to ~/Entertainment/Books, music to ~/Entertainment/Music; anything "
+          "else home by type. Unread 30 days (Settings), Due proposes the Trash.",
+          "A folder in Downloads or on the Desktop moves whole, never split -- by most of its files (an episode "
+          "folder into its season). A <name>-project goes to the category whose template its folders match; with "
+          "no match it is listed, and you pick its category on the Projects page.",
           "Hands off, hidden files, your Hands-off folders, Samson's folders, projects and repos are never touched. "
           "A name already taken in a folder gets \"(2)\" -- nothing is overwritten."},
          {"Sort -> Look. Everything comes up selected, grouped by where it goes.",

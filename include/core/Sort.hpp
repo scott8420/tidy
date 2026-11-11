@@ -18,6 +18,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 #include "core/Birth.hpp"
 #include "core/Homing.hpp"
+#include "core/Projects.hpp"
+#include "core/Templates.hpp"
 #include "core/Retention.hpp"
 #include "core/Settings.hpp"
 
@@ -40,15 +42,36 @@ struct Row {
     Go               go = Go::Home;
     std::string      folder;                           // Home: relative to home; Archive: "Archive/2026/..."
     std::string      why;                              // one line: "by type *.png -> Pictures, from the Desktop"
+    bool             folder_whole = false;             // s020a: a plain folder, moved whole (born.file is the folder)
+    bool             is_project = false;               // s020a: a <name>-project, placed by its category
+    projects::Project project;
 };
+
+// s020a -- Downloads (Scott): everything arrives Ephemeral; once READ (opened
+// since it arrived) it moves on: video -> ~/Entertainment/Movies, an episode
+// (S01E02, 1x02) -> ~/Entertainment/Series/<Show>/Season 01, a book (.epub
+// .mobi .azw3 .cbz .cbr .pdf) -> ~/Entertainment/Books, audio ->
+// ~/Entertainment/Music; anything else home by type. Unread, it stays: Due
+// proposes the Trash after the aging days (Settings, 30).
+inline constexpr const char* kEntertainment = "Entertainment";
+std::string kind_of(const std::string& file_name);   // "Movies", "Books", "Music" or ""
+// "Mobland_s01e02.mkv" -> show "Mobland", season 1. false: not an episode.
+bool episode(const std::string& name, std::string* show, int* season);
+// Opened since it arrived (atime past the later of mtime and btime by a minute).
+bool read_since_arrival(const facts::Facts& f);
 
 // "<where it came from> YYYY-MM": "Desktop 2026-11", "Downloads 2026-11",
 // "Home 2026-11"; a file already at its type folder's top -> "Loose 2026-11".
 std::string dated(const birth::Born& b, const std::string& type_folder, std::int64_t now);
 
 // One row per loose file the sweep found (none for Hands off / the Junk Drawer).
+// s020a: a plain folder in Downloads / on the Desktop is ONE row, moved whole
+// (never split); a <name>-project without a category is placed by the
+// template its top folders match (none: listed, "pick its category on the
+// Projects page"); a code project stays where it is.
 std::vector<Row> rows(const std::string& home, const birth::Report& rep, const settings::Settings& st,
-                      std::int64_t now);
+                      std::int64_t now, const std::vector<projects::Project>& found = {},
+                      const std::vector<templates::Template>& ts = {});
 
 struct Planned {
     latch::door::Plan plan;

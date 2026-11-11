@@ -866,16 +866,19 @@ int main(int argc, char** argv) {
         check("rules: a .gov origin counts outside Downloads too (the origin travels)",
               is(cb::classify(F("/h/Desktop/w9.pdf"), "desktop", "https://irs.gov/w9.pdf"), "gov-download", rt::Level::UntilDone));
         check("rules: 'gov' inside a host is not .gov (gov.example.com)",
-              is(cb::classify(F("/h/Downloads/a.pdf"), "downloads", "https://gov.example.com/a.pdf"), "download", rt::Level::Undecided));
+              is(cb::classify(F("/h/Downloads/a.pdf"), "downloads", "https://gov.example.com/a.pdf"), "in-downloads", rt::Level::Ephemeral));
         check("rules: a downloaded image -> Ephemeral",
               is(cb::classify(F("/h/Downloads/cat.JPG"), "downloads", "https://x.com/cat.jpg"), "image-download", rt::Level::Ephemeral));
         check("rules: a downloaded installer -> Ephemeral",
               is(cb::classify(F("/h/Downloads/tool.AppImage"), "downloads", ""), "installer-download", rt::Level::Ephemeral));
-        check("rules: a download no rule knows -> Undecided, its origin named",
+        check("rules: anything else in Downloads -> Ephemeral (s020a), its origin named",
               [&] { auto b = cb::classify(F("/h/Downloads/b.pdf"), "downloads", "https://shop.example.com/b.pdf");
-                    return is(b, "download", rt::Level::Undecided) && b.why.find("shop.example.com") != std::string::npos; }());
+                    return is(b, "in-downloads", rt::Level::Ephemeral) && b.why.find("shop.example.com") != std::string::npos; }());
+        check("rules: a download moved out of Downloads (its origin kept) -> Undecided, to the Closet",
+              is(cb::classify(F("/h/Desktop/a.zip"), "desktop", "https://files.example.com/a.zip"), "download",
+                 rt::Level::Undecided));
         check("rules: a package is one thing -- never a screenshot, never an installer",
-              is(cb::classify(F("/h/Downloads/Screenshot.scriv", "", true), "downloads", ""), "download", rt::Level::Undecided));
+              is(cb::classify(F("/h/Downloads/Screenshot.scriv", "", true), "downloads", ""), "in-downloads", rt::Level::Ephemeral));
         check("rules: a loose document with no story -> Undecided",
               is(cb::classify(F("/h/Documents/loose.txt"), "documents", ""), "unknown", rt::Level::Undecided));
 
@@ -935,8 +938,8 @@ int main(int argc, char** argv) {
               has("Desktop/Screenshot 2026-11-10.png", "screenshot", rt::Level::Ephemeral));
         check("report: a file carrying Keep stays Keep", has("Desktop/cover-final.png", "stamped", rt::Level::Keep));
         check("report: notes.txt (no origin), brochure.pdf (no rule) -> Undecided",
-              has("Downloads/notes.txt", "download", rt::Level::Undecided) &&
-              has("Downloads/brochure.pdf", "download", rt::Level::Undecided));
+              has("Downloads/notes.txt", "in-downloads", rt::Level::Ephemeral) &&
+              has("Downloads/brochure.pdf", "in-downloads", rt::Level::Ephemeral));
         check("report: Documents -- the loose top only (loose.txt, report.odt, the .scriv whole; not Taxes/w2.pdf)",
               has("Documents/loose.txt", "unknown", rt::Level::Undecided) && find("Documents/report.odt") &&
               find("Documents/Jasper.scriv") && !find("Documents/Taxes/w2.pdf") &&
@@ -946,7 +949,8 @@ int main(int argc, char** argv) {
               !find("Pictures/landscape.png"));
         std::string unused;
         for (const auto& r : cb::rules())
-            if (!rep.count_rule(r.id) && r.id != "old") unused += r.id + " ";   // old: the s019 sweep's own checks
+            if (!rep.count_rule(r.id) && r.id != "old" && r.id != "download")   // old: s019's checks; download: below
+                unused += r.id + " ";
         check("report: every birth rule fits at least one fixture file", unused.empty(), unused);
         std::size_t by_level = 0;
         for (const auto& l : rt::all()) by_level += rep.count(l.level);
@@ -1024,7 +1028,8 @@ int main(int argc, char** argv) {
               has("old-letter.txt", "old", rt::Level::Historical) && find("old-letter.txt")->why == "untouched since 2021",
               find("old-letter.txt") ? find("old-letter.txt")->rule + ": " + find("old-letter.txt")->why : "missing");
         check("old: at a top folder's top (Music/song.mp3, 2022) and in Downloads (an old .mkv, before \"a download\")",
-              has("Music/song.mp3", "old", rt::Level::Historical) && has("Downloads/old-movie.mkv", "old", rt::Level::Historical));
+              has("Music/song.mp3", "old", rt::Level::Historical) &&
+              has("Downloads/old-movie.mkv", "in-downloads", rt::Level::Ephemeral));   // s020a: Downloads is never "old"
         check("old: a decided file is never re-proposed; a fresh one is not old",
               has("Desktop/cover-final.png", "stamped", rt::Level::Keep) && !has("todo.txt", "old", rt::Level::Historical));
         {
@@ -1269,7 +1274,7 @@ int main(int argc, char** argv) {
             bool once = true;
             for (const auto& [p, n] : ids) once = once && n == 1;
             check("plan: the level tags come before any move; one id per file (the archive's own dropped)",
-                  last_tag < first_move && once && planned.archiving >= 3);
+                  last_tag < first_move && once && planned.archiving >= 2);
         }
         latch::door::Door door(H, H + "/.tidy-data-sort");
         door.load();
@@ -1322,6 +1327,130 @@ int main(int argc, char** argv) {
         fs::remove_all(root, ec);
     }
 
+    // ── s020a: Downloads on to Entertainment; folders whole; projects placed ──
+    {
+        std::cout << "[sort-a]\n";
+        namespace so = core::sort;
+        namespace cb = core::birth;
+        namespace rt = core::retention;
+        std::string show;
+        int season = 0;
+        check("episode: Mobland_s01e02.mkv -> Mobland, season 1",
+              so::episode("Mobland_s01e02.mkv", &show, &season) && show == "Mobland" && season == 1, show);
+        check("episode: Mobland.S01E02.1080p.WEB.mkv, mobland 1x02.mp4 -> Mobland",
+              so::episode("Mobland.S01E02.1080p.WEB.mkv", &show, &season) && show == "Mobland" &&
+              so::episode("mobland 1x02.mp4", &show, &season) && show == "Mobland" && season == 1, show);
+        check("episode: the.last.of.us.S02E05.mkv -> The Last Of Us, season 2",
+              so::episode("the.last.of.us.S02E05.mkv", &show, &season) && show == "The Last Of Us" && season == 2, show);
+        check("episode: a movie is not one (Dune.2021.1080p.mkv, 1917.mkv)",
+              !so::episode("Dune.2021.1080p.mkv", nullptr, nullptr) && !so::episode("1917.mkv", nullptr, nullptr));
+        check("kind: .mkv Movies, .epub/.pdf Books, .flac Music, .txt none",
+              so::kind_of("a.MKV") == "Movies" && so::kind_of("b.epub") == "Books" && so::kind_of("c.pdf") == "Books" &&
+              so::kind_of("d.flac") == "Music" && so::kind_of("e.txt").empty());
+        {
+            core::facts::Facts f;
+            f.mtime = 1000; f.btime = 900; f.atime = 1030;
+            const bool fresh = so::read_since_arrival(f);
+            f.atime = 5000;
+            check("read: opened a minute or more after it arrived; not at arrival", !fresh && so::read_since_arrival(f));
+        }
+        const fs::path root = fs::temp_directory_path() / ("tidy_selftest_sorta_" + std::to_string(::getpid()));
+        fs::remove_all(root);
+        const fs::path home = root / "home";
+        make_home(home);
+        make_projects(home);
+        fs::remove_all(home / ".local");
+        latch::protect::set_owned({});
+        const std::int64_t now = now_s();
+        const auto arrive_read = [&](const fs::path& p, bool read) {   // arrived yesterday; read an hour ago, or never
+            struct timespec ts[2];
+            ts[1] = {static_cast<time_t>(now - 86400), 0};
+            ts[0] = {static_cast<time_t>(read ? now + 3600 : now - 86400), 0};   // btime is now (it cannot be set back)
+            ::utimensat(AT_FDCWD, p.c_str(), ts, AT_SYMLINK_NOFOLLOW);
+        };
+        for (const auto& [rel, read] : std::vector<std::pair<std::string, bool>>{
+                 {"Downloads/Mobland_s01e02.mkv", true}, {"Downloads/Dune.2021.1080p.mkv", true},
+                 {"Downloads/Unwatched.mkv", false}, {"Downloads/book.epub", true}, {"Downloads/scan.pdf", true},
+                 {"Downloads/readme.txt", true},
+                 {"Downloads/Show.S02E01.1080p/Show.S02E01.1080p.mkv", true},
+                 {"Downloads/Show.S02E01.1080p/Show.S02E01.srt", false},
+                 {"Downloads/Unread.Folder/x.mkv", false},
+                 {"Desktop/Trip/a.jpg", false}, {"Desktop/Trip/b.jpg", false}, {"Desktop/Trip/notes.txt", false}}) {
+            put_file(home / rel, rel);
+            arrive_read(home / rel, read);
+        }
+        const std::string H = fs::canonical(home).string();
+        core::settings::Settings st;
+        const auto rep = cb::report(H, cb::sweep(H, ""), now, st.old_years);
+        core::templates::Template wt;
+        wt.name = "writing-project";
+        wt.category = "Writing";
+        wt.folders = {{"Drafts"}, {"Research"}, {"Research/Notes"}};
+        fs::create_directories(home / "Desktop/Essay-project/Drafts");
+        const auto found = core::projects::find(H);
+        const auto rows = so::rows(H, rep, st, now, found, {wt});
+        const auto row = [&](const std::string& rel) -> const so::Row* {
+            for (const auto& r : rows) if (r.born.file.path == H + "/" + rel) return &r;
+            return nullptr;
+        };
+        const auto to = [&](const std::string& rel, const std::string& folder) {
+            const auto* r = row(rel);
+            return r && r->go == so::Go::Home && r->folder == folder;
+        };
+        check("downloads: a read episode -> Entertainment/Series/Mobland/Season 01, Keep",
+              to("Downloads/Mobland_s01e02.mkv", "Entertainment/Series/Mobland/Season 01") &&
+              row("Downloads/Mobland_s01e02.mkv")->level == rt::Level::Keep && row("Downloads/Mobland_s01e02.mkv")->tag);
+        check("downloads: a read movie -> Entertainment/Movies; a read .epub and .pdf -> Entertainment/Books",
+              to("Downloads/Dune.2021.1080p.mkv", "Entertainment/Movies") && to("Downloads/book.epub", "Entertainment/Books") &&
+              to("Downloads/scan.pdf", "Entertainment/Books"));
+        check("downloads: read, not entertainment -> home by type (Documents/Downloads <month>)",
+              row("Downloads/readme.txt") && row("Downloads/readme.txt")->go == so::Go::Home &&
+              row("Downloads/readme.txt")->folder.rfind("Documents/Downloads ", 0) == 0);
+        check("downloads: unread -> stays, Ephemeral, tagged (Due's Trash after the aging days)",
+              row("Downloads/Unwatched.mkv") && row("Downloads/Unwatched.mkv")->go == so::Go::Stays &&
+              row("Downloads/Unwatched.mkv")->level == rt::Level::Ephemeral && row("Downloads/Unwatched.mkv")->tag);
+        check("folder: a read episode folder moves whole into its season (never split)",
+              to("Downloads/Show.S02E01.1080p", "Entertainment/Series/Show/Season 02") &&
+              row("Downloads/Show.S02E01.1080p")->folder_whole &&
+              !row("Downloads/Show.S02E01.1080p/Show.S02E01.1080p.mkv") && !row("Downloads/Show.S02E01.1080p/Show.S02E01.srt"));
+        check("folder: an unread download folder stays, untouched", !row("Downloads/Unread.Folder") &&
+              !row("Downloads/Unread.Folder/x.mkv"));
+        check("folder: a Desktop folder moves whole by most of its files (Trip -> Pictures/Desktop <month>)",
+              row("Desktop/Trip") && row("Desktop/Trip")->go == so::Go::Home &&
+              row("Desktop/Trip")->folder.rfind("Pictures/Desktop ", 0) == 0 && !row("Desktop/Trip/a.jpg"),
+              row("Desktop/Trip") ? row("Desktop/Trip")->folder : "missing");
+        check("project: Desktop/Essay-project matches writing-project -> ~/Writing, whole; a code project stays",
+              row("Desktop/Essay-project") && row("Desktop/Essay-project")->is_project &&
+              to("Desktop/Essay-project", "Writing") && !row("Desktop/Essay-project/draft.odt"));
+        check("project: one with no matching template is listed, not moved (Stray-project)",
+              row("Stray-project") && row("Stray-project")->go == so::Go::Stays);
+        const auto before = tree_facts(H);
+        auto planned = so::plan(H, rows, now);
+        latch::door::Door door(H, H + "/.tidy-data-sorta");
+        door.load();
+        planned.plan.previewed = true;
+        const auto r = door.run(planned.plan);
+        check("run: all done", r.ok && r.failed == 0, r.messages.empty() ? "" : r.messages.front());
+        check("run: on disk -- the season folder, the episode folder whole, the movie, the book, the Trip folder, Essay in Writing",
+              fs::exists(home / "Entertainment/Series/Mobland/Season 01/Mobland_s01e02.mkv") &&
+              fs::exists(home / "Entertainment/Series/Show/Season 02/Show.S02E01.1080p/Show.S02E01.srt") &&
+              fs::exists(home / "Entertainment/Movies/Dune.2021.1080p.mkv") &&
+              fs::exists(home / "Entertainment/Books/book.epub") && fs::exists(home / "Writing/Essay-project/draft.odt") &&
+              !fs::exists(home / "Desktop/Trip") && fs::exists(home / "Downloads/Unwatched.mkv") &&
+              fs::exists(home / "Downloads/Unread.Folder/x.mkv"));
+        check("run: the moved episode is Keep; the unread one Ephemeral",
+              core::facts::tags_of(H + "/Entertainment/Series/Mobland/Season 01/Mobland_s01e02.mkv").retention == "keep" &&
+              core::facts::tags_of(H + "/Downloads/Unwatched.mkv").retention == "ephemeral");
+        const auto u = door.undo();
+        check("undo: one step -- the episode, the folders and Essay-project back", u.ok &&
+              fs::exists(home / "Downloads/Mobland_s01e02.mkv") && fs::exists(home / "Desktop/Trip/a.jpg") &&
+              fs::exists(home / "Desktop/Essay-project/draft.odt") && fs::exists(home / "Downloads/Show.S02E01.1080p") &&
+              !fs::exists(home / "Entertainment/Series"));
+        (void)before;
+        std::error_code ec;
+        fs::remove_all(root, ec);
+    }
+
     // ── s006: the Closet -- decide / accept / Junk Drawer, on a FIXTURE ─────
     {
         std::cout << "[closet]\n";
@@ -1366,15 +1495,14 @@ int main(int argc, char** argv) {
               cl::days_since(now + 99, now) == 0 && !cl::aging(fc::Facts{}, now));
 
         auto v = look();
-        check("closet: proposed = the births with a level (6)",
-              names(v.proposed) == std::set<std::string>{"f1040.pdf", "cat.jpg", "fedora-44.rpm",
+        check("closet: proposed = the births with a level (8; s020a: all of Downloads)",
+              names(v.proposed) == std::set<std::string>{"f1040.pdf", "cat.jpg", "fedora-44.rpm", "brochure.pdf", "notes.txt",
                                                          "Screenshot From 2026-11-10 09-14-02.png",
                                                          "Screencast From 2026-11-10 09-20-11.webm",
                                                          "Screenshot 2026-11-10.png"},
               std::to_string(v.proposed.size()));
-        check("closet: waiting = the undecided with nothing to propose (6, the .scriv whole)",
-              names(v.waiting) == std::set<std::string>{"brochure.pdf", "notes.txt", "plan.txt", "loose.txt",
-                                                        "report.odt", "Jasper.scriv"},
+        check("closet: waiting = the undecided with nothing to propose (4, the .scriv whole)",
+              names(v.waiting) == std::set<std::string>{"plan.txt", "loose.txt", "report.odt", "Jasper.scriv"},
               std::to_string(v.waiting.size()));
         check("closet: a decided file never visits (cover-final, Keep)", v.decided == 1 && v.junk == 0 &&
               !names(v.proposed).count("cover-final.png") && !names(v.waiting).count("cover-final.png"));
@@ -1382,7 +1510,7 @@ int main(int argc, char** argv) {
         std::size_t aged = 0;
         for (const auto& b : later.proposed) aged += b.rule == "aged-out" && b.level == rt::Level::Ephemeral;
         check("closet: 40 days on, unread -> aging out to Ephemeral; a package waits (never ages as a file)",
-              aged == 5 && later.waiting.size() == 1 && names(later.waiting).count("Jasper.scriv"),
+              aged == 3 && later.waiting.size() == 1 && names(later.waiting).count("Jasper.scriv"),
               std::to_string(aged) + " aged");
 
         latch::door::Door door(H, D);
@@ -1393,8 +1521,8 @@ int main(int argc, char** argv) {
         auto plan = cl::accept(v.proposed);
         bool tags_only = !plan.actions.empty();
         for (const auto& a : plan.actions) tags_only = tags_only && a.verb == latch::door::Verb::Tag;
-        check("closet: accept is Tag actions only -- an id + a retention for each of the 6",
-              tags_only && plan.actions.size() == 12, std::to_string(plan.actions.size()));
+        check("closet: accept is Tag actions only -- an id + a retention for each of the 8",
+              tags_only && plan.actions.size() == 16, std::to_string(plan.actions.size()));
         std::map<std::string, Id> before;
         for (const auto& b : v.proposed) before[b.file.path] = ident(b.file.path);
         const auto refused = door.run(plan);
@@ -1416,10 +1544,10 @@ int main(int argc, char** argv) {
         check("closet: ...the IRS form Until done, the screenshots Ephemeral",
               fc::tags_of(H + "/Downloads/f1040.pdf").retention == "until-done" &&
               fc::tags_of(H + "/Desktop/Screenshot 2026-11-10.png").retention == "ephemeral");
-        check("closet: ...in the catalog (6)", cat.count() == 6, std::to_string(cat.count()));
+        check("closet: ...in the catalog (8)", cat.count() == 8, std::to_string(cat.count()));
         v = look();
-        check("closet: ...and they left the Closet (0 proposed, 7 decided)",
-              v.proposed.empty() && v.waiting.size() == 6 && v.decided == 7);
+        check("closet: ...and they left the Closet (0 proposed, 9 decided)",
+              v.proposed.empty() && v.waiting.size() == 4 && v.decided == 9);
         check("closet: accept never takes a decided file back", [&] {
             cb::Born b = cb::classify(fc::Facts{}, "desktop", "");
             fc::of(H + "/Desktop/cover-final.png", b.file);
@@ -1427,21 +1555,21 @@ int main(int argc, char** argv) {
             return cl::accept({b}).actions.empty();
         }());
 
-        auto jp = cl::junk_drawer(pick(v.waiting, {"notes.txt", "plan.txt"}));
+        auto jp = cl::junk_drawer(pick(v.waiting, {"plan.txt"}));
         jp.previewed = true;
         const auto r2 = door.run(jp);
         tg::record(cat, tg::paths_of(door, r2.batch), now);
-        const auto jt = fc::tags_of(H + "/Downloads/notes.txt");
+        const auto jt = fc::tags_of(H + "/Desktop/plan.txt");
         v = look();
         check("closet: the Junk Drawer -- Keep, role junk-drawer; counted, out of the Closet",
-              r2.ok && jt.retention == "keep" && jt.role == cl::kJunkDrawer && v.junk == 2 && v.waiting.size() == 4 &&
-              !names(v.waiting).count("notes.txt"));
+              r2.ok && jt.retention == "keep" && jt.role == cl::kJunkDrawer && v.junk == 1 && v.waiting.size() == 3 &&
+              !names(v.waiting).count("plan.txt"));
 
-        auto dp = cl::decide(pick(v.waiting, {"brochure.pdf"}), rt::Level::Held);
+        auto dp = cl::decide(pick(v.waiting, {"report.odt"}), rt::Level::Held);
         dp.previewed = true;
         const auto r3 = door.run(dp);
         tg::record(cat, tg::paths_of(door, r3.batch), now);
-        check("closet: decided by hand -- brochure.pdf Held", r3.ok && fc::tags_of(H + "/Downloads/brochure.pdf").retention == "held" &&
+        check("closet: decided by hand -- report.odt Held", r3.ok && fc::tags_of(H + "/Documents/report.odt").retention == "held" &&
               dp.label.find("Held") != std::string::npos);
 
         v = look();
@@ -1464,7 +1592,7 @@ int main(int argc, char** argv) {
         // Undo, newest first, down to (not through) the accept: the files go
         // back to the Closet, and the catalog follows.
         std::size_t undone = 0;
-        while (door.can_undo() && door.undo_label().find("accept 6") == std::string::npos) {
+        while (door.can_undo() && door.undo_label().find("accept 8") == std::string::npos) {
             std::uint64_t b = 0;
             for (auto it = door.batches().rbegin(); it != door.batches().rend(); ++it)
                 if (!it->undone) { b = it->id; break; }
@@ -1473,11 +1601,11 @@ int main(int argc, char** argv) {
         }
         v = look();
         check("closet: undo x4 -- back in the Closet as they were (junk, held, seen, historical)",
-              undone == 4 && v.junk == 0 && v.waiting.size() == 6 && v.decided == 7 &&
-              fc::tags_of(H + "/Downloads/notes.txt").id.empty() &&
+              undone == 4 && v.junk == 0 && v.waiting.size() == 4 && v.decided == 9 &&
+              fc::tags_of(H + "/Desktop/plan.txt").id.empty() &&
               fc::tags_of(H + "/Documents/loose.txt").retention.empty(),
               std::to_string(undone));
-        check("closet: ...and the catalog holds only the 6 accepted", cat.count() == 6, std::to_string(cat.count()));
+        check("closet: ...and the catalog holds only the 8 accepted", cat.count() == 8, std::to_string(cat.count()));
 
         std::error_code ec;
         fs::remove_all(root, ec);
@@ -1568,7 +1696,7 @@ int main(int argc, char** argv) {
         std::size_t aged = 0;
         for (const auto& b : later.proposed) aged += b.rule == "aged-out";
         check("aging: the setting decides -- 5 days set, 6 days on, the waiting age out",
-              aged == 2 && cl::view(cb::report(H, ps), now + 6 * 86400LL).proposed.empty(), std::to_string(aged));
+              aged == 1 && cl::view(cb::report(H, ps), now + 6 * 86400LL).proposed.empty(), std::to_string(aged));
 
         std::error_code ec;
         fs::remove_all(root, ec);
