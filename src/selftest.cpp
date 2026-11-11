@@ -36,6 +36,13 @@
 //   the Junk Drawer, winning over birth rules); core::own the ONE writer of
 //   Tidy's own files -- under the data folder only, gate-listed.
 //
+// s007, templates (Tidy's own files, through core::own):
+//   * the model  -- names, depth two only, parents, routes; text round trip;
+//   * the builder -- every edit undoable; lifted folders block Save until each
+//                   is kept or removed; a new template never takes a saved name;
+//   * lift       -- a proposal at template depth; READ-ONLY (nothing changed);
+//   * drift      -- missing / extra at template depth; free below it; adopt.
+//
 //   ./build/tidy_selftest
 //   ./build/tidy_selftest --fixture DIR   make a fixture home at DIR (tagged,
 //                                         one atomic save carried) and stop:
@@ -56,6 +63,7 @@
 #include "core/Closet.hpp"
 #include "core/Settings.hpp"
 #include "core/Own.hpp"
+#include "core/Templates.hpp"
 
 #include <latch/Door.hpp>
 #include <latch/Protect.hpp>
@@ -226,6 +234,37 @@ void make_birth_extras(const fs::path& home) {
     xset(home / "Downloads/brochure.pdf", cb::kOriginUrl, "https://shop.example.com/brochure.pdf");
     xset(home / "Desktop/cover-final.png", core::facts::kRetention, "keep");
 }
+
+// s007: two writing projects under ~/Writing. Jasper carries drift (a stray
+// "old covers" folder), a hidden .git, a symlink, a file, a folder three deep.
+// Mary misses fixes/ and Final/, has an extra Notes/, and a Manuscript/Ch1
+// below template depth (free).
+void make_projects(const fs::path& home) {
+    const fs::path j = home / "Writing/Jasper-project";
+    for (const char* d : {"backups", "docs", "fixes", "scripts", "Graphics/Covers", "Graphics/old covers",
+                          "Manuscript", "Research/Sources/1850s", "Final", ".git/objects"})
+        fs::create_directories(j / d);
+    put_file(j / "README.txt", "jasper");
+    put_file(j / "Graphics/Covers/cover.png", "png");
+    std::error_code ec;
+    fs::create_directory_symlink(j / "docs", j / "link-to-docs", ec);
+    const fs::path m = home / "Writing/Mary-project";
+    for (const char* d : {"backups", "docs", "scripts", "Graphics/Covers", "Manuscript/Ch1", "Research/Sources/Deep", "Notes"})
+        fs::create_directories(m / d);
+}
+// Every entry under a folder: inode, size, mtime, ctime (atime left out:
+// reading a folder may touch it). A read-only pass leaves this unchanged.
+std::map<std::string, std::string> tree_facts(const std::string& dir) {
+    std::map<std::string, std::string> m;
+    for (auto it = fs::recursive_directory_iterator(dir); it != fs::recursive_directory_iterator(); ++it) {
+        struct stat st{};
+        if (::lstat(it->path().c_str(), &st) != 0) continue;
+        m[it->path().string()] = std::to_string(st.st_ino) + "/" + std::to_string(st.st_size) + "/" +
+            std::to_string(st.st_mtim.tv_sec) + "." + std::to_string(st.st_mtim.tv_nsec) + "/" +
+            std::to_string(st.st_ctim.tv_sec) + "." + std::to_string(st.st_ctim.tv_nsec);
+    }
+    return m;
+}
 }  // namespace
 
 namespace {
@@ -263,6 +302,7 @@ int make_fixture(const std::string& dir) {
     const auto f = tg::reconcile(cat, core::scan::walk(H, roots_of(H)));
     ok = run(tg::plan_for(f, "Reconcile: 1 atomic save")) && ok && f.carries.size() == 1;
     make_birth_extras(home);   // s005: untagged by Tidy -- the birth report has something to say
+    make_projects(home);       // s007: two writing projects to lift from and check for drift
     std::cout << (ok ? "fixture home made: " : "fixture home made WITH ERRORS: ") << H << "\n"
               << "  " << door.batches().size() << " batches, " << cat.count() << " files in the catalog\n"
               << "  TIDY_HOME=" << H << " ./build/tidy\n";
@@ -1170,6 +1210,143 @@ int main(int argc, char** argv) {
         }
     }
 
+
+    // ── s007: templates + the tree builder -- on a FIXTURE ─────────────────
+    {
+        std::cout << "[templates]\n";
+        namespace tp = core::templates;
+        using R = tp::Role;
+
+        check("templates: three roles, ids stable", tp::roles().size() == 3 &&
+              std::string(tp::id_of(R::Product)) == "product" && std::string(tp::id_of(R::Input)) == "input" &&
+              std::string(tp::id_of(R::History)) == "history");
+        const auto sh = tp::shell("writing-project", "Writing");
+        check("templates: the common shell -- backups (history), docs, fixes, scripts",
+              sh.folders.size() == 4 && tp::find(sh, "backups")->role == R::History && tp::find(sh, "fixes") &&
+              tp::problems(sh).empty(), std::to_string(tp::problems(sh).size()));
+        check("templates: names -- a-z 0-9 '-' only; a folder never hidden, '..', or three deep",
+              tp::name_refusal("writing-project").empty() && !tp::name_refusal("Writing").empty() &&
+              !tp::name_refusal("").empty() && !tp::name_refusal("-x").empty() &&
+              tp::path_refusal("Graphics/Covers").empty() && !tp::path_refusal("a/b/c").empty() &&
+              !tp::path_refusal(".git").empty() && !tp::path_refusal("a/..").empty() && !tp::path_refusal("").empty());
+
+        tp::Template t = sh;
+        t.folders.push_back({"Graphics", R::Input});
+        t.folders.push_back({"Graphics/Covers", R::Product});
+        t.folders.push_back({"Manuscript", R::Product});
+        t.routes = {{"*.curvz", "Graphics"}, {"*.png", "Graphics/Covers"}};
+        t = tp::parse(tp::format(t));
+        check("templates: format -> parse is the same template (tree order)", tp::parse(tp::format(t)) == t &&
+              t.folders.size() == 7 && t.folders[3].path == "Graphics" && t.folders[4].path == "Graphics/Covers",
+              tp::format(t));
+        check("templates: routing -- first fit, case-insensitive", tp::route_for(t, "Cover.PNG") == "Graphics/Covers" &&
+              tp::route_for(t, "jasper.curvz") == "Graphics" && tp::route_for(t, "notes.txt").empty());
+        {
+            auto bad = t;
+            bad.folders.push_back({"Orphan/Child", R::Input});
+            bad.routes.push_back({"*.txt", "Nowhere"});
+            bad.category = ".hidden";
+            check("templates: problems -- an orphan child, a route to nowhere, a hidden category",
+                  tp::problems(bad).size() == 3, std::to_string(tp::problems(bad).size()));
+            check("templates: parse drops a three-deep folder and a bad role",
+                  tp::parse("name=x\ncategory=X\nfolder=input a/b/c\nfolder=nope a\nfolder=input a\n").folders.size() == 1);
+        }
+
+        // The builder: every edit undoable.
+        tp::Builder b(tp::Draft{tp::shell("writing-project", "Writing"), {}, ""});
+        const bool e1 = b.add_folder("Graphics", R::Input).empty();
+        const bool e2 = b.add_folder("Graphics/Covers/", R::Product).empty();   // trailing '/' tolerated
+        const bool r1 = !b.add_folder("Research/Notes", R::Input).empty();       // parent first
+        const bool r2 = !b.add_folder("a/b/c", R::Input).empty();
+        const bool r3 = !b.add_folder("Graphics", R::Input).empty();
+        const bool e3 = b.add_route("*.curvz", "Graphics").empty();
+        const bool r4 = !b.add_route("*.CURVZ", "Graphics").empty() && !b.add_route("*.x", "Nowhere").empty();
+        check("builder: add folders and a route; refuses orphans, three deep, repeats, routes to nowhere",
+              e1 && e2 && e3 && r1 && r2 && r3 && r4 && b.edits() == 3, std::to_string(b.edits()));
+        b.set_role("Graphics", R::Product);
+        b.remove_folder("Graphics");
+        check("builder: removing a folder takes its children and its routes",
+              !tp::find(b.tpl(), "Graphics/Covers") && b.tpl().routes.empty());
+        b.undo();
+        check("builder: undo puts them back, the role as it was", tp::find(b.tpl(), "Graphics/Covers") &&
+              b.tpl().routes.size() == 1 && tp::find(b.tpl(), "Graphics")->role == R::Product);
+        while (b.undo()) {}
+        check("builder: undo all the way -- the shell it started from", b.tpl() == tp::shell("writing-project", "Writing") && !b.can_undo());
+        check("builder: a refused edit changes nothing and is not an edit",
+              !b.set_name("Bad Name").empty() && b.tpl().name == "writing-project" && !b.can_undo());
+        check("builder: a new template never takes a saved name", !b.save_refusal({"writing-project"}).empty() &&
+              b.save_refusal({"other"}).empty());
+
+        const fs::path root = fs::temp_directory_path() / ("tidy_selftest_templates_" + std::to_string(::getpid()));
+        fs::remove_all(root);
+        const fs::path home = root / "home";
+        make_home(home);
+        make_projects(home);
+        fs::remove_all(home / ".local");
+        const std::string H = fs::canonical(home).string();
+        const std::string D = core::paths::data_dir(H, nullptr);
+        const std::string J = H + "/Writing/Jasper-project";
+
+        // Lift: a proposal, read-only.
+        const auto before = tree_facts(H);
+        const auto writing = tree_facts(H + "/Writing");
+        auto prop = tp::proposal(J);
+        const auto after = tree_facts(H);
+        std::string paths;
+        for (const auto& f : prop.t.folders) paths += f.path + " ";
+        check("lift: the project's folders two deep -- Research's deep folders, hidden, symlinks, files left out",
+              prop.t.folders.size() == 11 && !tp::find(prop.t, "Research/Sources/1850s") && !tp::find(prop.t, ".git") &&
+              !tp::find(prop.t, "link-to-docs") && tp::find(prop.t, "Research/Sources"), paths);
+        check("lift: name and category from where it lives; roles guessed",
+              prop.t.name == "jasper-project" && prop.t.category == "Writing" &&
+              tp::find(prop.t, "backups")->role == R::History && tp::find(prop.t, "Final")->role == R::Product &&
+              tp::find(prop.t, "Graphics")->role == R::Input, prop.t.name + " / " + prop.t.category);
+        check("lift: READ-ONLY -- every file and folder's inode, size, mtime, ctime the same; no record made",
+              before == after && !fs::exists(D), std::to_string(before.size()));
+        check("lift: every lifted folder arrives unconfirmed", prop.unconfirmed.size() == prop.t.folders.size());
+
+        tp::Builder lb(prop);
+        const auto refused = lb.save_refusal({});
+        lb.set_name("writing-project");
+        lb.remove_folder("Graphics/old covers");           // the drift in the example: not the rule
+        for (const auto& f : lb.tpl().folders) if (lb.draft().unconfirmed.count(f.path)) lb.confirm(f.path);
+        check("lift: never adopted as-is -- Save refused until each folder is kept or removed",
+              !refused.empty() && lb.draft().unconfirmed.empty() && lb.save_refusal({}).empty(), refused);
+        lb.undo();
+        check("lift: undo un-keeps the last one kept", lb.draft().unconfirmed.size() == 1);
+        for (const auto& u : std::set<std::string>(lb.draft().unconfirmed)) lb.confirm(u);
+        const std::string werr = tp::save(D, lb.tpl());
+        tp::save(D, t.name == "writing-project" ? tp::shell("essay-project", "Writing") : t);
+        const auto saved = tp::list(D);
+        check("templates: saved through core::own under <data>/templates; listed, sorted, read back the same",
+              werr.empty() && saved.size() == 2 && saved[0].name == "essay-project" && saved[1] == lb.tpl() &&
+              fs::exists(D + "/templates/writing-project.template") && !fs::exists(D + "/templates/.writing-project.template.tmp"),
+              werr);
+        check("templates: a template with problems is not written", !tp::save(D, tp::Template{}).empty() &&
+              tp::list(D).size() == 2);
+
+        // Drift, at template depth only.
+        const auto tw = saved[1];
+        const auto dr = tp::drift(tw, tp::folders_of(J));
+        std::string said;
+        for (const auto& d : dr) said += std::string(d.kind == tp::Drift::Kind::Missing ? "-" : "+") + d.path + " ";
+        check("drift: the stray old covers is extra; nothing below template depth is",
+              dr.size() == 1 && dr[0] == tp::Drift{tp::Drift::Kind::Extra, "Graphics/old covers"}, said);
+        const auto mary = tp::drift(tw, tp::folders_of(H + "/Writing/Mary-project"));
+        said.clear();
+        for (const auto& d : mary) said += std::string(d.kind == tp::Drift::Kind::Missing ? "-" : "+") + d.path + " ";
+        // Mary: no fixes/, no Final/, an extra Notes/, and Research has its own children (free).
+        check("drift: missing and extra at the top; Manuscript's own folders and three deep free",
+              mary.size() == 3 && std::count(mary.begin(), mary.end(), tp::Drift{tp::Drift::Kind::Missing, "fixes"}) &&
+              std::count(mary.begin(), mary.end(), tp::Drift{tp::Drift::Kind::Extra, "Notes"}), said);
+        tp::Builder ab(tp::Draft{tw, {}, ""}, tw.name);
+        for (const auto& d : mary) ab.adopt(d);
+        check("drift: adopted -> the template matches the project; one undo per difference",
+              tp::drift(ab.tpl(), tp::folders_of(H + "/Writing/Mary-project")).empty() && ab.edits() == 3 &&
+              ab.save_refusal({"writing-project"}).empty());
+        check("drift: READ-ONLY -- the projects untouched", tree_facts(H + "/Writing") == writing);
+        fs::remove_all(root);
+    }
 
     std::cout << "-----------------------------------------------\n";
     std::cout << g_pass << " pass / " << g_fail << " fail\n";

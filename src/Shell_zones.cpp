@@ -3,6 +3,7 @@
 #include "Look.hpp"
 #include "core/Pages.hpp"
 #include "core/Retention.hpp"
+#include "TemplatesPage.hpp"
 
 #include <gtkmm/checkbutton.h>
 #include <gtkmm/dropdown.h>
@@ -86,6 +87,12 @@ void Shell::build_pages() {  // zone: one page per nav item, then the sidebar
 void Shell::build_page(const std::string& id) {  // zone: a page's hero
     if (id == "activity") { build_activity(); return; }   // s004: alive
     if (id == "closet") { build_closet(); return; }       // s005: the birth report (read-only)
+    if (id == "templates") {                               // s007: the tree builder
+        const auto* tp = core::pages::find(id);
+        m_stack.add(*Gtk::make_managed<TemplatesPage>(*this, m_home, m_data_dir, m_fixture), id,
+                    tp ? tp->title : "Templates");
+        return;
+    }
     const auto* p = core::pages::find(id);
     const std::string title = p ? p->title : id;
 

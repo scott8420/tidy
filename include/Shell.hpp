@@ -41,6 +41,8 @@
 //                                         Shell_helpers.cpp  (fill_closet) -- s005
 //   "Where are the settings?"         -> Shell_handlers.cpp (on_settings), SettingsWindow,
 //                                         core::settings; written by core::own (s006a)
+//   "Where are templates built?"      -> TemplatesPage (its own class; core::templates;
+//                                         written by core::own, s007)
 //   "Where does the Closet decide?"    -> Shell_handlers.cpp (on_closet_accept /
 //                                         _decide / _junk -> show_closet_preview ->
 //                                         on_closet_run): core::closet plans,
