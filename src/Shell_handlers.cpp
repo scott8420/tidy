@@ -1,9 +1,11 @@
 #include "Shell.hpp"
 #include "ProjectsPage.hpp"
 #include "PurposesPage.hpp"
+#include "HomePage.hpp"
 #include "AboutWindow.hpp"
 #include "ShortcutsDialog.hpp"
 #include "SettingsWindow.hpp"
+#include "IdListsWindow.hpp"
 
 #include <glibmm/main.h>
 #include <chrono>
@@ -56,6 +58,7 @@ void Shell::on_settings() {  // handler: the Settings window
             if (m_clo_states && m_clo_states->get_visible_child_name() == "results") fill_closet();
     if (m_projects) m_projects->refresh_if_shown();
     if (m_purposes) m_purposes->refresh_if_shown();
+    if (m_home_page) m_home_page->refresh_if_shown();
             if (auto lg = log::get(log::Area::Shell))
                 lg->info("settings saved: aging {} days, {} junk patterns, rescan every {} min", s.aging_days,
                          s.junk.size(), s.rescan_minutes);
@@ -84,6 +87,7 @@ void Shell::on_activity_undo() {  // handler: Activity's act button
         synced = core::tagging::after_undo(cat, *m_door, b, static_cast<std::int64_t>(std::time(nullptr)));
     refresh_activity();
     if (m_clo_states && m_clo_states->get_visible_child_name() == "results") fill_closet();
+    if (m_home_page) m_home_page->refresh_if_shown();
     m_act_status->set_text(r.ok ? "Undone: " + label + " (" + std::to_string(r.done) + " steps)"
                                 : "Undo of " + label + ": " + std::to_string(r.done) + " back, " +
                                       std::to_string(r.failed) + " left as they are -- " +
@@ -170,6 +174,13 @@ void Shell::arm_rescan() {  // handler
         if (auto lg = log::get(log::Area::Shell)) lg->info("rescan: {} ({} ms)", line, ms);
         return true;
     }, static_cast<unsigned>(m_settings.rescan_minutes) * 60u);
+}
+
+// s010f2: the id lists -- its own window: Look, preview, Do it; undo in Activity.
+void Shell::on_id_lists() {  // handler
+    if (!m_idlists_win)
+        m_idlists_win = std::make_unique<IdListsWindow>(*this, *m_door, m_home, m_data_dir, [this] { refresh_activity(); });
+    m_idlists_win->open();
 }
 
 }  // namespace tidy

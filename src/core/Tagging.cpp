@@ -124,6 +124,7 @@ std::size_t after_undo(catalog::Catalog& cat, const door::Door& d, std::uint64_t
         if (b.id != batch) continue;
         for (auto rid : b.records) {
             const auto* r = d.record(rid);
+            if (r && r->verb == door::Verb::Move && r->state == door::State::Undone) { rest.push_back(r->from); continue; }
             if (!r || r->verb != door::Verb::Tag) continue;
             if (r->attr != facts::kId || r->untag || r->state != door::State::Undone) { rest.push_back(r->from); continue; }
             auto e = cat.by_id(r->after);
@@ -148,6 +149,20 @@ std::vector<std::string> paths_of(const door::Door& d, std::uint64_t batch) {
             if (const auto* r = d.record(id); r && r->verb == door::Verb::Tag &&
                                               std::find(out.begin(), out.end(), r->from) == out.end())
                 out.push_back(r->from);
+    }
+    return out;
+}
+
+std::vector<std::string> moved_paths(const door::Door& d, std::uint64_t batch) {
+    std::vector<std::string> out;
+    for (const auto& b : d.batches()) {
+        if (b.id != batch) continue;
+        for (auto id : b.records) {
+            const auto* r = d.record(id);
+            if (!r || r->verb != door::Verb::Move) continue;
+            if (r->state == door::State::Done) out.push_back(r->to);
+            else if (r->state == door::State::Undone) out.push_back(r->from);
+        }
     }
     return out;
 }

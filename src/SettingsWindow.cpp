@@ -1,4 +1,5 @@
 #include "SettingsWindow.hpp"
+#include "core/Homing.hpp"
 
 #include <gtkmm/adjustment.h>
 #include <gtkmm/box.h>
@@ -28,7 +29,7 @@ SettingsWindow::SettingsWindow(Gtk::Window& parent, SaveFn on_save) : m_save(std
     set_transient_for(parent);
     set_modal(true);
     set_hide_on_close(true);
-    set_default_size(460, 440);
+    set_default_size(480, 640);
 
     auto box = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::VERTICAL, 8);
     box->set_margin(20);
@@ -85,6 +86,34 @@ SettingsWindow::SettingsWindow(Gtk::Window& parent, SaveFn on_save) : m_save(std
     scroll->set_child(*m_junk);
     box->append(*scroll);
 
+    // s011: the type table Files home uses -- "*.png -> Pictures", one per line.
+    auto home = text("Files home: the type table", "heading");
+    home->set_margin_top(14);
+    box->append(*home);
+    box->append(*text("One per line: a file-name pattern -> a home folder (one or two deep). The first "
+                      "line a file fits names its folder; you pick the subfolder on the Files home page.", "dim"));
+    auto hscroll = Gtk::make_managed<Gtk::ScrolledWindow>();
+    hscroll->set_vexpand(true);
+    hscroll->set_has_frame(true);
+    hscroll->set_min_content_height(150);
+    m_home = Gtk::make_managed<Gtk::TextView>();
+    m_home->set_name("settings.home");
+    m_home->set_monospace(true);
+    m_home->set_top_margin(6);
+    m_home->set_left_margin(6);
+    hscroll->set_child(*m_home);
+    box->append(*hscroll);
+    auto reset = Gtk::make_managed<Gtk::Button>("Standard table");
+    reset->set_name("settings.home.reset");
+    reset->set_halign(Gtk::Align::START);
+    reset->set_tooltip_text("Put the standard table back in the box (Save keeps it)");
+    reset->signal_clicked().connect([this] {
+        std::string lines;
+        for (const auto& l : core::homing::lines_of(core::homing::defaults())) lines += l + "\n";
+        m_home->get_buffer()->set_text(lines);
+    });
+    box->append(*reset);
+
     auto bar = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::HORIZONTAL, 10);
     bar->set_margin_top(8);
     m_status = text("");
@@ -111,6 +140,9 @@ void SettingsWindow::show(const st::Settings& current) {
     std::string lines;
     for (const auto& j : current.junk) lines += j + "\n";
     m_junk->get_buffer()->set_text(lines);
+    lines.clear();
+    for (const auto& l : core::homing::lines_of(core::homing::table(current))) lines += l + "\n";
+    m_home->get_buffer()->set_text(lines);
     m_status->set_text("");
     present();
 }
@@ -120,6 +152,33 @@ void SettingsWindow::on_save_clicked() {
     s.aging_days = m_days->get_value_as_int();
     s.rescan_minutes = m_rescan->get_value_as_int();
     s.junk = st::patterns_of(m_junk->get_buffer()->get_text());
+    // The type table: every line must read, or nothing is saved (says which).
+    std::vector<core::homing::TypeRoute> table;
+    int n = 0;
+    for (const auto& l : st::patterns_of(m_home->get_buffer()->get_text())) {
+        ++n;
+        core::homing::TypeRoute r;
+        if (!core::homing::parse_line(l, r)) {
+            const auto arrow = l.find("->");
+            std::string why = "write it \"*.png -> Pictures\"";
+            if (arrow != std::string::npos) {
+                r = {l.substr(0, arrow), l.substr(arrow + 2)};
+                for (auto* x : {&r.pattern, &r.folder}) {
+                    x->erase(0, x->find_first_not_of(' '));
+                    x->erase(x->find_last_not_of(' ') + 1);
+                }
+                if (auto w = core::homing::route_refusal(r); !w.empty()) why = w;
+            }
+            m_status->set_text("Type table, line " + std::to_string(n) + ": " + why);
+            return;
+        }
+        table.push_back(r);
+    }
+    // Still the standard table -> leave it unset, so a later standard table reaches you.
+    if (table != core::homing::defaults()) {
+        s.home_set = true;
+        s.home = core::homing::lines_of(table);
+    }
     const std::string err = m_save ? m_save(s) : std::string("nothing to save to");
     if (err.empty()) set_visible(false);
     else m_status->set_text("Not saved: " + err);

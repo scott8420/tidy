@@ -16,7 +16,7 @@ const std::vector<Page>& all() {
         {"purposes", "Purposes",
          "One decision per purpose, not per file: open it, close it, and its inputs follow.", "s009"},
         {"home", "Files home",
-         "Each file to its folder by type, or into the project it serves.", "s010"},
+         "Each file to its folder by type, or into the project it serves.", "s011"},
         {"archive", "Archive",
          "Archive and catalog first; back up to media; nothing goes without proof.", "s012"},
         {"activity", "Activity",

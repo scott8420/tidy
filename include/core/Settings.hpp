@@ -25,6 +25,11 @@ struct Settings {
     int aging_days = kAgingDefault;
     int rescan_minutes = kRescanDefault;
     std::vector<std::string> junk;
+    // s011 files home: the type table, "*.png -> Pictures" per line (core::homing
+    // reads it). home_set = false -> the standard table (Scott: "fine"); true ->
+    // exactly these lines, even none.
+    std::vector<std::string> home;
+    bool home_set = false;
     bool operator==(const Settings&) const = default;
 };
 

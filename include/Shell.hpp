@@ -62,7 +62,9 @@ namespace tidy {
 
 class AboutWindow;
 class ProjectsPage;
+class IdListsWindow;
 class PurposesPage;
+class HomePage;
 class SettingsWindow;
 class ShortcutsDialog;
 
@@ -90,7 +92,8 @@ private:
     void on_nav(const std::string& page);          // category: handler: a sidebar row -> page + tint
     void on_about();                               // category: handler: the About window (hide-on-close)
     void on_settings();                            // category: handler: the Settings window (s006a)
-    void arm_rescan();                             // handler: the loose background rescan (s010f1)
+    void arm_rescan();
+    void on_id_lists();                            // handler: the Id lists window (s010f2)                             // handler: the loose background rescan (s010f1)
     void on_shortcuts();                           // category: handler: the keyboard reference
     void on_dump_registry();                       // category: handler: print the live widget tree
     void on_activity_undo();                       // category: handler: undo the newest batch, through the door
@@ -151,9 +154,11 @@ private:
 
     ProjectsPage* m_projects = nullptr;           // s008 (managed by the stack)
     PurposesPage* m_purposes = nullptr;           // s009 (managed by the stack)
+    HomePage*     m_home_page = nullptr;          // s011 files home (managed by the stack)
 
     std::unique_ptr<AboutWindow>     m_about;
     std::unique_ptr<SettingsWindow>  m_settings_win;
+    std::unique_ptr<IdListsWindow>   m_idlists_win;   // s010f2
     core::settings::Settings         m_settings;   // read at build_ui; written only by core::own
     std::unique_ptr<ShortcutsDialog> m_shortcuts;
     sigc::connection                 m_rescan;     // s010f1: every rescan_minutes; 0 = none

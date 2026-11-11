@@ -32,6 +32,9 @@ Settings parse(const std::string& text) {
             try {
                 s.rescan_minutes = std::clamp(std::stoi(v), kRescanMin, kRescanMax);
             } catch (...) {}
+        } else if (k == "home") {
+            s.home_set = true;
+            if (!v.empty() && std::find(s.home.begin(), s.home.end(), v) == s.home.end()) s.home.push_back(v);
         } else if (k == "junk" && !v.empty() &&
                    std::find(s.junk.begin(), s.junk.end(), v) == s.junk.end()) {
             s.junk.push_back(v);
@@ -46,6 +49,10 @@ std::string format(const Settings& s) {
     o << "aging_days=" << std::clamp(s.aging_days, kAgingMin, kAgingMax) << "\n";
     o << "rescan_minutes=" << std::clamp(s.rescan_minutes, kRescanMin, kRescanMax) << "\n";
     for (const auto& j : s.junk) o << "junk=" << j << "\n";
+    if (s.home_set) {
+        if (s.home.empty()) o << "home=\n";   // the table emptied on purpose
+        for (const auto& h : s.home) o << "home=" << h << "\n";
+    }
     return o.str();
 }
 

@@ -58,5 +58,8 @@ std::size_t record(catalog::Catalog& cat, const std::vector<std::string>& paths,
 std::size_t after_undo(catalog::Catalog& cat, const door::Door& d, std::uint64_t batch, std::int64_t now);
 // The paths a batch touched (each Tag record's file), for record() after run / undo.
 std::vector<std::string> paths_of(const door::Door& d, std::uint64_t batch);
+// s011: where each file a batch MOVED is now (`to` if done, `from` once undone),
+// so record() can follow it -- the catalog's path is not left stale.
+std::vector<std::string> moved_paths(const door::Door& d, std::uint64_t batch);
 
 }  // namespace tidy::core::tagging

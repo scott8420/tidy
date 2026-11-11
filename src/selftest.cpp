@@ -80,6 +80,8 @@
 #include "core/Starters.hpp"
 #include "core/Projects.hpp"
 #include "core/Rescan.hpp"
+#include "core/FileLists.hpp"
+#include "core/Homing.hpp"
 #include "core/Purposes.hpp"
 
 #include <latch/Door.hpp>
@@ -1833,6 +1835,89 @@ int main(int argc, char** argv) {
         fs::remove_all(root);
     }
 
+    // ── s010f2: CVS-style id lists -- write, keep, re-find a lost id ──
+    {
+        std::cout << "[id lists]\n";
+        const auto read = [](const std::string& f) { std::ifstream in(f); std::stringstream o; o << in.rdbuf(); return o.str(); };
+        namespace fl = core::filelists;
+        namespace dr = latch::door;
+        const fs::path root = fs::temp_directory_path() / ("tidy_selftest_lists_" + std::to_string(::getpid()));
+        fs::remove_all(root);
+        const std::string H = (root / "home").string(), D = (root / "data").string();
+        const std::string I1 = "11111111-1111-4111-8111-111111111111", I2 = "22222222-2222-4222-8222-222222222222",
+                          I3 = "33333333-3333-4333-8333-333333333333";
+        put_file(H + "/Documents/Taxes/w2.pdf", "w2 body");
+        put_file(H + "/Documents/Taxes/notes.txt", "no id here");
+        put_file(H + "/Writing/Jasper-project/Work/ch1.odt", "chapter one");
+        put_file(H + "/Pictures/odd\tname.png", "tab");
+        xset(H + "/Documents/Taxes/w2.pdf", core::facts::kId, I1);
+        xset(H + "/Writing/Jasper-project/Work/ch1.odt", core::facts::kId, I2);
+        xset(H + "/Pictures/odd\tname.png", core::facts::kId, I3);
+
+        const std::vector<fl::Line> ls = {{I2, 5, 9, "b c.txt"}, {I1, 7, 8, "a.pdf"}};
+        const auto txt = fl::format(ls);
+        check("lists: format -> parse (sorted by name); a tab in a name left out; junk skipped",
+              fl::parse(txt) == std::vector<fl::Line>{ls[1], ls[0]} &&
+              fl::parse(fl::format({{I1, 1, 1, "x\ty"}})).empty() &&
+              fl::parse("# h\nnot-an-id\t1\t2\tn\n" + I1 + "\tq\t2\tn\n").empty());
+        const auto files = core::scan::walk(H, fl::roots(H));
+        const auto want = fl::wanted(files);
+        check("lists: wanted -- one per folder holding an id; inside a project too; none where no id",
+              want.size() == 2 && want.count(H + "/Documents/Taxes") && want.at(H + "/Documents/Taxes").size() == 1 &&
+              want.count(H + "/Writing/Jasper-project/Work") && !want.count(H + "/Pictures"),
+              std::to_string(want.size()));
+        const auto before = tree_facts(H);
+        auto plan = fl::plan(fl::refind(files), want);
+        check("lists: the plan -- a Write per folder, nothing re-found", plan.actions.size() == 2 &&
+              std::all_of(plan.actions.begin(), plan.actions.end(), [](const dr::Action& a) {
+                  return a.verb == dr::Verb::Write && a.to.ends_with("/.tidy-files"); }), plan.label);
+        check("lists: READ-ONLY until run", tree_facts(H) == before);
+        latch::door::set_app_name("Tidy");
+        dr::Door door(H, D);
+        door.load();
+        plan.previewed = true;
+        auto r = door.run(plan);
+        check("lists: run -> on disk; a second plan is empty", r.ok &&
+              fl::parse(read(H + "/Documents/Taxes/.tidy-files")).size() == 1 &&
+              fl::plan({}, fl::wanted(core::scan::walk(H, fl::roots(H)))).actions.empty());
+
+        // A second id in Taxes -> the list is replaced (Trash the old, Write the new), in order.
+        put_file(H + "/Documents/Taxes/1099.pdf", "1099 body");
+        xset(H + "/Documents/Taxes/1099.pdf", core::facts::kId, "44444444-4444-4444-8444-444444444444");
+        plan = fl::plan({}, fl::wanted(core::scan::walk(H, fl::roots(H))));
+        check("lists: a changed folder -> Trash the old list, then Write", plan.actions.size() == 2 &&
+              plan.actions[0].verb == dr::Verb::Trash && plan.actions[1].verb == dr::Verb::Write);
+        plan.previewed = true;
+        r = door.run(plan);
+        check("lists: replaced (the door takes the freed path)", r.ok &&
+              fl::parse(read(H + "/Documents/Taxes/.tidy-files")).size() == 2, r.messages.empty() ? "" : r.messages[0]);
+
+        // The xattr lost (a FAT stick round trip): same name, same size, no tags -> re-found.
+        fs::remove(H + "/Documents/Taxes/w2.pdf");
+        put_file(H + "/Documents/Taxes/w2.pdf", "w2 body");
+        // A copy elsewhere still carrying I2, and ch1 losing its xattr -> NOT re-found (the id is on the copy).
+        fs::copy_file(H + "/Writing/Jasper-project/Work/ch1.odt", H + "/Documents/ch1-copy.odt");
+        xset(H + "/Documents/ch1-copy.odt", core::facts::kId, I2);
+        fs::remove(H + "/Writing/Jasper-project/Work/ch1.odt");
+        put_file(H + "/Writing/Jasper-project/Work/ch1.odt", "chapter one");
+        // Same name, other size -> not re-found.
+        put_file(H + "/Documents/Taxes/notes.txt", "changed, and no id");
+        const auto scan2 = core::scan::walk(H, fl::roots(H));
+        const auto found = fl::refind(scan2);
+        check("lists: re-find -- same name + size gets its id back; a copy's id and other sizes do not",
+              found.size() == 1 && found[0].path == H + "/Documents/Taxes/w2.pdf" && found[0].id == I1,
+              std::to_string(found.size()));
+        plan = fl::plan(found, fl::wanted(fl::with_found(scan2, found)));
+        check("lists: re-found ids are Tags first; the lists follow", !plan.actions.empty() &&
+              plan.actions[0].verb == dr::Verb::Tag && plan.actions[0].content == I1, plan.label);
+        plan.previewed = true;
+        r = door.run(plan);
+        check("lists: run -> w2.pdf carries its old id again", r.ok && core::facts::tags_of(H + "/Documents/Taxes/w2.pdf").id == I1);
+        const auto u = door.undo();
+        check("lists: undone -- the id off again", u.ok && core::facts::tags_of(H + "/Documents/Taxes/w2.pdf").id.empty());
+        fs::remove_all(root);
+    }
+
     // ── s009: purposes -- the learned list; assign / close -- on a FIXTURE ──
     {
         std::cout << "[purposes]\n";
@@ -1927,6 +2012,163 @@ int main(int argc, char** argv) {
         door.undo();
         door.undo();
         check("assign: undone -- no purpose left", core::facts::tags_of(a).purpose.empty() && core::facts::tags_of(c).purpose.empty());
+        fs::remove_all(root);
+    }
+
+    // ── s011: files home -- by type (subfolder required), into a project, "name (2)" ──
+    {
+        std::cout << "[files home]\n";
+        namespace ho = core::homing;
+        namespace dr = latch::door;
+        const auto read = [](const std::string& f) { std::ifstream in(f); std::stringstream o; o << in.rdbuf(); return o.str(); };
+
+        const auto& d = ho::defaults();
+        const auto* png = ho::type_of(d, "Cover FINAL.PNG");
+        check("type table: the standard one -- *.png -> Pictures (any case), curvz -> Graphics, pdf -> Documents, none for .xyz",
+              png && png->folder == "Pictures" && ho::type_of(d, "a.curvz")->folder == "Graphics" &&
+              ho::type_of(d, "f1040.pdf")->folder == "Documents" && ho::type_of(d, "song.flac")->folder == "Music" &&
+              !ho::type_of(d, "thing.xyz"));
+        ho::TypeRoute r;
+        check("type table: a line -> route -> the same line; bad lines refused (path, hidden, project, fixes, too deep)",
+              ho::parse_line("  *.kra ->  Graphics/Paint/ ", r) && ho::format_line(r) == "*.kra -> Graphics/Paint" &&
+              !ho::parse_line("a/b.png -> Pictures", r) && !ho::parse_line("*.png -> .pics", r) &&
+              !ho::parse_line("*.png -> Art-project", r) && !ho::parse_line("*.png -> fixes", r) &&
+              !ho::parse_line("*.png -> a/b/c", r) && !ho::parse_line("*.png Pictures", r) && !ho::parse_line("*.png -> ", r));
+        core::settings::Settings st;
+        auto t0 = ho::table(st);
+        st.home_set = true;
+        st.home = {"*.kra -> Graphics/Paint", "junk line", "*.png -> Pictures"};
+        const auto st2 = core::settings::parse(core::settings::format(st));
+        core::settings::Settings none;
+        none.home_set = true;
+        check("settings: never set -> the standard table; set -> exactly its lines (bad dropped); emptied stays empty",
+              t0 == d && st2.home_set && st2.home == st.home && ho::table(st2).size() == 2 &&
+              ho::table(st2)[0].folder == "Graphics/Paint" &&
+              ho::table(core::settings::parse(core::settings::format(none))).empty() &&
+              core::settings::parse(core::settings::format(none)).home_set);
+        check("name (2): a.png, x.tar.gz, .bashrc, README",
+              ho::numbered("a.png", 2) == "a (2).png" && ho::numbered("x.tar.gz", 2) == "x (2).tar.gz" &&
+              ho::numbered(".bashrc", 2) == ".bashrc (2)" && ho::numbered("README", 3) == "README (3)" &&
+              ho::numbered("a.b.c", 2) == "a.b (2).c");
+        std::string folder, via;
+        check("by type: a subfolder is REQUIRED; hidden / project / fixes refused",
+              !ho::by_type("Pictures", "  ", &folder).empty() && ho::by_type("Pictures", "Covers/", &folder).empty() &&
+              folder == "Pictures/Covers" && !ho::by_type("Pictures", ".x", &folder).empty() &&
+              !ho::by_type("Pictures", "Art-project", &folder).empty() && !ho::by_type("Pictures", "fixes", &folder).empty() &&
+              !ho::by_type("Pictures", "../Music", &folder).empty());
+        core::templates::Template art = core::templates::shell("art-project", "Art");
+        art.folders.push_back({"Graphics", core::templates::Role::Input});
+        art.routes.push_back({"*.curvz", "Graphics"});
+        check("into a project: the template's route; no route -> the row asks; never the top; fixes refused",
+              ho::into_project("Art/Sunrise-project", &art, "cover.curvz", "", &folder, &via).empty() &&
+              folder == "Art/Sunrise-project/Graphics" && via == "*.curvz" &&
+              !ho::into_project("Art/Sunrise-project", &art, "notes.xyz", "", &folder).empty() &&
+              ho::into_project("Art/Sunrise-project", &art, "notes.xyz", "docs", &folder).empty() &&
+              folder == "Art/Sunrise-project/docs" &&
+              !ho::into_project("Art/Sunrise-project", nullptr, "a.png", "", &folder).empty() &&
+              !ho::into_project("Art/Sunrise-project", &art, "a.png", "fixes", &folder).empty());
+
+        // A fixture home.
+        const fs::path root = fs::temp_directory_path() / ("tidy_selftest_home_" + std::to_string(::getpid()));
+        fs::remove_all(root);
+        const std::string H = (root / "home").string(), D = (root / "data").string();
+        const auto put = [&](const std::string& rel, const std::string& body, const char* level, const char* role = nullptr) {
+            put_file(H + "/" + rel, body);
+            if (level) xset(H + "/" + rel, core::facts::kRetention, level);
+            if (role) xset(H + "/" + rel, core::facts::kRole, role);
+        };
+        put("Downloads/cover.png", "png one", "keep");
+        put("Downloads/scan.pdf", "pdf", "held");
+        put("Downloads/cover.curvz", "curvz", "keep");
+        put("Downloads/waiting.png", "w", "undecided");
+        put("Downloads/gone-soon.png", "e", "ephemeral");
+        put("Downloads/mine.png", "h", "hands-off");
+        put("Downloads/junk.png", "j", "keep", "junk-drawer");
+        put("Downloads/plain.png", "no tags", nullptr);
+        put("Downloads/Essay-project/fig.png", "fig", "keep");
+        put("Desktop/cover.png", "png two", "keep");
+        put("Pictures/Covers/cover.png", "already there", nullptr);
+        put("Art/Sunrise-project/Graphics/.keep", "", nullptr);
+        fs::create_directories(H + "/Pictures/.hidden");
+        fs::create_directories(H + "/Pictures/Old-project");
+        fs::create_directories(H + "/Pictures/fixes");
+        fs::create_directories(H + "/Pictures/Landscapes");
+        const std::string id = "55555555-5555-4555-8555-555555555555";
+        xset(H + "/Downloads/cover.png", core::facts::kId, id);
+
+        check("subfolders: Covers + Landscapes; not hidden, a project or fixes",
+              ho::subfolders(H, H + "/Pictures") == std::vector<std::string>{"Covers", "Landscapes"});
+        const auto rep = core::birth::report(H, core::birth::places(H, ""));
+        const auto off = ho::offered(rep);
+        std::set<std::string> names;
+        for (const auto& b : off) names.insert(fs::path(b.file.path).parent_path().filename().string() + "/" +
+                                               fs::path(b.file.path).filename().string());
+        check("offered: decided files in the landing places -- not undecided, ephemeral, hands-off, the Junk Drawer, "
+              "untagged, or inside a project",
+              names == std::set<std::string>{"Downloads/cover.png", "Downloads/scan.pdf", "Downloads/cover.curvz", "Desktop/cover.png"},
+              std::to_string(names.size()));
+
+        const std::vector<ho::Pick> picks = {
+            {H + "/Downloads/cover.png", "Pictures/Covers", "by type: *.png -> Pictures"},
+            {H + "/Desktop/cover.png", "Pictures/Covers", "by type: *.png -> Pictures"},
+            {H + "/Downloads/scan.pdf", "Documents/Scans/2026", "by type: *.pdf -> Documents"},
+            {H + "/Downloads/cover.curvz", "Art/Sunrise-project/Graphics", "into Sunrise-project: *.curvz -> Graphics"},
+        };
+        const auto before = tree_facts(H);
+        auto pl = ho::plan(H, picks);
+        std::vector<std::string> made;
+        for (const auto& a : pl.plan.actions) if (a.verb == dr::Verb::MakeDir) made.push_back(a.to.substr(H.size() + 1));
+        std::vector<std::string> tos;
+        for (const auto& a : pl.plan.actions) if (a.verb == dr::Verb::Move) tos.push_back(a.to.substr(H.size() + 1));
+        check("plan: missing levels first, parents first, once (Documents, Scans, 2026); Covers exists",
+              made == std::vector<std::string>{"Documents", "Documents/Scans", "Documents/Scans/2026"},
+              std::to_string(made.size()));
+        check("plan: a taken name -> \"cover (2).png\", and the next one in the same plan -> \"cover (3).png\"; warned",
+              tos == std::vector<std::string>{"Pictures/Covers/cover (2).png", "Pictures/Covers/cover (3).png",
+                                               "Documents/Scans/2026/scan.pdf", "Art/Sunrise-project/Graphics/cover.curvz"} &&
+              pl.renamed.size() == 2 && pl.plan.actions[3].reason.find("is taken there") != std::string::npos,
+              tos.empty() ? "" : tos[0]);
+        check("plan: READ-ONLY until run", tree_facts(H) == before);
+        latch::door::set_app_name("Tidy");
+        dr::Door door(H, D);
+        door.load();
+        const auto unpreviewed = door.run(pl.plan);
+        std::vector<std::string> mk;
+        std::size_t refused = 0;
+        for (const auto& a : pl.plan.actions) {
+            refused += !door.refusal(a, mk).empty();
+            if (a.verb == dr::Verb::MakeDir) mk.push_back(a.to);
+        }
+        check("plan: refused unpreviewed; judged in order, nothing refused", !unpreviewed.ok && refused == 0,
+              std::to_string(refused));
+        struct stat s0{};
+        ::stat((H + "/Downloads/cover.png").c_str(), &s0);
+        pl.plan.previewed = true;
+        const auto run = door.run(pl.plan);
+        struct stat s1{};
+        ::stat((H + "/Pictures/Covers/cover (2).png").c_str(), &s1);
+        check("run: each file home -- moved, not copied (same inode); the one already there untouched",
+              run.ok && run.done == pl.plan.actions.size() && s0.st_ino == s1.st_ino &&
+              read(H + "/Pictures/Covers/cover (3).png") == "png two" &&
+              read(H + "/Pictures/Covers/cover.png") == "already there" &&
+              fs::exists(H + "/Documents/Scans/2026/scan.pdf") && fs::exists(H + "/Art/Sunrise-project/Graphics/cover.curvz") &&
+              !fs::exists(H + "/Downloads/cover.png") &&
+              core::facts::tags_of(H + "/Pictures/Covers/cover (2).png").retention == "keep",
+              run.messages.empty() ? "" : run.messages[0]);
+        core::catalog::Catalog cat;
+        cat.open(D, true);
+        core::tagging::record(cat, {H + "/Downloads/cover.png"}, now_s() - 10);   // known before (as a stamp left it)
+        const auto moved = core::tagging::moved_paths(door, run.batch);
+        core::tagging::record(cat, moved, now_s());
+        check("catalog: follows the move (the id's path is the new one)", moved.size() == 4 &&
+              cat.by_id(id) && cat.by_id(id)->path == H + "/Pictures/Covers/cover (2).png");
+        const auto u = door.undo();
+        core::tagging::after_undo(cat, door, run.batch, now_s());
+        check("undo: every file back where it was, the new folders gone; the catalog follows back",
+              u.ok && read(H + "/Downloads/cover.png") == "png one" && read(H + "/Desktop/cover.png") == "png two" &&
+              fs::exists(H + "/Downloads/scan.pdf") && !fs::exists(H + "/Documents") &&
+              !fs::exists(H + "/Pictures/Covers/cover (2).png") && cat.by_id(id)->path == H + "/Downloads/cover.png",
+              u.messages.empty() ? "" : u.messages[0]);
         fs::remove_all(root);
     }
 

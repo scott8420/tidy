@@ -6,6 +6,7 @@
 #include "TemplatesPage.hpp"
 #include "ProjectsPage.hpp"
 #include "PurposesPage.hpp"
+#include "HomePage.hpp"
 
 #include <gtkmm/checkbutton.h>
 #include <gtkmm/dropdown.h>
@@ -100,6 +101,13 @@ void Shell::build_page(const std::string& id) {  // zone: a page's hero
         m_purposes = Gtk::make_managed<PurposesPage>(*m_door, m_home, m_data_dir, m_fixture,
                                                      [this] { return user_dirs_text(); }, [this] { refresh_activity(); });
         m_stack.add(*m_purposes, id, pp ? pp->title : "Purposes");
+        return;
+    }
+    if (id == "home") {                                    // s011: files home -- moves through the door
+        const auto* pp = core::pages::find(id);
+        m_home_page = Gtk::make_managed<HomePage>(*m_door, m_home, m_data_dir, m_fixture,
+                                                  [this] { return user_dirs_text(); }, [this] { refresh_activity(); });
+        m_stack.add(*m_home_page, id, pp ? pp->title : "Files home");
         return;
     }
     if (id == "templates") {                               // s007: the tree builder
@@ -400,6 +408,7 @@ Glib::RefPtr<Gio::Menu> Shell::build_menu() {  // zone: hamburger model
     auto menu = Gio::Menu::create();
     auto prefs = Gio::Menu::create();
     prefs->append("Settings\u2026", "win.settings");
+    prefs->append("Id lists\u2026", "win.id-lists");
     menu->append_section(prefs);
     auto diag = Gio::Menu::create();
     diag->append("Keyboard shortcuts", "win.shortcuts");

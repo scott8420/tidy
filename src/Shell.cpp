@@ -2,6 +2,7 @@
 #include "AboutWindow.hpp"      // complete types for the unique_ptr dtors
 #include "ShortcutsDialog.hpp"
 #include "SettingsWindow.hpp"
+#include "IdListsWindow.hpp"
 #include "ProjectsPage.hpp"
 #include "core/Own.hpp"
 #include "Log.hpp"
