@@ -8,6 +8,7 @@
 #include "PurposesPage.hpp"
 #include "HomePage.hpp"
 
+#include <gtkmm/button.h>
 #include <gtkmm/checkbutton.h>
 #include <gtkmm/dropdown.h>
 #include <gtkmm/headerbar.h>
@@ -74,7 +75,42 @@ void Shell::build_shell() {  // zone: window + header + body
         m_body.append(m_sidebar);
     }
     m_body.append(m_stack);
-    set_child(m_body);
+    m_body.set_vexpand(true);
+
+    // s010f3: the rescan's offer, under every page: "3 id lists out of date".
+    auto outer = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::VERTICAL, 0);
+    outer->append(m_body);
+    m_offer = Gtk::make_managed<Gtk::Revealer>();
+    m_offer->set_name("offer.lists");
+    m_offer->set_transition_type(Gtk::RevealerTransitionType::SLIDE_UP);
+    auto bar = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::HORIZONTAL, 8);
+    bar->set_margin_start(16);
+    bar->set_margin_end(16);
+    bar->set_margin_top(6);
+    bar->set_margin_bottom(6);
+    m_offer_text = Gtk::make_managed<Gtk::Label>("");
+    m_offer_text->set_name("offer.lists.text");
+    m_offer_text->set_xalign(0);
+    m_offer_text->set_hexpand(true);
+    m_offer_text->add_css_class("dim");
+    bar->append(*m_offer_text);
+    auto open = Gtk::make_managed<Gtk::Button>("Id lists...");
+    open->set_name("offer.lists.open");
+    open->signal_clicked().connect([this] { m_offer->set_reveal_child(false); on_id_lists(); });
+    bar->append(*open);
+    auto later = Gtk::make_managed<Gtk::Button>();
+    later->set_name("offer.lists.later");
+    later->set_icon_name("window-close-symbolic");
+    later->set_has_frame(false);
+    later->set_tooltip_text("Not now -- offered again when the count changes");
+    later->signal_clicked().connect([this] {
+        m_offer_dismissed = m_offer_text->get_text();
+        m_offer->set_reveal_child(false);
+    });
+    bar->append(*later);
+    m_offer->set_child(*bar);
+    outer->append(*m_offer);
+    set_child(*outer);
 }
 
 void Shell::build_pages() {  // zone: one page per nav item, then the sidebar

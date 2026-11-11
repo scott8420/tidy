@@ -1867,30 +1867,97 @@ int main(int argc, char** argv) {
               want.count(H + "/Writing/Jasper-project/Work") && !want.count(H + "/Pictures"),
               std::to_string(want.size()));
         const auto before = tree_facts(H);
-        auto plan = fl::plan(fl::refind(files), want);
-        check("lists: the plan -- a Write per folder, nothing re-found", plan.actions.size() == 2 &&
-              std::all_of(plan.actions.begin(), plan.actions.end(), [](const dr::Action& a) {
-                  return a.verb == dr::Verb::Write && a.to.ends_with("/.tidy-files"); }), plan.label);
+        auto work = fl::plan(fl::refind(files), want);
+        check("lists: no list yet -> a door Write per folder, nothing in place, nothing re-found",
+              work.plan.actions.size() == 2 && work.replaces.empty() &&
+              std::all_of(work.plan.actions.begin(), work.plan.actions.end(), [](const dr::Action& a) {
+                  return a.verb == dr::Verb::Write && a.to.ends_with("/.tidy-files"); }), work.label());
         check("lists: READ-ONLY until run", tree_facts(H) == before);
         latch::door::set_app_name("Tidy");
         dr::Door door(H, D);
         door.load();
-        plan.previewed = true;
-        auto r = door.run(plan);
-        check("lists: run -> on disk; a second plan is empty", r.ok &&
+        work.plan.previewed = true;
+        auto r = door.run(work.plan);
+        check("lists: run -> on disk; a second look has nothing to do", r.ok &&
               fl::parse(read(H + "/Documents/Taxes/.tidy-files")).size() == 1 &&
-              fl::plan({}, fl::wanted(core::scan::walk(H, fl::roots(H)))).actions.empty());
+              fl::plan({}, fl::wanted(core::scan::walk(H, fl::roots(H)))).empty());
 
-        // A second id in Taxes -> the list is replaced (Trash the old, Write the new), in order.
+        // ── s010f3: an existing list is rewritten IN PLACE (latch replace_own), no undo ──
+        const auto TL = H + "/Documents/Taxes/.tidy-files";
         put_file(H + "/Documents/Taxes/1099.pdf", "1099 body");
-        xset(H + "/Documents/Taxes/1099.pdf", core::facts::kId, "44444444-4444-4444-8444-444444444444");
-        plan = fl::plan({}, fl::wanted(core::scan::walk(H, fl::roots(H))));
-        check("lists: a changed folder -> Trash the old list, then Write", plan.actions.size() == 2 &&
-              plan.actions[0].verb == dr::Verb::Trash && plan.actions[1].verb == dr::Verb::Write);
-        plan.previewed = true;
-        r = door.run(plan);
-        check("lists: replaced (the door takes the freed path)", r.ok &&
-              fl::parse(read(H + "/Documents/Taxes/.tidy-files")).size() == 2, r.messages.empty() ? "" : r.messages[0]);
+        const std::string I4 = "44444444-4444-4444-8444-444444444444";
+        xset(H + "/Documents/Taxes/1099.pdf", core::facts::kId, I4);
+        work = fl::plan({}, fl::wanted(core::scan::walk(H, fl::roots(H))));
+        check("lists (s010f3): a changed folder -> one Replace, no door step (no Trash)",
+              work.plan.actions.empty() && work.replaces.size() == 1 && work.replaces[0].path == TL &&
+              work.label() == "Id lists: 1 folder", work.label());
+        latch::door::set_own_files({});
+        check("lists (s010f3): nothing registered -> latch refuses the replace",
+              !door.replace_refusal(TL, work.replaces[0].text).empty());
+        fl::register_own();
+        const auto& own = latch::door::own_files();
+        check("lists (s010f3): register_own -> .tidy-files + .tidy-project, their headers",
+              own.size() == 2 && own[0].name == ".tidy-files" && own[0].header == fl::kHeader &&
+              own[1].name == ".tidy-project" && own[1].header == "id=");
+        struct stat s0{}, s1{};
+        ::lstat(TL.c_str(), &s0);
+        const auto batches = door.batches().size();
+        check("lists (s010f3): may be replaced", door.replace_refusal(TL, work.replaces[0].text).empty(),
+              door.replace_refusal(TL, work.replaces[0].text));
+        const auto why = door.replace_own(TL, work.replaces[0].text);
+        ::lstat(TL.c_str(), &s1);
+        check("lists (s010f3): replaced in place -- 2 ids, a new inode, no batch (no undo), nothing in the Trash",
+              why.empty() && fl::parse(read(TL)).size() == 2 && s0.st_ino != s1.st_ino &&
+              door.batches().size() == batches && !fs::exists(H + "/.local/share/Trash/files/.tidy-files"), why);
+        check("lists (s010f3): no tmp left beside it", std::none_of(fs::directory_iterator(H + "/Documents/Taxes"),
+              fs::directory_iterator(), [](const auto& e) { return e.path().filename().string().ends_with(".new"); }));
+        check("lists (s010f3): then up to date", fl::plan({}, fl::wanted(core::scan::walk(H, fl::roots(H)))).empty());
+
+        // A user's own file named .tidy-files (not Tidy's header) -> refused, untouched.
+        put_file(H + "/Music/song.ogg", "la");
+        xset(H + "/Music/song.ogg", core::facts::kId, "55555555-5555-4555-8555-555555555555");
+        put_file(H + "/Music/.tidy-files", "my own notes\n");
+        work = fl::plan({}, fl::wanted(core::scan::walk(H, fl::roots(H))));
+        check("lists (s010f3): a user's .tidy-files -> a Replace latch refuses; the file untouched",
+              work.replaces.size() == 1 && !door.replace_refusal(H + "/Music/.tidy-files", work.replaces[0].text).empty() &&
+              !door.replace_own(H + "/Music/.tidy-files", work.replaces[0].text).empty() &&
+              read(H + "/Music/.tidy-files") == "my own notes\n");
+        fs::remove_all(H + "/Music");
+
+        // ── s010f3: the s010f2 bug -- a line whose file lost its id and changed size is KEPT ──
+        fs::remove(H + "/Documents/Taxes/1099.pdf");
+        put_file(H + "/Documents/Taxes/1099.pdf", "1099 body, edited by an app that drops xattrs");
+        auto scan3 = core::scan::walk(H, fl::roots(H));
+        check("lists (s010f3): other size -> not re-found", fl::refind(scan3).empty());
+        auto want3 = fl::wanted(scan3);
+        const auto& tl = want3[H + "/Documents/Taxes"];
+        check("lists (s010f3): its old line carried forward (kept), the id with it",
+              tl.size() == 2 && std::any_of(tl.begin(), tl.end(), [&](const fl::Line& l) { return l.id == I4 && l.kept; }));
+        work = fl::plan({}, want3);
+        check("lists (s010f3): nothing else changed -> no rewrite at all (the line stays on disk)",
+              work.empty() && work.kept == 1 && fl::parse(read(TL)).size() == 2, work.label());
+        put_file(H + "/Documents/Taxes/roof.pdf", "roof");
+        xset(H + "/Documents/Taxes/roof.pdf", core::facts::kId, "66666666-6666-4666-8666-666666666666");
+        work = fl::plan({}, fl::wanted(core::scan::walk(H, fl::roots(H))));
+        check("lists (s010f3): a rewrite for another reason keeps the lost id's line",
+              work.replaces.size() == 1 && work.kept == 1 && door.replace_own(TL, work.replaces[0].text).empty() &&
+              fl::parse(read(TL)).size() == 3 && read(TL).find(I4) != std::string::npos &&
+              work.replaces[0].reason.find("1 kept") != std::string::npos, work.replaces.empty() ? "" : work.replaces[0].reason);
+        fs::copy_file(H + "/Documents/Taxes/w2.pdf", H + "/Documents/w2-copy.pdf");
+        xset(H + "/Documents/w2-copy.pdf", core::facts::kId, I4);
+        want3 = fl::wanted(core::scan::walk(H, fl::roots(H)));
+        check("lists (s010f3): not kept when another file carries that id now",
+              std::none_of(want3[H + "/Documents/Taxes"].begin(), want3[H + "/Documents/Taxes"].end(),
+                           [](const fl::Line& l) { return l.kept; }));
+        fs::remove(H + "/Documents/w2-copy.pdf");
+        fs::remove(H + "/Documents/Taxes/1099.pdf");
+        want3 = fl::wanted(core::scan::walk(H, fl::roots(H)));
+        check("lists (s010f3): the file gone -> its line dropped at the next rewrite",
+              want3[H + "/Documents/Taxes"].size() == 2 &&
+              std::none_of(want3[H + "/Documents/Taxes"].begin(), want3[H + "/Documents/Taxes"].end(),
+                           [&](const fl::Line& l) { return l.id == I4; }));
+        work = fl::plan({}, want3);
+        if (!work.replaces.empty()) door.replace_own(TL, work.replaces[0].text);
 
         // The xattr lost (a FAT stick round trip): same name, same size, no tags -> re-found.
         fs::remove(H + "/Documents/Taxes/w2.pdf");
@@ -1907,14 +1974,25 @@ int main(int argc, char** argv) {
         check("lists: re-find -- same name + size gets its id back; a copy's id and other sizes do not",
               found.size() == 1 && found[0].path == H + "/Documents/Taxes/w2.pdf" && found[0].id == I1,
               std::to_string(found.size()));
-        plan = fl::plan(found, fl::wanted(fl::with_found(scan2, found)));
-        check("lists: re-found ids are Tags first; the lists follow", !plan.actions.empty() &&
-              plan.actions[0].verb == dr::Verb::Tag && plan.actions[0].content == I1, plan.label);
-        plan.previewed = true;
-        r = door.run(plan);
+        const auto st = fl::stale(scan2);
+        check("lists (s010f3): stale() counts what Look would do -- the offer's numbers",
+              st.any() && st.refound == 1 && st.lists >= 1,
+              std::to_string(st.lists) + " lists, " + std::to_string(st.refound) + " re-found");
+        work = fl::plan(found, fl::wanted(fl::with_found(scan2, found)));
+        check("lists: re-found ids are Tags first; the lists follow", !work.plan.actions.empty() &&
+              work.plan.actions[0].verb == dr::Verb::Tag && work.plan.actions[0].content == I1, work.label());
+        work.plan.previewed = true;
+        r = door.run(work.plan);
         check("lists: run -> w2.pdf carries its old id again", r.ok && core::facts::tags_of(H + "/Documents/Taxes/w2.pdf").id == I1);
         const auto u = door.undo();
         check("lists: undone -- the id off again", u.ok && core::facts::tags_of(H + "/Documents/Taxes/w2.pdf").id.empty());
+        check("lists (s010f3): stale() of an up-to-date home is nothing", [&] {
+            const auto f = core::scan::walk(H, fl::roots(H));
+            const auto w = fl::plan(fl::refind(f), fl::wanted(fl::with_found(f, fl::refind(f))));
+            if (!w.plan.actions.empty()) { auto p = w.plan; p.previewed = true; door.run(p); }
+            for (const auto& x : w.replaces) door.replace_own(x.path, x.text);
+            return !fl::stale(core::scan::walk(H, fl::roots(H))).any();
+        }());
         fs::remove_all(root);
     }
 

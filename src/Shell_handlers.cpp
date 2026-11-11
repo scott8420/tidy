@@ -6,6 +6,8 @@
 #include "ShortcutsDialog.hpp"
 #include "SettingsWindow.hpp"
 #include "IdListsWindow.hpp"
+#include "core/FileLists.hpp"
+#include "core/Scan.hpp"
 
 #include <glibmm/main.h>
 #include <chrono>
@@ -172,6 +174,7 @@ void Shell::arm_rescan() {  // handler
         const auto line = m_projects->rescan();
         const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
         if (auto lg = log::get(log::Area::Shell)) lg->info("rescan: {} ({} ms)", line, ms);
+        offer_lists();
         return true;
     }, static_cast<unsigned>(m_settings.rescan_minutes) * 60u);
 }
@@ -179,9 +182,31 @@ void Shell::arm_rescan() {  // handler
 // s010f2: the id lists -- its own window: Look, preview, Do it; undo in Activity.
 void Shell::on_id_lists() {  // handler
     if (!m_idlists_win)
-        m_idlists_win = std::make_unique<IdListsWindow>(*this, *m_door, m_home, m_data_dir, [this] { refresh_activity(); });
+        m_idlists_win = std::make_unique<IdListsWindow>(*this, *m_door, m_home, m_data_dir, [this] { refresh_activity(); offer_lists(); });
     m_idlists_win->open();
 }
 
 }  // namespace tidy
 
+
+namespace tidy {
+
+// s010f3: Scott -- the background rescan offers out-of-date lists. READ-ONLY:
+// the same scan as the window's Look, counted. On the main loop like the
+// rescan; the ms are logged (a thread if it ever shows on a real home).
+void Shell::offer_lists() {  // handler
+    if (!m_offer) return;
+    const auto t0 = std::chrono::steady_clock::now();
+    namespace fl = core::filelists;
+    const auto st = fl::stale(core::scan::walk(m_home, fl::roots(m_home)));
+    const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
+    std::string line;
+    if (st.lists) line = std::to_string(st.lists) + " id list" + (st.lists == 1 ? "" : "s") + " out of date";
+    if (st.refound) line += (line.empty() ? "" : ", ") + std::to_string(st.refound) + " id" +
+                            (st.refound == 1 ? "" : "s") + " to give back";
+    if (auto lg = log::get(log::Area::Shell)) lg->info("id lists: {} ({} ms)", line.empty() ? "up to date" : line, ms);
+    m_offer_text->set_text(line);
+    m_offer->set_reveal_child(!line.empty() && line != m_offer_dismissed);
+}
+
+}  // namespace tidy

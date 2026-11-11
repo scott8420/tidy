@@ -7,6 +7,7 @@
 #include "core/Own.hpp"
 #include "Log.hpp"
 #include "core/Paths.hpp"
+#include "core/FileLists.hpp"
 
 #include <latch/Door.hpp>
 #include <glibmm/main.h>
@@ -38,6 +39,7 @@ void Shell::build_ui() {
     // records", .tidy-...). Tidy has no root helper, so it hands in no root
     // rules -- every Root step is refused. (REQUIREMENTS §11.7.)
     latch::door::set_app_name("Tidy");
+    core::filelists::register_own();   // s010f3: .tidy-files / .tidy-project may be rewritten in place
 
     // Which home. TIDY_HOME (an absolute folder) is a FIXTURE home -- e.g. one
     // made by `tidy_selftest --fixture DIR` -- and then Tidy's records live
@@ -66,6 +68,7 @@ void Shell::build_ui() {
         Glib::signal_idle().connect_once([this] {
             const auto line = m_projects->rescan();
             if (auto lg = log::get(log::Area::Shell)) lg->info("rescan at launch: {}", line);
+            offer_lists();
         });
     arm_rescan();
 

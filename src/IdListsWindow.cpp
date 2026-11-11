@@ -103,46 +103,78 @@ void IdListsWindow::on_look() {
     const auto found = fl::refind(files);
     const auto want = fl::wanted(fl::with_found(files, found));
     std::size_t ids = 0;
-    for (const auto& [d, v] : want) ids += v.size();
-    auto plan = fl::plan(found, want);
-    // In order: a Write may take the place the Trash before it frees.
-    std::vector<std::string> made, freed;
-    std::size_t refused = 0;
-    for (const auto& a : plan.actions) {
-        const auto why = m_door.refusal(a, made, freed);
-        if (why.empty() && a.verb == dr::Verb::Trash) freed.push_back(a.from);
-        refused += !why.empty();
-        std::string what = a.verb == dr::Verb::Tag ? "Give back its id: " + shown(m_home, a.from)
-                         : a.verb == dr::Verb::Trash ? "Trash the old list: " + shown(m_home, a.from)
-                                                     : "Write " + shown(m_home, a.to) + " -- " + a.reason;
+    for (const auto& [d, v] : want)
+        for (const auto& l : v) ids += !l.kept;  // kept lines have no file carrying the id
+    auto work = fl::plan(found, want);
+    const auto row = [this](const std::string& what, const std::string& why) {
         auto l = text(what + (why.empty() ? "" : "   REFUSED: " + why), why.empty() ? nullptr : "dim");
         l->set_margin(6);
         m_list->append(*l);
+    };
+    // In order (the s010d lesson); Tags and new lists are the door's.
+    std::vector<std::string> made, freed;
+    std::size_t refused = 0;
+    for (const auto& a : work.plan.actions) {
+        const auto why = m_door.refusal(a, made, freed);
+        refused += !why.empty();
+        row(a.verb == dr::Verb::Tag ? "Give back its id: " + shown(m_home, a.from)
+                                    : "Write " + shown(m_home, a.to) + " -- " + a.reason, why);
+    }
+    // s010f3: lists already there -- rewritten in place, no undo (latch replace_own).
+    for (const auto& x : work.replaces) {
+        const auto why = m_door.replace_refusal(x.path, x.text);
+        refused += !why.empty();
+        row("Rewrite " + shown(m_home, x.path) + " -- " + x.reason + "  (in place, no undo)", why);
     }
     m_summary->set_text(std::to_string(ids) + " file" + (ids == 1 ? "" : "s") + " with an id, in " +
                         std::to_string(want.size()) + " folder" + (want.size() == 1 ? "" : "s") + ". " +
-                        (plan.actions.empty() ? std::string("Every list is up to date.")
-                                              : plan.label + " -- " + std::to_string(plan.actions.size()) + " steps" +
-                                                    (refused ? ", " + std::to_string(refused) + " refused" : "") + "."));
-    m_run->set_sensitive(!plan.actions.empty() && refused < plan.actions.size());
-    m_plan = plan.actions.empty() ? std::nullopt : std::optional<dr::Plan>(std::move(plan));
-    if (auto lg = log::get(log::Area::Io)) lg->info("id lists look: {} ids, {} folders, {} re-found, {} steps",
-                                                    ids, want.size(), found.size(), m_plan ? m_plan->actions.size() : 0);
+                        (work.kept ? std::to_string(work.kept) + " kept for files that lost their id. " : "") +
+                        (work.empty() ? std::string("Every list is up to date.")
+                                      : work.label() + " -- " + std::to_string(work.steps()) + (work.steps() == 1 ? " step" : " steps") +
+                                            (refused ? ", " + std::to_string(refused) + " refused" : "") + "."));
+    m_run->set_sensitive(!work.empty() && refused < work.steps());
+    if (auto lg = log::get(log::Area::Io)) lg->info("id lists look: {} files with ids, {} folders, {} re-found, {} kept, {} steps ({} in place)",
+                                                    ids, want.size(), found.size(), work.kept, work.steps(), work.replaces.size());
+    m_work = work.empty() ? std::nullopt : std::optional<fl::Work>(std::move(work));
 }
 
 void IdListsWindow::on_run() {
-    if (!m_plan) return;
-    auto plan = *m_plan;
-    plan.previewed = true;                      // shown in this window's list
-    const auto r = m_door.run(plan);
-    // Re-found ids: the catalog reads them back (Tidy's own record).
-    core::catalog::Catalog cat;
-    if (r.ok && cat.open(m_data_dir, true))
-        core::tagging::record(cat, core::tagging::paths_of(m_door, r.batch), static_cast<std::int64_t>(std::time(nullptr)));
+    if (!m_work) return;
+    auto work = *m_work;
+    std::string fail;
+    std::size_t done = 0;
+    if (!work.plan.actions.empty()) {
+        work.plan.previewed = true;             // shown in this window's list
+        const auto r = m_door.run(work.plan);
+        // Re-found ids: the catalog reads them back (Tidy's own record).
+        core::catalog::Catalog cat;
+        if (r.ok && cat.open(m_data_dir, true))
+            core::tagging::record(cat, core::tagging::paths_of(m_door, r.batch), static_cast<std::int64_t>(std::time(nullptr)));
+        done += r.done;
+        if (!r.ok) fail = r.messages.empty() ? std::string("see the log") : r.messages.front();
+    }
+    // In place, no undo: the log line is the record (Scott, s010f3).
+    std::size_t in_place = 0, refused = 0;
+    if (fail.empty())
+        for (const auto& x : work.replaces) {
+            const auto why = m_door.replace_own(x.path, x.text);
+            auto lg = log::get(log::Area::Io);
+            if (why.empty()) {
+                ++in_place;
+                if (lg) lg->info("id list rewritten in place (no undo): {} -- {}", x.path, x.reason);
+            } else {
+                ++refused;
+                if (lg) lg->warn("id list NOT rewritten: {} -- {}", x.path, why);
+            }
+        }
     if (m_changed) m_changed();
     on_look();
-    m_status->set_text(r.ok ? "Done: " + plan.label + " (" + std::to_string(r.done) + " steps) -- undo in Activity"
-                            : "Not done: " + (r.messages.empty() ? std::string("see the log") : r.messages.front()));
+    if (!fail.empty()) { m_status->set_text("Not done: " + fail); return; }
+    std::string s = "Done: " + work.label() + " (" + std::to_string(done + in_place) + (done + in_place == 1 ? " step)" : " steps)");
+    if (done) s += " -- the door's steps undo in Activity";
+    if (in_place) s += "; " + std::to_string(in_place) + " rewritten in place (no undo)";
+    if (refused) s += "; " + std::to_string(refused) + " refused (see the log)";
+    m_status->set_text(s);
 }
 
 }  // namespace tidy

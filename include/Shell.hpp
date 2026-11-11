@@ -5,6 +5,8 @@
 #include "core/Settings.hpp"
 
 #include <gtkmm/applicationwindow.h>
+#include <gtkmm/label.h>
+#include <gtkmm/revealer.h>
 #include <giomm/menu.h>
 
 #include <latch/Door.hpp>
@@ -93,7 +95,9 @@ private:
     void on_about();                               // category: handler: the About window (hide-on-close)
     void on_settings();                            // category: handler: the Settings window (s006a)
     void arm_rescan();
-    void on_id_lists();                            // handler: the Id lists window (s010f2)                             // handler: the loose background rescan (s010f1)
+                                                   // handler: the loose background rescan (s010f1)
+    void on_id_lists();                            // handler: the Id lists window (s010f2)
+    void offer_lists();                            // handler: s010f3 -- count stale id lists -> the offer bar
     void on_shortcuts();                           // category: handler: the keyboard reference
     void on_dump_registry();                       // category: handler: print the live widget tree
     void on_activity_undo();                       // category: handler: undo the newest batch, through the door
@@ -162,6 +166,10 @@ private:
     core::settings::Settings         m_settings;   // read at build_ui; written only by core::own
     std::unique_ptr<ShortcutsDialog> m_shortcuts;
     sigc::connection                 m_rescan;     // s010f1: every rescan_minutes; 0 = none
+    // s010f3: the rescan offers "N id lists out of date" -> Id lists...
+    Gtk::Revealer* m_offer = nullptr;
+    Gtk::Label*    m_offer_text = nullptr;
+    std::string    m_offer_dismissed;              // the line last dismissed -- shown again when it changes
 };
 
 }  // namespace tidy
