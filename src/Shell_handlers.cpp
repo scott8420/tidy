@@ -9,6 +9,7 @@
 #include "ProjectsPage.hpp"
 #include "PurposesPage.hpp"
 #include "HomePage.hpp"
+#include "SortPage.hpp"
 #include "AboutWindow.hpp"
 #include "ShortcutsDialog.hpp"
 #include "SettingsWindow.hpp"
@@ -78,6 +79,7 @@ void Shell::on_settings() {  // handler: the Settings window
     if (m_projects) m_projects->refresh_if_shown();
     if (m_purposes) m_purposes->refresh_if_shown();
     if (m_home_page) m_home_page->refresh_if_shown();
+    if (m_sort_page) m_sort_page->refresh_if_shown();   // s020
             if (auto lg = log::get(log::Area::Shell))
                 lg->info("settings saved: aging {} days, {} junk patterns, rescan every {} min", s.aging_days,
                          s.junk.size(), s.rescan_minutes);
@@ -113,6 +115,7 @@ void Shell::on_activity_undo() {  // handler: Activity's act button
     if (m_archive) m_archive->refresh_if_shown();
     if (m_clo_states && m_clo_states->get_visible_child_name() == "results") fill_closet();
     if (m_home_page) m_home_page->refresh_if_shown();
+    if (m_sort_page) m_sort_page->refresh_if_shown();   // s020
     m_act_status->set_text(r.ok ? "Undone: " + label + " (" + std::to_string(r.done) + " steps)"
                                 : "Undo of " + label + ": " + std::to_string(r.done) + " back, " +
                                       std::to_string(r.failed) + " left as they are -- " +

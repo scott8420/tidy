@@ -106,6 +106,8 @@ std::size_t record(catalog::Catalog& cat, const dr::Door& d, std::uint64_t batch
             if (!r || r->verb != dr::Verb::Move || r->state != dr::State::Done) continue;
             facts::Facts f;
             if (!facts::of(r->to, f) || f.tags.id.empty()) continue;
+            // s020: a Sort batch also moves files HOME -- only an archived one is fingerprinted.
+            if (f.tags.archived.empty()) continue;
             std::uint64_t size = 0;
             const auto sha = sha256::of_file(r->to, &size);
             if (sha.empty()) continue;

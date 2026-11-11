@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <!-- Tidy hero: sort: a disc in the page's own tint (lime), a white glyph: loose lines sorted into boxes. -->
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#bef264"/><stop offset="1" stop-color="#4d7c0f"/></linearGradient>
+    <radialGradient id="s" cx="0.35" cy="0.25" r="0.6"><stop offset="0" stop-color="#ffffff" stop-opacity="0.45"/><stop offset="1" stop-color="#ffffff" stop-opacity="0"/></radialGradient>
+  </defs>
+  <circle cx="64" cy="64" r="58" fill="url(#g)"/>
+  <g fill="#ffffff">
+    <rect x="26" y="36" width="34" height="8" rx="4"/>
+    <rect x="26" y="60" width="26" height="8" rx="4"/>
+    <rect x="26" y="84" width="18" height="8" rx="4"/>
+    <path d="M64 34l10 6-10 6zM56 58l18 6-18 6zM48 82l26 6-26 6z"/>
+    <rect x="78" y="31" width="24" height="18" rx="3" opacity=".9"/>
+    <rect x="78" y="55" width="24" height="18" rx="3" opacity=".9"/>
+    <rect x="78" y="79" width="24" height="18" rx="3" opacity=".9"/>
+  </g>
+  <circle cx="64" cy="64" r="58" fill="url(#s)"/>
+</svg>

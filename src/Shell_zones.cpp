@@ -7,6 +7,7 @@
 #include "ProjectsPage.hpp"
 #include "PurposesPage.hpp"
 #include "HomePage.hpp"
+#include "SortPage.hpp"
 #include "ArchivePage.hpp"
 #include "DuePage.hpp"
 
@@ -154,6 +155,13 @@ void Shell::build_page(const std::string& id) {  // zone: a page's hero
         m_archive = Gtk::make_managed<ArchivePage>(*m_door, m_home, m_data_dir, m_fixture,
                                                    [this] { return m_settings.media; }, [this] { refresh_activity(); });
         m_stack.add(*m_archive, id, pp ? pp->title : "Archive");
+        return;
+    }
+    if (id == "sort") {                                    // s020: the one-step Sort
+        const auto* pp = core::pages::find(id);
+        m_sort_page = Gtk::make_managed<SortPage>(*m_door, m_home, m_data_dir, m_fixture,
+                                                  [this] { return user_dirs_text(); }, [this] { refresh_activity(); });
+        m_stack.add(*m_sort_page, id, pp ? pp->title : "Sort");
         return;
     }
     if (id == "home") {                                    // s011: files home -- moves through the door

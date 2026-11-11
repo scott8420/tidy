@@ -60,6 +60,20 @@ const std::vector<Topic>& topics() {
           "Set to -> the purpose, or Tidy's guess (or right-click the selection).",
           "Preview -> Do it. Tidy learns from what you chose.", "When the work is finished, Close the purpose."},
          "purposes"},
+        {"sort", "Every day", "Sort -- the whole home in one pass",
+         {"Sort gives every loose file in the home a level and a place at once. Kept files go home by type (Settings: "
+          "the type table; no type -> Documents) into a dated folder named for where they came from: "
+          "~/Pictures/Desktop 2026-11, ~/Documents/Downloads 2026-11, ~/Pictures/Loose 2026-11 for one already "
+          "loose in Pictures. Old records (Historical) go to ~/Archive/<year>, fingerprinted. Ephemeral files and "
+          "your junk list stay where they are, labelled.",
+          "Hands off, hidden files, your Hands-off folders, Samson's folders, projects and repos are never touched. "
+          "A name already taken in a folder gets \"(2)\" -- nothing is overwritten."},
+         {"Sort -> Look. Everything comes up selected, grouped by where it goes.",
+          "Unselect what is wrong (Ctrl+click), or select only some.",
+          "Sort... -> the preview: every label, new folder and move.",
+          "Do it. The whole sort is ONE step in Activity -> Undo puts it all back.",
+          "Then Archive -> Back up, for what went to ~/Archive."},
+         "sort"},
         {"home", "Every day", "Files home",
          {"Sends decided files to their folder: by type (pictures to Pictures, from the type table in Settings), into "
           "a folder at home's top you name (a subfolder of it, never loose), into the project they serve, or into the "

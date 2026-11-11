@@ -67,6 +67,7 @@
 #include "core/Pages.hpp"
 #include "core/Paths.hpp"
 #include "core/Protection.hpp"
+#include "core/Sort.hpp"
 #include "core/Shortcuts.hpp"
 #include "core/Catalog.hpp"
 #include "core/Facts.hpp"
@@ -1186,6 +1187,137 @@ int main(int argc, char** argv) {
                   !fs::exists(home / "Taxes/old-letter.txt") && !fs::exists(home / "notes.txt"));
         }
         latch::protect::set_owned({});
+        std::error_code ec;
+        fs::remove_all(root, ec);
+    }
+
+    // ── s020: the one-step Sort -- a level and a place for every loose file ──
+    {
+        std::cout << "[sort]\n";
+        namespace so = core::sort;
+        namespace cb = core::birth;
+        namespace rt = core::retention;
+        const fs::path root = fs::temp_directory_path() / ("tidy_selftest_sort_" + std::to_string(::getpid()));
+        fs::remove_all(root);
+        const fs::path home = root / "home";
+        make_home(home);
+        make_birth_extras(home);
+        make_projects(home);
+        make_sweep_extras(home);
+        fs::remove_all(home / ".local");
+        put_file(home / "Downloads/scratch.tmp", "junk");
+        put_file(home / "Desktop/leave-me.txt", "hands off");
+        ::lsetxattr((home / "Desktop/leave-me.txt").c_str(), core::facts::kRetention, "hands-off", 9, 0);
+        ::lsetxattr((home / "Desktop/leave-me.txt").c_str(), core::facts::kId, "11111111-2222-3333-4444-555555555555", 36, 0);
+        latch::protect::set_owned({});
+        const std::string H = fs::canonical(home).string();
+        const std::int64_t now = now_s();
+        const std::string month = [&] {
+            const std::time_t t = static_cast<std::time_t>(now);
+            std::tm tm{};
+            localtime_r(&t, &tm);
+            char b[16];
+            std::strftime(b, sizeof b, "%Y-%m", &tm);
+            return std::string(b);
+        }();
+        const int year = std::stoi(month.substr(0, 4));
+        core::settings::Settings st;
+        st.junk = {"*.tmp"};
+        const auto before = tree_facts(H);
+        const auto rep = cb::report(H, cb::sweep(H, ""), now, st.old_years);
+        const auto rows = so::rows(H, rep, st, now);
+        const auto row = [&](const std::string& rel) -> const so::Row* {
+            for (const auto& r : rows) if (r.born.file.path == H + "/" + rel) return &r;
+            return nullptr;
+        };
+        const auto home_to = [&](const std::string& rel, const std::string& folder) {
+            const auto* r = row(rel);
+            return r && r->go == so::Go::Home && r->folder == folder;
+        };
+        check("sort: READ-ONLY until run", tree_facts(H) == before);
+        check("dated: the Desktop, Downloads, home's top; Loose at its own type folder",
+              home_to("Desktop/cover-final.png", "Pictures/Desktop " + month) &&
+              home_to("Downloads/f1040.pdf", "Documents/Downloads " + month) &&
+              home_to("todo.txt", "Documents/Home " + month) &&
+              home_to("Pictures/landscape.png", "Pictures/Loose " + month),
+              row("Pictures/landscape.png") ? row("Pictures/landscape.png")->folder : "missing");
+        check("sort: a top folder's loose file goes by type, named for its folder (Writing/ideas.txt)",
+              home_to("Writing/ideas.txt", "Documents/Writing " + month));
+        check("sort: undecided -> tagged; waiting -> Keep; decided -> its own level, untagged",
+              row("todo.txt")->tag && row("todo.txt")->level == rt::Level::Keep &&
+              row("Downloads/f1040.pdf")->level == rt::Level::UntilDone &&
+              !row("Desktop/cover-final.png")->tag && row("Desktop/cover-final.png")->level == rt::Level::Keep);
+        check("sort: Historical -> ~/Archive/<year>/<its folder>",
+              row("old-letter.txt") && row("old-letter.txt")->go == so::Go::Archive &&
+              row("old-letter.txt")->folder == "Archive/" + std::to_string(year) &&
+              row("Music/song.mp3")->folder == "Archive/" + std::to_string(year) + "/Music");
+        check("sort: Ephemeral stays (tagged); the junk list -> the Junk Drawer, stays",
+              row("Downloads/cat.jpg") && row("Downloads/cat.jpg")->go == so::Go::Stays && row("Downloads/cat.jpg")->tag &&
+              row("Downloads/scratch.tmp") && row("Downloads/scratch.tmp")->junk &&
+              row("Downloads/scratch.tmp")->go == so::Go::Stays);
+        check("sort: Hands off is left out", !row("Desktop/leave-me.txt"));
+        auto planned = so::plan(H, rows, now);
+        {
+            std::size_t first_move = planned.plan.actions.size(), last_tag = 0;
+            std::map<std::string, int> ids;
+            for (std::size_t i = 0; i < planned.plan.actions.size(); ++i) {
+                const auto& a = planned.plan.actions[i];
+                if (a.verb == latch::door::Verb::Move && first_move == planned.plan.actions.size()) first_move = i;
+                if (a.verb == latch::door::Verb::Tag && a.attr == core::facts::kRetention) last_tag = i;
+                if (a.verb == latch::door::Verb::Tag && a.attr == core::facts::kId) ++ids[a.from];
+            }
+            bool once = true;
+            for (const auto& [p, n] : ids) once = once && n == 1;
+            check("plan: the level tags come before any move; one id per file (the archive's own dropped)",
+                  last_tag < first_move && once && planned.archiving >= 3);
+        }
+        latch::door::Door door(H, H + "/.tidy-data-sort");
+        door.load();
+        planned.plan.previewed = true;
+        const auto r = door.run(planned.plan);
+        check("run: every step done", r.ok && r.failed == 0, r.messages.empty() ? "" : r.messages.front());
+        const auto t_cover = core::facts::tags_of(H + "/Pictures/Desktop " + month + "/cover-final.png");
+        const auto t_todo = core::facts::tags_of(H + "/Documents/Home " + month + "/todo.txt");
+        const auto t_letter = core::facts::tags_of(H + "/Archive/" + std::to_string(year) + "/old-letter.txt");
+        check("run: home by type into the dated folders, tagged", !fs::exists(home / "todo.txt") &&
+              t_todo.retention == "keep" && !t_todo.id.empty() && t_cover.retention == "keep");
+        check("run: archived, tagged Historical + archived", t_letter.retention == "historical" && !t_letter.archived.empty());
+        check("run: Ephemeral + the Junk Drawer stayed, tagged",
+              core::facts::tags_of(H + "/Downloads/cat.jpg").retention == "ephemeral" &&
+              core::facts::tags_of(H + "/Downloads/scratch.tmp").role == core::closet::kJunkDrawer);
+        check("run: Hands off untouched", fs::exists(home / "Desktop/leave-me.txt"));
+        {   // found in the drive: "12 fingerprinted" for 3 archived -- record() took every move in the batch
+            core::catalog::Catalog cat;
+            const bool open = cat.open(H + "/.tidy-data-sort", true);
+            const auto n = open ? core::archive::record(cat, door, r.batch, now) : 0;
+            check("record: only the archived files are fingerprinted, not the ones sent home",
+                  open && n == planned.archiving && cat.archived().size() == planned.archiving,
+                  std::to_string(n) + " of " + std::to_string(planned.archiving));
+        }
+        {
+            const auto again = so::rows(H, cb::report(H, cb::sweep(H, ""), now, st.old_years), st, now);
+            std::size_t moving = 0;
+            for (const auto& x : again) moving += x.go != so::Go::Stays || x.tag;
+            check("sort again: nothing left to do", moving == 0, std::to_string(moving));
+        }
+        const auto u = door.undo();
+        const auto shape = [&](const std::map<std::string, std::string>& m) {   // path -> inode/size, files only
+            std::map<std::string, std::string> o;
+            for (const auto& [p, f] : m) {
+                if (p.find("/.tidy-data-sort") != std::string::npos || p.find("/.local/share/Trash") != std::string::npos ||
+                    fs::is_directory(fs::symlink_status(p)))
+                    continue;   // the door's own records; an undone new folder goes to the Trash (latch)
+                o[p] = f.substr(0, f.find('/', f.find('/') + 1));
+            }
+            return o;
+        };
+        check("undo: one step -- every file back at its path (same inode, size), the new folders gone",
+              u.ok && shape(tree_facts(H)) == shape(before) && !fs::exists(home / ("Pictures/Desktop " + month)) &&
+              !fs::exists(home / ("Archive/" + std::to_string(year) + "/Music")));
+        check("undo: the tags it gave are gone (todo.txt, cat.jpg, old-letter.txt)",
+              core::facts::tags_of(H + "/todo.txt").retention.empty() &&
+              core::facts::tags_of(H + "/Downloads/cat.jpg").retention.empty() &&
+              core::facts::tags_of(H + "/old-letter.txt").archived.empty());
         std::error_code ec;
         fs::remove_all(root, ec);
     }

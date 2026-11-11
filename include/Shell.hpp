@@ -72,6 +72,7 @@ class IdListsWindow;
 class BackgroundWindow;
 class PurposesPage;
 class HomePage;
+class SortPage;
 class DuePage;
 class ArchivePage;
 class SettingsWindow;
@@ -173,6 +174,7 @@ private:
     ProjectsPage* m_projects = nullptr;           // s008 (managed by the stack)
     PurposesPage* m_purposes = nullptr;           // s009 (managed by the stack)
     HomePage*     m_home_page = nullptr;
+    SortPage*     m_sort_page = nullptr;   // s020
     ArchivePage*  m_archive = nullptr;            // s013b the archive + backup (managed by the stack)
     DuePage*      m_due = nullptr;                // s012a the trigger (managed by the stack)          // s011 files home (managed by the stack)
 
