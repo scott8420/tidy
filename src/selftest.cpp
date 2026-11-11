@@ -1746,6 +1746,31 @@ int main(int argc, char** argv) {
         check("search: every word, any field, any case",
               pj::fits("jas DONE", {"Jasper", "done", "published 2026"}) && pj::fits("", {"x"}) &&
               !pj::fits("jasper paused", {"Jasper", "done"}) && pj::fits("2026", {"Jasper", "done", "published 2026"}));
+        // s010g: uses -- a project made from other projects, by id.
+        {
+            const std::string A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+                              C = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+            std::vector<pj::Use> us = {{A, B}, {B, C}};
+            std::string why;
+            check("uses: may use another; not itself; not twice",
+                  pj::can_use(us, A, C, nullptr) && !pj::can_use(us, A, A, &why) && !pj::can_use(us, A, B, nullptr));
+            check("uses: no loop, near or far (B uses A; C uses A)",
+                  !pj::can_use(us, B, A, &why) && !pj::can_use(us, C, A, nullptr) && why.find("loop") != std::string::npos, why);
+            check("uses: uses_of / used_by", pj::uses_of(us, A) == std::vector<std::string>{B} &&
+                  pj::used_by(us, C) == std::vector<std::string>{B} && pj::uses_of(us, C).empty());
+            const auto before_disk = tree_facts(H);
+            const std::string tid = [&] { for (const auto& p : again) if (p.name == "tidy") return p.id; return std::string(); }();
+            const bool added = cat.add_use(jid, tid);
+            check("uses: catalog add; twice refused; read back", added && !cat.add_use(jid, tid) &&
+                  cat.uses().size() == 1 && cat.uses()[0].first == jid && cat.uses()[0].second == tid);
+            check("uses: catalog only -- nothing on disk changed", tree_facts(H) == before_disk);
+            cat.seen_project({tid, H + "/Develop/gtk/tidy-project", "tidy", "code-project", "", "", 300, false});
+            check("uses: a later Look keeps the link", cat.uses().size() == 1);
+            check("uses: drop; a second drop changes nothing",
+                  cat.drop_use(jid, tid) && !cat.drop_use(jid, tid) && cat.uses().empty());
+            ct::Catalog ro;
+            check("uses: read-only open reads them; cannot write", ro.open(D, false) && ro.uses().empty() && !ro.add_use(A, B));
+        }
         const auto u = door.undo();
         check("give_ids: undone -- no ids on disk again (the odd one untouched)",
               u.ok && pj::give_ids(pj::find(H), gen).actions.size() == 3 &&

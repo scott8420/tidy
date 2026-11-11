@@ -177,7 +177,7 @@ void ProjectsPage::build_results() {
     m_status->set_name("projects.status");
     m_status->set_hexpand(true);
     bar->append(*m_status);
-    m_undo_status = Gtk::make_managed<Gtk::Button>("Undo status");
+    m_undo_status = Gtk::make_managed<Gtk::Button>("Undo");
     m_undo_status->set_name("projects.undo_status");
     m_undo_status->set_sensitive(false);
     m_undo_status->signal_clicked().connect([this] { on_undo_status(); });
@@ -403,10 +403,51 @@ void ProjectsPage::set_status(const std::string& id, const std::string& status, 
     if (!was) { m_status->set_text("Not in the catalog yet -- Look again."); return; }
     if (was->status == status && was->outcome == outcome) return;
     if (!cat.set_status(id, status, outcome)) { m_status->set_text("Not saved."); return; }
-    m_status_undo.push_back({id, was->name, was->status, was->outcome});
-    m_undo_status->set_sensitive(true);
+    m_status_undo.push_back({Was::Kind::Status, id, was->name, was->status, was->outcome, "", ""});
+    undo_label();
     m_status->set_text(was->name + "-project: " + status + (outcome.empty() ? "" : " -- " + outcome));
     if (auto lg = log::get(log::Area::Io)) lg->info("project {} status {} -> {}", id, was->status, status);
+}
+
+namespace {
+std::vector<pj::Use> uses_in(const core::catalog::Catalog& cat) {
+    std::vector<pj::Use> out;
+    for (const auto& [a, b] : cat.uses()) out.push_back({a, b});
+    return out;
+}
+std::string name_in(const core::catalog::Catalog& cat, const std::string& id) {
+    const auto r = cat.project(id);
+    return r ? r->name + "-project" + (r->gone ? " (gone)" : "") : "(unknown " + id.substr(0, 8) + ")";
+}
+}  // namespace
+
+void ProjectsPage::set_use(const std::string& project, const std::string& used, bool add) {
+    core::catalog::Catalog cat;
+    if (!cat.open(m_data_dir, true)) { m_status->set_text("The catalog could not be opened."); return; }
+    const auto a = cat.project(project);
+    if (!a) { m_status->set_text("Not in the catalog yet -- Look again."); return; }
+    const std::string bn = name_in(cat, used);
+    if (add) {
+        std::string why;
+        if (!pj::can_use(uses_in(cat), project, used, &why)) { m_status->set_text("Not used: " + why); return; }
+        if (!cat.add_use(project, used)) { m_status->set_text("Not saved."); return; }
+    } else if (!cat.drop_use(project, used)) { m_status->set_text("Not saved."); return; }
+    m_status_undo.push_back({add ? Was::Kind::UseAdded : Was::Kind::UseDropped, project, a->name, "", "", used, bn});
+    undo_label();
+    m_status->set_text(a->name + "-project " + (add ? "uses " : "no longer uses ") + bn);
+    if (auto lg = log::get(log::Area::Io)) lg->info("project {} {} {}", project, add ? "uses" : "drops", used);
+    render();
+}
+
+void ProjectsPage::undo_label() {
+    m_undo_status->set_sensitive(!m_status_undo.empty());
+    if (m_status_undo.empty()) { m_undo_status->set_label("Undo"); m_undo_status->set_tooltip_text(""); return; }
+    const auto& w = m_status_undo.back();
+    m_undo_status->set_label(w.kind == Was::Kind::Status ? "Undo status" : "Undo use");
+    m_undo_status->set_tooltip_text(
+        w.kind == Was::Kind::Status ? w.name + "-project back to " + w.status :
+        w.kind == Was::Kind::UseAdded ? w.name + "-project stops using " + w.used_name
+                                      : w.name + "-project uses " + w.used_name + " again");
 }
 
 void ProjectsPage::on_undo_status() {
@@ -414,10 +455,82 @@ void ProjectsPage::on_undo_status() {
     const auto w = m_status_undo.back();
     m_status_undo.pop_back();
     core::catalog::Catalog cat;
-    if (cat.open(m_data_dir, true) && cat.set_status(w.id, w.status, w.outcome))
-        m_status->set_text("Undone: " + w.name + "-project back to " + w.status);
-    m_undo_status->set_sensitive(!m_status_undo.empty());
+    const bool open = cat.open(m_data_dir, true);
+    if (w.kind == Was::Kind::Status) {
+        if (open && cat.set_status(w.id, w.status, w.outcome))
+            m_status->set_text("Undone: " + w.name + "-project back to " + w.status);
+    } else if (w.kind == Was::Kind::UseAdded) {
+        if (open && cat.drop_use(w.id, w.used))
+            m_status->set_text("Undone: " + w.name + "-project no longer uses " + w.used_name);
+    } else if (open && cat.add_use(w.id, w.used)) {
+        m_status->set_text("Undone: " + w.name + "-project uses " + w.used_name + " again");
+    }
+    undo_label();
     render();
+}
+
+void ProjectsPage::uses_row(const pj::Project& p) {
+    if (p.id.empty()) return;
+    core::catalog::Catalog cat;
+    std::vector<pj::Use> uses;
+    std::vector<core::catalog::ProjectRow> rows;
+    if (cat.open(m_data_dir, false)) { uses = uses_in(cat); rows = cat.projects(); }
+    const auto mine = pj::uses_of(uses, p.id);
+    const auto by = pj::used_by(uses, p.id);
+
+    auto b = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::HORIZONTAL, 6);
+    b->set_margin_start(32);
+    b->set_margin_end(8);
+    b->set_margin_bottom(6);
+    auto row = Gtk::make_managed<Gtk::ListBoxRow>();
+    row->set_activatable(false);
+    row->set_child(*b);
+    m_list->append(*row);
+
+    auto head = Gtk::make_managed<Gtk::Label>(mine.empty() ? "uses nothing" : "uses");
+    head->add_css_class("dim");
+    b->append(*head);
+    for (const auto& u : mine) {
+        const std::string n = cat.is_open() ? name_in(cat, u) : u.substr(0, 8);
+        auto x = Gtk::make_managed<Gtk::Button>(n + "  \u2715");
+        x->add_css_class("flat");
+        x->set_name("projects.unuse." + p.rel + "." + n);
+        x->set_tooltip_text("Stop using it -- Tidy's catalog only; nothing on disk changes");
+        x->signal_clicked().connect([this, id = p.id, u] { set_use(id, u, false); });
+        b->append(*x);
+    }
+    if (!by.empty()) {
+        std::string t = "-- used by ";
+        for (std::size_t i = 0; i < by.size(); ++i) t += (i ? ", " : "") + (cat.is_open() ? name_in(cat, by[i]) : by[i].substr(0, 8));
+        auto l = Gtk::make_managed<Gtk::Label>(t);
+        l->add_css_class("dim");
+        l->set_name("projects.usedby." + p.rel);
+        b->append(*l);
+    }
+    // What it may use: every other project in the catalog, not gone, no loop.
+    std::vector<std::string> ids;
+    auto model = Gtk::StringList::create({});
+    for (const auto& r : rows) {
+        if (r.gone || !pj::can_use(uses, p.id, r.id, nullptr)) continue;
+        ids.push_back(r.id);
+        model->append(r.name + "-project");
+    }
+    auto spacer = Gtk::make_managed<Gtk::Box>();
+    spacer->set_hexpand(true);
+    b->append(*spacer);
+    if (ids.empty()) return;
+    auto dd = Gtk::make_managed<Gtk::DropDown>(model);
+    dd->set_name("projects.use." + p.rel);
+    dd->set_tooltip_text("A project this one is made with (a cover, a font, a score...)");
+    b->append(*dd);
+    auto add = Gtk::make_managed<Gtk::Button>("Use");
+    add->set_name("projects.use_add." + p.rel);
+    add->set_tooltip_text("Record it in Tidy's catalog -- nothing on disk changes; Undo use takes it back");
+    add->signal_clicked().connect([this, dd, ids, id = p.id] {
+        const auto i = dd->get_selected();
+        if (i < ids.size()) set_use(id, ids[i], true);
+    });
+    b->append(*add);
 }
 
 void ProjectsPage::render() {
@@ -433,6 +546,11 @@ void ProjectsPage::render() {
             if (open && !p.id.empty())
                 if (auto r = cat.project(p.id)) { fields.push_back(r->status); fields.push_back(r->outcome); }
             if (p.id.empty()) fields.push_back("no id");
+            else if (open) {
+                const auto uses = uses_in(cat);
+                for (const auto& u : pj::uses_of(uses, p.id)) fields.push_back("uses " + name_in(cat, u));
+                for (const auto& u : pj::used_by(uses, p.id)) fields.push_back("used by " + name_in(cat, u));
+            }
             if (pj::fits(q, fields)) found.push_back(p);
         }
     }
@@ -479,6 +597,7 @@ void ProjectsPage::render() {
             texts(b, p.name + "-project", "in " + shown(std::filesystem::path(p.path).parent_path().string()) +
                                               (p.code ? " -- code: stays where it is" : ""));
             status_widgets(b, p);
+            uses_row(p);
             if (p.code) continue;
             auto model = Gtk::StringList::create({});
             for (const auto& c : cats) model->append(c);
@@ -529,6 +648,7 @@ void ProjectsPage::render() {
             }
             texts(b, shown(p.path), under);
             status_widgets(b, p);
+            uses_row(p);
             // Offer Fix only when the door would make something (fixes/ is always refused: Scott's).
             std::size_t doable = 0;
             if (missing)
@@ -549,6 +669,7 @@ void ProjectsPage::render() {
             auto b = row_box();
             texts(b, p.name + "-project", "in " + shown(std::filesystem::path(p.path).parent_path().string()));
             status_widgets(b, p);
+            uses_row(p);
             auto again = Gtk::make_managed<Gtk::Button>("Ask again");
             again->set_name("projects.ask." + p.rel);
             again->signal_clicked().connect([this, r = p.rel] { on_leave(r, false); });

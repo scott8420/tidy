@@ -50,6 +50,9 @@ private:
     void status_widgets(Gtk::Box* b, const core::projects::Project& p);
     void set_status(const std::string& id, const std::string& status, const std::string& outcome);
     void on_undo_status();
+    void uses_row(const core::projects::Project& p);   // s010g: under a project's row
+    void set_use(const std::string& project, const std::string& used, bool add);
+    void undo_label();
     void preview(latch::door::Plan plan);
     void on_run();
     void on_leave(const std::string& rel, bool leave);
@@ -80,8 +83,13 @@ private:
     Gtk::Entry*  m_search = nullptr;
     Gtk::Button* m_give_ids = nullptr;
     Gtk::Button* m_undo_status = nullptr;
-    struct StatusWas { std::string id, name, status, outcome; };
-    std::vector<StatusWas> m_status_undo;   // this page's own undo (status lives in Tidy's catalog)
+    // This page's own undo: status and uses live in Tidy's catalog, not on disk.
+    struct Was {
+        enum class Kind { Status, UseAdded, UseDropped } kind = Kind::Status;
+        std::string id, name, status, outcome;   // Status: what it was
+        std::string used, used_name;             // Use*: the other project
+    };
+    std::vector<Was> m_status_undo;
 };
 
 }  // namespace tidy

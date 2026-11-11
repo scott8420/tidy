@@ -67,6 +67,16 @@ bool is_status(const std::string& s);
 // Search: every word of `query` found (case-insensitive) in one of `fields`.
 bool fits(const std::string& query, const std::vector<std::string>& fields);      // "Jasper" -> "Jasper-project"; "x-project" kept
 
+// s010g. Uses: a project made from other projects, by id (a Folio book uses a
+// Curvz cover project). A project used by nothing is its own product. The
+// links are Tidy's catalog's (the user's choice, like status), not on disk.
+struct Use { std::string project, used; };          // `project` is made with `used`
+// May `project` use `used`? Not itself, not twice, not something made from it
+// (no loop: A uses B uses A). `why` says why not.
+bool can_use(const std::vector<Use>& uses, const std::string& project, const std::string& used, std::string* why);
+std::vector<std::string> uses_of(const std::vector<Use>& uses, const std::string& id);   // what it is made with
+std::vector<std::string> used_by(const std::vector<Use>& uses, const std::string& id);   // what is made with it
+
 // Is `rel` (relative to home, the folder's own path) a -project folder name?
 bool is_project_name(const std::string& folder_name);
 // The category a project at `rel` has: the first part, unless it sits in the

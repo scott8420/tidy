@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 struct sqlite3;
@@ -72,6 +73,13 @@ public:
     bool set_status(const std::string& id, const std::string& status, const std::string& outcome);
     std::optional<ProjectRow> project(const std::string& id) const;
     std::vector<ProjectRow> projects() const;
+
+    // Uses (s010g): `project` is made with `used` (both project ids). The rules
+    // (no self, no twice, no loop) are core::projects::can_use -- checked by the
+    // caller; add_use only refuses a row already there.
+    bool add_use(const std::string& project, const std::string& used);
+    bool drop_use(const std::string& project, const std::string& used);   // true if a row went
+    std::vector<std::pair<std::string, std::string>> uses() const;          // (project, used), ordered
 
 private:
     std::vector<Entry> query(const char* sql, const std::vector<std::string>& args) const;

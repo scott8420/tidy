@@ -273,4 +273,38 @@ std::string format_left(const std::set<std::string>& left) {
     return s;
 }
 
+// ── Uses (s010g) ─────────────────────────────────────────────────────────────
+std::vector<std::string> uses_of(const std::vector<Use>& uses, const std::string& id) {
+    std::vector<std::string> out;
+    for (const auto& u : uses) if (u.project == id) out.push_back(u.used);
+    return out;
+}
+
+std::vector<std::string> used_by(const std::vector<Use>& uses, const std::string& id) {
+    std::vector<std::string> out;
+    for (const auto& u : uses) if (u.used == id) out.push_back(u.project);
+    return out;
+}
+
+bool can_use(const std::vector<Use>& uses, const std::string& project, const std::string& used, std::string* why) {
+    const auto no = [&](const char* w) { if (why) *why = w; return false; };
+    if (project.empty() || used.empty()) return no("no id");
+    if (project == used) return no("a project cannot use itself");
+    for (const auto& u : uses)
+        if (u.project == project && u.used == used) return no("already used");
+    // A loop: `project` reachable from `used` along uses.
+    std::vector<std::string> todo{used};
+    std::set<std::string> seen;
+    while (!todo.empty()) {
+        const auto at = todo.back();
+        todo.pop_back();
+        if (!seen.insert(at).second) continue;
+        for (const auto& next : uses_of(uses, at)) {
+            if (next == project) return no("it is made with this one already -- a loop");
+            todo.push_back(next);
+        }
+    }
+    return true;
+}
+
 }  // namespace tidy::core::projects

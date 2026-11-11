@@ -27,7 +27,9 @@ constexpr const char* kSchema =
     "  id TEXT PRIMARY KEY, path TEXT NOT NULL, name TEXT NOT NULL DEFAULT '', tmpl TEXT NOT NULL DEFAULT '',"
     "  status TEXT NOT NULL DEFAULT 'active', outcome TEXT NOT NULL DEFAULT '',"
     "  seen INTEGER NOT NULL DEFAULT 0, gone INTEGER NOT NULL DEFAULT 0);"
-    "PRAGMA user_version = 2;";
+    "CREATE TABLE IF NOT EXISTS uses ("            /* s010g */
+    "  project TEXT NOT NULL, used TEXT NOT NULL, PRIMARY KEY (project, used));"
+    "PRAGMA user_version = 3;";
 
 constexpr const char* kCols = "id, path, dev, ino, size, btime, mtime, ctime, atime, retention, purpose, role, seen, gone";
 
@@ -261,5 +263,39 @@ std::optional<ProjectRow> Catalog::project(const std::string& id) const {
 }
 
 std::vector<ProjectRow> Catalog::projects() const { return project_query(m_db, "ORDER BY path", ""); }
+
+// ── Uses (s010g) ─────────────────────────────────────────────────────────────
+namespace {
+bool use_exec(sqlite3* db, const char* sql, const std::string& a, const std::string& b) {
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(db, sql, -1, &st, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_text(st, 1, a.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(st, 2, b.c_str(), -1, SQLITE_TRANSIENT);
+    const bool ok = sqlite3_step(st) == SQLITE_DONE && sqlite3_changes(db) == 1;
+    sqlite3_finalize(st);
+    return ok;
+}
+}  // namespace
+
+bool Catalog::add_use(const std::string& project, const std::string& used) {
+    if (!m_db || !m_rw || project.empty() || used.empty()) return false;
+    return use_exec(m_db, "INSERT OR IGNORE INTO uses (project, used) VALUES (?, ?)", project, used);
+}
+
+bool Catalog::drop_use(const std::string& project, const std::string& used) {
+    if (!m_db || !m_rw) return false;
+    return use_exec(m_db, "DELETE FROM uses WHERE project = ? AND used = ?", project, used);
+}
+
+std::vector<std::pair<std::string, std::string>> Catalog::uses() const {
+    std::vector<std::pair<std::string, std::string>> out;
+    if (!m_db) return out;
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(m_db, "SELECT project, used FROM uses ORDER BY project, used", -1, &st, nullptr) != SQLITE_OK)
+        return out;                                                   // no table yet (a v2 catalog read-only): none
+    while (sqlite3_step(st) == SQLITE_ROW) out.emplace_back(text(st, 0), text(st, 1));
+    sqlite3_finalize(st);
+    return out;
+}
 
 }  // namespace tidy::core::catalog
