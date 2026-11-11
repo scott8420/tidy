@@ -257,6 +257,63 @@ void HomePage::fill() {
     m_rows.clear();
     m_rows.reserve(std::min(offered.size(), kMaxRows));
 
+    // s011a: All, then one destination for every checked file -- by type (each
+    // to its own type folder, the same subfolder) or into one project.
+    if (!offered.empty()) {
+        auto bb = append_row(m_list, 4);
+        auto all = Gtk::make_managed<Gtk::CheckButton>("All");
+        all->set_name("home.bulk.all");
+        all->set_tooltip_text("Check or uncheck every file below");
+        all->signal_toggled().connect([this, all] {
+            for (auto& r : m_rows) r.check->set_active(all->get_active());
+        });
+        bb->append(*all);
+        auto gap = label("", nullptr);
+        gap->set_hexpand(true);
+        bb->append(*gap);
+        auto setl = label("Set checked to", "dim");
+        setl->set_wrap(false);
+        bb->append(*setl);
+        auto to = Gtk::StringList::create({"--", "by type"});
+        for (const auto& p : m_projects) to->append("into " + fs::path(p.path).filename().string());
+        auto dd = Gtk::make_managed<Gtk::DropDown>(to);
+        dd->set_name("home.bulk.to");
+        dd->set_size_request(240, -1);
+        bb->append(*dd);
+        auto folder = Gtk::make_managed<Gtk::Entry>();
+        folder->set_name("home.bulk.folder");
+        folder->set_width_chars(16);
+        folder->set_placeholder_text("subfolder / folder");
+        bb->append(*folder);
+        auto set = Gtk::make_managed<Gtk::Button>("Set");
+        set->set_name("home.bulk.set");
+        set->set_size_request(130, -1);
+        set->set_tooltip_text("Each checked row -> this (an empty folder box keeps the route's folder; nothing moves until Go home)");
+        set->signal_clicked().connect([this, dd, folder] {
+            const auto i = dd->get_selected();
+            if (i == 0) { m_status->set_text("Pick where the checked files go."); return; }
+            std::size_t n = 0, skipped = 0;
+            for (auto& r : m_rows) {
+                if (!r.check->get_active()) continue;
+                guint want;
+                if (i == 1) {
+                    if (r.type_folder.empty()) { r.check->set_active(false); ++skipped; continue; }
+                    want = 1;
+                } else {
+                    want = (r.type_folder.empty() ? 1u : 2u) + (i - 2);
+                }
+                if (r.to->get_selected() != want) r.to->set_selected(want);   // refills the folder box
+                if (!folder->get_text().empty()) r.folder->set_text(folder->get_text());
+                r.check->set_active(true);
+                ++n;
+            }
+            m_status->set_text(std::to_string(n) + " set" +
+                               (skipped ? ", " + std::to_string(skipped) + " skipped and unchecked (no type -- pick a project for them)" : "") +
+                               (n ? " -- Go home to preview." : ""));
+        });
+        bb->append(*set);
+    }
+
     std::size_t typed = 0;
     for (const auto& b : offered) {
         if (m_rows.size() >= kMaxRows) break;

@@ -364,6 +364,39 @@ void PurposesPage::fill() {
     for (const auto& f : files) without += f.tags.purpose.empty();
     section("Without a purpose -- " + std::to_string(without) + " in the landing places and Documents' folders" +
             (without > kMaxRows ? " (first " + std::to_string(kMaxRows) + " shown)" : ""));
+    // s011a (Scott: "tedious unless we can multiselect and set"): All, then
+    // one purpose for every checked file.
+    if (without && !m_open.empty()) {
+        auto b = append_row(m_list, 4);
+        auto all = Gtk::make_managed<Gtk::CheckButton>("All");
+        all->set_name("purposes.bulk.all");
+        all->set_tooltip_text("Check or uncheck every file below");
+        all->signal_toggled().connect([this, all] {
+            for (auto& r : m_rows) r.check->set_active(all->get_active());
+        });
+        b->append(*all);
+        auto gap = label("", nullptr);
+        gap->set_hexpand(true);
+        b->append(*gap);
+        auto setl = label("Set checked to", "dim");
+        setl->set_wrap(false);
+        b->append(*setl);
+        auto dd = Gtk::make_managed<Gtk::DropDown>(purpose_model());
+        dd->set_name("purposes.bulk.purpose");
+        b->append(*dd);
+        auto set = Gtk::make_managed<Gtk::Button>("Set");
+        set->set_name("purposes.bulk.set");
+        set->set_tooltip_text("Each checked file's purpose -> this one (nothing changes on disk until Assign)");
+        set->signal_clicked().connect([this, dd] {
+            const auto i = dd->get_selected();
+            if (i == 0) { m_status->set_text("Pick the purpose to set."); return; }
+            std::size_t n = 0;
+            for (auto& r : m_rows)
+                if (r.check->get_active()) { r.pick->set_selected(i); ++n; }
+            m_status->set_text(n ? std::to_string(n) + " set -- Assign to preview." : "Check files first (or All).");
+        });
+        b->append(*set);
+    }
     for (const auto& f : files) {
         if (!f.tags.purpose.empty() || m_rows.size() >= kMaxRows) continue;
         Row r;
