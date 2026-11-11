@@ -44,6 +44,10 @@ Settings parse(const std::string& text) {
             try {
                 s.aging_days = std::clamp(std::stoi(v), kAgingMin, kAgingMax);
             } catch (...) {}
+        } else if (k == "old_years") {
+            try {
+                s.old_years = std::clamp(std::stoi(v), kOldMin, kOldMax);
+            } catch (...) {}
         } else if (k == "rescan_minutes") {
             try {
                 s.rescan_minutes = std::clamp(std::stoi(v), kRescanMin, kRescanMax);
@@ -93,6 +97,7 @@ std::string format(const Settings& s) {
     o << "held_years=" << std::clamp(s.held_years, kHeldMin, kHeldMax) << "\n";
     o << "archive_days=" << std::clamp(s.archive_days, kArchiveMin, kArchiveMax) << "\n";
     o << "rescan_minutes=" << std::clamp(s.rescan_minutes, kRescanMin, kRescanMax) << "\n";
+    o << "old_years=" << std::clamp(s.old_years, kOldMin, kOldMax) << "\n";
     for (const auto& j : s.junk) o << "junk=" << j << "\n";
     o << "proofs_needed=" << std::clamp(s.proofs_needed, kProofsMin, kProofsMax) << "\n";
     for (const auto& m : s.media) o << "media=" << m.label << "|" << m.path << "\n";

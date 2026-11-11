@@ -41,6 +41,10 @@ inline constexpr int kNotifyDefault = 10, kNotifyMin = 1, kNotifyMax = 100000;
 // media copies read back the same, now (Scott: one on the SSD or the Pi).
 inline constexpr int kProofsDefault = 1, kProofsMin = 1, kProofsMax = 5;
 
+// s019 the home sweep: a loose file untouched (neither changed nor read) this
+// many years is proposed Historical in the Closet -- the first sweep's archive.
+// 0 = off.
+inline constexpr int kOldDefault = 2, kOldMin = 0, kOldMax = 50;
 struct Media {
     std::string label, path;
     bool operator==(const Media&) const = default;
@@ -57,6 +61,7 @@ struct Settings {
     int held_years = kHeldDefault;
     int archive_days = kArchiveDefault;
     int rescan_minutes = kRescanDefault;
+    int old_years = kOldDefault;   // s019
     std::vector<std::string> junk;
     // s011 files home: the type table, "*.png -> Pictures" per line (core::homing
     // reads it). home_set = false -> the standard table (Scott: "fine"); true ->

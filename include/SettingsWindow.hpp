@@ -32,6 +32,7 @@ private:
     Gtk::SpinButton* m_days = nullptr;
     Gtk::SpinButton* m_rescan = nullptr;     // s010f1
     Gtk::SpinButton* m_held = nullptr;       // s012a
+    Gtk::SpinButton* m_old = nullptr;        // s019
     core::settings::Settings m_current;      // s012b: kept through Save
     Gtk::SpinButton* m_archive = nullptr;    // s012a
     Gtk::SpinButton* m_proofs = nullptr;     // s014

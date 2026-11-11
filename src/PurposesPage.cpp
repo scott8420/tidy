@@ -1,4 +1,5 @@
 #include "PurposesPage.hpp"
+#include "SelectList.hpp"
 #include "Log.hpp"
 #include "core/Birth.hpp"
 #include "core/Catalog.hpp"
@@ -32,7 +33,6 @@ namespace dr = latch::door;
 namespace fs = std::filesystem;
 
 namespace {
-constexpr std::size_t kMaxRows = 300;
 Gtk::Label* label(const std::string& text, const char* css, float x = 0.5f) {
     auto l = Gtk::make_managed<Gtk::Label>(text);
     if (css) l->add_css_class(css);
@@ -154,19 +154,38 @@ void PurposesPage::build_results() {
     again->signal_clicked().connect([this] { fill(); });
     head->append(*again);
     box->append(*head);
+    // The purposes strip: add, close / reopen, teach -- capped, it scrolls.
     m_list = listbox("purposes.list");
-    box->append(*scrolled(*m_list));
+    auto strip = Gtk::make_managed<Gtk::ScrolledWindow>();
+    strip->set_margin_start(32);
+    strip->set_margin_end(32);
+    strip->set_margin_bottom(8);
+    strip->set_propagate_natural_height(true);
+    strip->set_max_content_height(230);
+    strip->set_policy(Gtk::PolicyType::NEVER, Gtk::PolicyType::AUTOMATIC);
+    strip->set_child(*m_list);
+    box->append(*strip);
+    // s018b: the files without a purpose, selected like Nautilus.
+    m_files_head = label("", "heading", 0.0f);
+    m_files_head->set_name("purposes.files.head");
+    m_files_head->set_margin_start(36);
+    m_files_head->set_margin_end(32);
+    m_files_head->set_margin_top(6);
+    m_files_head->set_margin_bottom(6);
+    box->append(*m_files_head);
+    m_files = Gtk::make_managed<SelectList>("purposes.files");
+    m_files->set_vexpand(true);
+    m_files->set_margin_start(32);
+    m_files->set_margin_end(32);
+    m_files->set_margin_bottom(16);
+    m_files->on_choose([this](std::size_t i) { on_set(i); });
+    box->append(*m_files);
     auto bar = bar_box();
-    m_status = label("Check files, pick each one's purpose, then Assign. Tidy learns from what you choose.", "dim", 0.0f);
+    m_status = label("", "dim", 0.0f);
     m_status->set_name("purposes.status");
     m_status->set_hexpand(true);
     bar->append(*m_status);
-    auto assign = Gtk::make_managed<Gtk::Button>("Assign");
-    assign->set_name("purposes.assign");
-    assign->add_css_class("act");
-    assign->set_tooltip_text("The checked files -> the purpose beside each (previewed first)");
-    assign->signal_clicked().connect([this] { on_assign(); });
-    bar->append(*assign);
+    bar->append(m_files->setter());
     box->append(*bar);
     add(*box, "results");
 }
@@ -197,17 +216,21 @@ void PurposesPage::build_preview() {
 // The files to give a purpose: the landing places' (the birth report), and the
 // files one folder down in Documents (Documents/Taxes/w2.pdf) -- where a
 // folder says something. Projects and protected places are left out.
-std::vector<core::facts::Facts> PurposesPage::candidates(std::vector<std::string>* landing) const {
+// s019: the whole home's loose files (the sweep), not only the landing places.
+// Runs off the window's thread: home and user_dirs come in as copies.
+std::vector<core::facts::Facts> PurposesPage::candidates(const std::string& m_home, const std::string& user_dirs,
+                                                         std::vector<std::string>* landing) {
     std::vector<core::facts::Facts> out;
-    const auto places = core::birth::places(m_home, m_user_dirs ? m_user_dirs() : "");
+    const auto places = core::birth::places(m_home, user_dirs);
     for (const auto& pl : places) if (landing) landing->push_back(fs::path(pl.path).filename().string());
+    if (landing) landing->push_back(fs::path(m_home).filename().string());   // s019: home's top teaches nothing either
     // A project is kept whole: nothing inside a <name>-project is offered file by file.
     const auto in_project = [](const std::string& path) {
         for (const auto& part : fs::path(path).parent_path())
             if (core::projects::is_project_name(part.string())) return true;
         return false;
     };
-    for (const auto& b : core::birth::report(m_home, places).items)
+    for (const auto& b : core::birth::report(m_home, core::birth::sweep(m_home, user_dirs)).items)
         if (!b.file.dir && !in_project(b.file.path)) out.push_back(b.file);
     std::string docs;
     for (const auto& pl : places) if (pl.id == "documents") docs = pl.path;
@@ -252,9 +275,21 @@ void PurposesPage::save_book(const std::string& done) {
 }
 
 void PurposesPage::fill() {
+    if (m_files_head) m_files_head->set_text("Without a purpose -- looking through the home...");
+    const std::string home = m_home, dirs = m_user_dirs ? m_user_dirs() : "";
+    m_look.start(
+        [home, dirs] {
+            Look l;
+            l.files = candidates(home, dirs, &l.landing);
+            return l;
+        },
+        [this](Look l) { show(std::move(l)); });
+}
+
+void PurposesPage::show(Look look) {
     m_book = pu::parse(core::own::read(m_data_dir, pu::kFile));
-    m_landing.clear();
-    const auto files = candidates(&m_landing);
+    m_landing = std::move(look.landing);
+    const auto files = std::move(look.files);
     clear(m_list);
     m_rows.clear();
     m_open.clear();
@@ -359,91 +394,69 @@ void PurposesPage::fill() {
         b->append(*teach);
     }
 
-    // Files without a purpose.
+    // Files without a purpose (s018b: a SelectList; the guessed start selected).
     std::size_t without = 0, guessed = 0;
     for (const auto& f : files) without += f.tags.purpose.empty();
-    section("Without a purpose -- " + std::to_string(without) + " in the landing places and Documents' folders" +
-            (without > kMaxRows ? " (first " + std::to_string(kMaxRows) + " shown)" : ""));
-    // s011a (Scott: "tedious unless we can multiselect and set"): All, then
-    // one purpose for every checked file.
-    if (without && !m_open.empty()) {
-        auto b = append_row(m_list, 4);
-        auto all = Gtk::make_managed<Gtk::CheckButton>("All");
-        all->set_name("purposes.bulk.all");
-        all->set_tooltip_text("Check or uncheck every file below");
-        all->signal_toggled().connect([this, all] {
-            for (auto& r : m_rows) r.check->set_active(all->get_active());
-        });
-        b->append(*all);
-        auto gap = label("", nullptr);
-        gap->set_hexpand(true);
-        b->append(*gap);
-        auto setl = label("Set checked to", "dim");
-        setl->set_wrap(false);
-        b->append(*setl);
-        auto dd = Gtk::make_managed<Gtk::DropDown>(purpose_model());
-        dd->set_name("purposes.bulk.purpose");
-        b->append(*dd);
-        auto set = Gtk::make_managed<Gtk::Button>("Set");
-        set->set_name("purposes.bulk.set");
-        set->set_tooltip_text("Each checked file's purpose -> this one (nothing changes on disk until Assign)");
-        set->signal_clicked().connect([this, dd] {
-            const auto i = dd->get_selected();
-            if (i == 0) { m_status->set_text("Pick the purpose to set."); return; }
-            std::size_t n = 0;
-            for (auto& r : m_rows)
-                if (r.check->get_active()) { r.pick->set_selected(i); ++n; }
-            m_status->set_text(n ? std::to_string(n) + " set -- Assign to preview." : "Check files first (or All).");
-        });
-        b->append(*set);
-    }
+    m_files_head->set_text("Without a purpose -- " + std::to_string(without) +
+                           " loose in the home and in Documents' folders");
+    std::vector<SelectList::Item> items;
+    std::vector<std::size_t> pre;
     for (const auto& f : files) {
-        if (!f.tags.purpose.empty() || m_rows.size() >= kMaxRows) continue;
+        if (!f.tags.purpose.empty()) continue;
         Row r;
         r.file = f;
         r.guess = pu::guess(m_book, f.path, m_landing);
-        auto b = append_row(m_list, 4);
-        r.check = Gtk::make_managed<Gtk::CheckButton>();
-        r.check->set_name("purposes.file." + f.path);
-        b->append(*r.check);
-        auto t = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::VERTICAL, 2);
-        t->set_hexpand(true);
-        t->append(*label(fs::path(f.path).filename().string(), nullptr, 0.0f));
         const auto* gp = r.guess.purpose.empty() ? nullptr : m_book.find(r.guess.purpose);
-        t->append(*label(shown(fs::path(f.path).parent_path().string()) +
-                         (gp ? "   -- Tidy guesses " + gp->title + " (" + r.guess.because + ")" : ""), "dim", 0.0f));
-        b->append(*t);
-        r.pick = Gtk::make_managed<Gtk::DropDown>(purpose_model());
-        r.pick->set_name("purposes.pick." + f.path);
-        if (gp) {
-            for (std::size_t i = 0; i < m_open.size(); ++i)
-                if (m_open[i] == r.guess.purpose) r.pick->set_selected(static_cast<guint>(i + 1));
-            r.check->set_active(true);
-            ++guessed;
-        }
-        auto* chk = r.check;
-        r.pick->property_selected().signal_changed().connect([chk, dd = r.pick] { if (dd->get_selected() > 0) chk->set_active(true); });
-        b->append(*r.pick);
+        if (gp && gp->closed) gp = nullptr;
+        if (!gp) r.guess = {};
+        SelectList::Item it;
+        it.title = fs::path(f.path).filename().string() + (gp ? "   \u2192 " + gp->title : std::string());
+        it.line = shown(fs::path(f.path).parent_path().string()) +
+                  (gp ? "   -- Tidy guesses " + gp->title + " (" + r.guess.because + ")" : std::string("   -- no guess yet"));
+        if (gp) { pre.push_back(items.size()); ++guessed; }
+        items.push_back(std::move(it));
         m_rows.push_back(r);
     }
+    std::vector<std::string> choices{"Tidy's guess"};
+    for (const auto& id : m_open) choices.push_back(m_book.find(id)->title);
+    m_files->set_choices(m_open.empty() ? std::vector<std::string>{} : choices);
+    m_files->set_items(items);
+    m_files->select(pre);
+    m_status->set_text(m_open.empty() ? "Add a purpose first -- then select files and Set to it."
+                       : without == 0 ? "Every file here has a purpose."
+                                      : "Select files, then Set to a purpose (or Tidy's guess). Tidy learns from what you choose.");
     m_summary->set_text(std::to_string(m_open.size()) + " open purpose" + (m_open.size() == 1 ? "" : "s") + "   |   " +
                         std::to_string(without) + " files without one, " + std::to_string(guessed) + " guessed   |   " +
                         std::to_string(m_book.hints.size()) + " learned hint" + (m_book.hints.size() == 1 ? "" : "s"));
 }
 
-void PurposesPage::on_assign() {
+// Set to (s018b): choice 0 = each selected file's own guess (one without a
+// guess is left out, said); else every selected file -> that open purpose.
+void PurposesPage::on_set(std::size_t choice) {
     std::map<std::string, std::vector<core::facts::Facts>> by;
     m_learn_paths.clear();
     m_learn_guesses.clear();
-    for (const auto& r : m_rows) {
-        if (!r.check->get_active()) continue;
-        const auto i = r.pick->get_selected();
-        if (i == 0 || i > m_open.size()) continue;
-        by[m_open[i - 1]].push_back(r.file);
-        m_learn_paths.emplace_back(r.file.path, m_open[i - 1]);
+    std::size_t no_guess = 0;
+    for (auto i : m_files->selected()) {
+        if (i >= m_rows.size()) continue;
+        const auto& r = m_rows[i];
+        std::string id;
+        if (choice == 0) {
+            if (r.guess.purpose.empty()) { ++no_guess; continue; }
+            id = r.guess.purpose;
+        } else if (choice <= m_open.size()) {
+            id = m_open[choice - 1];
+        } else continue;
+        by[id].push_back(r.file);
+        m_learn_paths.emplace_back(r.file.path, id);
         m_learn_guesses.push_back(r.guess);
     }
-    if (by.empty()) { m_status->set_text("Check a file and pick its purpose first."); return; }
+    if (by.empty()) {
+        m_status->set_text(no_guess ? "Tidy has no guess for " + std::string(no_guess == 1 ? "that file" : "those files") +
+                                          " -- Set to a purpose instead."
+                                    : "Select some files first.");
+        return;
+    }
     dr::Plan plan;
     std::size_t n = 0;
     for (const auto& [id, fs_] : by) {
@@ -453,6 +466,7 @@ void PurposesPage::on_assign() {
     }
     plan.label = by.size() == 1 ? pu::assign(by.begin()->second, *m_book.find(by.begin()->first)).label
                                 : "Purpose: " + std::to_string(n) + " files -> " + std::to_string(by.size()) + " purposes";
+    if (no_guess) plan.label += " (" + std::to_string(no_guess) + " without a guess left out)";
     preview(std::move(plan), Pending::Assign);
 }
 
@@ -487,7 +501,8 @@ void PurposesPage::preview(dr::Plan plan, Pending what) {
         row->set_child(*l);
         m_prev_list->append(*row);
     }
-    m_prev_summary->set_text(plan.label + "   |   " + std::to_string(plan.actions.size()) + " steps   |   tags only: nothing moves");
+    m_prev_summary->set_text(plan.label + "   |   " + std::to_string(plan.actions.size()) +
+                             (plan.actions.size() == 1 ? " step" : " steps") + "   |   tags only: nothing moves");
     m_prev_status->set_text(refused ? std::to_string(refused) + " step(s) the door refuses -- they will not happen"
                                     : "Every step can be undone from Activity.");
     m_prev_run->set_sensitive(plan.actions.size() > refused);

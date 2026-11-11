@@ -92,6 +92,7 @@
 #include "core/Help.hpp"
 
 #include <latch/Door.hpp>
+#include <fcntl.h>
 #include <latch/Protect.hpp>
 
 #include <algorithm>
@@ -290,6 +291,30 @@ void make_projects(const fs::path& home) {
     for (const char* d : {"backups", "docs", "scripts", "Graphics/Covers", "Manuscript/Ch1", "Research/Sources/Deep", "Notes"})
         fs::create_directories(m / d);
 }
+// s019 the home sweep: loose files across the home -- at home's top, at a top
+// folder's top, untouched for years -- and the trees the sweep never enters
+// (~/Archive, a git repo at the top or in Downloads, a -project, hidden).
+void age(const fs::path& p, int year) {
+    std::tm tm{};
+    tm.tm_year = year - 1900; tm.tm_mon = 2; tm.tm_mday = 1; tm.tm_hour = 12;
+    const std::time_t t = std::mktime(&tm);
+    struct timespec ts[2] = {{t, 0}, {t, 0}};   // atime, mtime
+    ::utimensat(AT_FDCWD, p.c_str(), ts, AT_SYMLINK_NOFOLLOW);
+}
+void make_sweep_extras(const fs::path& home) {
+    put_file(home / "old-letter.txt", "dear");             age(home / "old-letter.txt", 2021);
+    put_file(home / "todo.txt", "today");
+    put_file(home / "Music/song.mp3", "mp3");              age(home / "Music/song.mp3", 2022);
+    put_file(home / "Pictures/Covers/blue.png", "home already");
+    put_file(home / "Writing/ideas.txt", "ideas");
+    put_file(home / "Downloads/old-movie.mkv", "mkv");     age(home / "Downloads/old-movie.mkv", 2020);
+    put_file(home / "Archive/2025/Documents/a.odt", "archived");
+    put_file(home / "Archive/stray.txt", "in the archive");
+    put_file(home / "notes-repo/README.md", "a repo");     fs::create_directories(home / "notes-repo/.git");
+    put_file(home / "Downloads/src-repo/main.c", "c");     fs::create_directories(home / "Downloads/src-repo/.git");
+    put_file(home / "Stray-project/a.txt", "a project's");
+    put_file(home / ".cache/x.txt", "hidden");
+}
 // s009: a stamp of purpose + role (the harness marking a product).
 latch::door::Plan tagging_set(const std::vector<core::facts::Facts>& fs_, const std::string& purpose, const std::string& role) {
     core::facts::Tags t;
@@ -348,6 +373,7 @@ int make_fixture(const std::string& dir) {
     ok = run(tg::plan_for(f, "Reconcile: 1 atomic save")) && ok && f.carries.size() == 1;
     make_birth_extras(home);   // s005: untagged by Tidy -- the birth report has something to say
     make_projects(home);       // s007: two writing projects to lift from and check for drift
+    make_sweep_extras(home);   // s019: loose across the home, some untouched for years
     std::cout << (ok ? "fixture home made: " : "fixture home made WITH ERRORS: ") << H << "\n"
               << "  " << door.batches().size() << " batches, " << cat.count() << " files in the catalog\n"
               << "  TIDY_HOME=" << H << " ./build/tidy\n";
@@ -360,8 +386,8 @@ int print_report(const std::string& dir) {
     std::error_code ec;
     const std::string H = fs::canonical(dir, ec).string();
     if (ec || !fs::is_directory(H)) { std::cerr << "--report: " << dir << " is not a folder\n"; return 2; }
-    const auto ps = core::birth::places(H, slurp(fs::path(H) / ".config/user-dirs.dirs"));
-    std::cout << core::birth::text(core::birth::report(H, ps), H);
+    const auto ps = core::birth::sweep(H, slurp(fs::path(H) / ".config/user-dirs.dirs"));   // s019: the whole home
+    std::cout << core::birth::text(core::birth::report(H, ps, now_s(), core::settings::kOldDefault), H);
     return 0;
 }
 
@@ -918,7 +944,7 @@ int main(int argc, char** argv) {
               !find("Pictures/landscape.png"));
         std::string unused;
         for (const auto& r : cb::rules())
-            if (!rep.count_rule(r.id)) unused += r.id + " ";
+            if (!rep.count_rule(r.id) && r.id != "old") unused += r.id + " ";   // old: the s019 sweep's own checks
         check("report: every birth rule fits at least one fixture file", unused.empty(), unused);
         std::size_t by_level = 0;
         for (const auto& l : rt::all()) by_level += rep.count(l.level);
@@ -939,6 +965,117 @@ int main(int argc, char** argv) {
               t.find("REPORT ONLY") != std::string::npos && t.find("\nEphemeral (") != std::string::npos &&
               t.find("~/Downloads/f1040.pdf") != std::string::npos);
 
+        std::error_code ec;
+        fs::remove_all(root, ec);
+    }
+
+    // ── s019: the home sweep -- the whole home, loose; the "old" rule -- on a FIXTURE ──
+    {
+        std::cout << "[sweep]\n";
+        namespace rt = core::retention;
+        namespace cb = core::birth;
+        namespace cl = core::closet;
+        const fs::path root = fs::temp_directory_path() / ("tidy_selftest_sweep_" + std::to_string(::getpid()));
+        fs::remove_all(root);
+        const fs::path home = root / "home";
+        make_home(home);
+        make_birth_extras(home);
+        make_projects(home);
+        make_sweep_extras(home);
+        fs::remove_all(home / ".local");
+        const std::string H = fs::canonical(home).string();
+        const auto before = tree_facts(H);
+        const auto ps = cb::sweep(H, "");
+        const std::int64_t now = now_s();
+        const auto rep = cb::report(H, ps, now, 2);
+        const auto find = [&](const std::string& rel) -> const cb::Born* {
+            for (const auto& b : rep.items)
+                if (b.file.path == H + "/" + rel) return &b;
+            return nullptr;
+        };
+        const auto has = [&](const std::string& rel, const char* rule, rt::Level l) {
+            const auto* b = find(rel);
+            return b && b->rule == rule && b->level == l;
+        };
+        std::string tops;
+        for (const auto& p : ps) if (p.id == "top") tops += p.title + " ";
+        check("sweep: the landing places, then home's top, then each top folder (not Archive, a repo, a -project, hidden, a landing place)",
+              ps.size() >= 6 && ps[4].id == "home" && ps[4].path == H &&
+              tops == "Develop Music Pictures Writing ", tops);
+        check("sweep: home's own top -- todo.txt (Undecided) and old-letter.txt",
+              has("todo.txt", "unknown", rt::Level::Undecided) && find("old-letter.txt"));
+        check("sweep: a top folder's top is loose (Pictures/landscape.png, Writing/ideas.txt); its subfolder is home (Pictures/Covers/blue.png)",
+              find("Pictures/landscape.png") && find("Writing/ideas.txt") && !find("Pictures/Covers/blue.png"));
+        check("sweep: Screenshots still walked whole (a landing place inside Pictures)",
+              has("Pictures/Screenshots/Screenshot From 2026-11-10 09-14-02.png", "screenshot", rt::Level::Ephemeral));
+        check("sweep: never ~/Archive, a repo at home's top, a repo in Downloads, a -project (top or on the Desktop), hidden",
+              !find("Archive/stray.txt") && !find("Archive/2025/Documents/a.odt") && !find("notes-repo/README.md") &&
+              !find("Downloads/src-repo/main.c") && !find("Stray-project/a.txt") &&
+              !find("Desktop/Essay-project/draft.odt") && !find("Desktop/Essay-project/Research/notes.txt") &&
+              !find(".cache/x.txt") && !find("Develop/gtk/tidy-project/tidy/CMakeLists.txt"));
+        check("sweep: a file is reported once", [&] {
+            std::set<std::string> seen;
+            for (const auto& b : rep.items) if (!seen.insert(b.file.path).second) return false;
+            return true;
+        }());
+        check("old: untouched 2 years -> Historical, \"untouched since 2021\"",
+              has("old-letter.txt", "old", rt::Level::Historical) && find("old-letter.txt")->why == "untouched since 2021",
+              find("old-letter.txt") ? find("old-letter.txt")->rule + ": " + find("old-letter.txt")->why : "missing");
+        check("old: at a top folder's top (Music/song.mp3, 2022) and in Downloads (an old .mkv, before \"a download\")",
+              has("Music/song.mp3", "old", rt::Level::Historical) && has("Downloads/old-movie.mkv", "old", rt::Level::Historical));
+        check("old: a decided file is never re-proposed; a fresh one is not old",
+              has("Desktop/cover-final.png", "stamped", rt::Level::Keep) && !has("todo.txt", "old", rt::Level::Historical));
+        {
+            const auto off = cb::report(H, ps, now, 0);
+            bool none = true;
+            for (const auto& b : off.items) none = none && b.rule != "old";
+            check("old: Settings 0 = off -- nothing proposed for its age", none);
+            const auto ten = cb::report(H, ps, now, 10);
+            bool young = true;
+            for (const auto& b : ten.items) young = young && b.rule != "old";
+            check("old: 10 years -- 2020 is not old enough", young);
+        }
+        {
+            core::facts::Facts f;
+            f.path = "/h/x.txt";
+            f.mtime = now - 3 * 365 * 86400;
+            f.atime = now - 10 * 86400;   // read last week
+            check("old: read lately is not untouched (atime counts)",
+                  cb::classify(f, "home", "", now, 2).rule == "unknown");
+            f.atime = 0;
+            check("old: an unknown atime falls back to mtime", cb::classify(f, "home", "", now, 2).rule == "old");
+            f.dir = true;
+            check("old: a package is never old by its folder's time", cb::classify(f, "home", "", now, 2).rule == "unknown");
+        }
+        {
+            core::settings::Settings st;
+            const auto v = cl::view(rep, now, st);
+            const auto in = [&](const std::string& rel) {
+                for (const auto& b : v.proposed) if (b.file.path == H + "/" + rel) return b.level == rt::Level::Historical;
+                return false;
+            };
+            check("closet: the old files are Proposed, Historical", in("old-letter.txt") && in("Music/song.mp3"));
+            check("settings: old_years default 2, round trip, clamped, 0 kept",
+                  st.old_years == 2 && core::settings::parse("old_years=7\n").old_years == 7 &&
+                  core::settings::parse("old_years=99\n").old_years == 50 &&
+                  core::settings::parse(core::settings::format(core::settings::parse("old_years=0\n"))).old_years == 0);
+        }
+        check("sweep: READ-ONLY -- no inode, size, mtime or ctime changed", tree_facts(H) == before);
+        {
+            const auto a = core::due::look(H, H + "/.tidy-data-none", "", now);
+            check("due: the headless look counts the sweep's Closet", a.closet >= 3, std::to_string(a.closet));
+            // Found in the drive: a Historical file at home's top never came due (the walk was top folders only).
+            const fs::path letter = home / "old-letter.txt";
+            ::lsetxattr(letter.c_str(), core::facts::kRetention, "historical", 10, 0);
+            age(letter, 2021);
+            std::vector<core::due::Item> items;
+            core::due::look(H, H + "/.tidy-data-none", "", now, &items);
+            bool due_letter = false;
+            for (const auto& it : items) due_letter = due_letter || (it.path == H + "/old-letter.txt" && it.to == core::due::To::Archive);
+            check("due: a Historical file at home's top comes due to archive", due_letter);
+            check("archive: a file at home's top goes to ~/Archive/<year> itself",
+                  core::archive::folder_for(H, H + "/old-letter.txt", 2026) == "Archive/2026");
+        }
         std::error_code ec;
         fs::remove_all(root, ec);
     }
@@ -2383,6 +2520,30 @@ int main(int argc, char** argv) {
 
         check("subfolders: Covers + Landscapes; not hidden, a project or fixes",
               ho::subfolders(H, H + "/Pictures") == std::vector<std::string>{"Covers", "Landscapes"});
+        {   // s018d: the folders at home's top, less the landing places and Archive
+            fs::create_directories(H + "/Archive/2026");
+            fs::create_directories(H + "/.config");
+            fs::create_directories(H + "/Writing/Jasper-project");
+            fs::create_directories(H + "/Top-project");
+            std::error_code se;
+            fs::create_directory_symlink(H + "/Pictures", H + "/PicLink", se);
+            const auto top = ho::home_folders(H, {"Downloads", "Desktop"});
+            std::string got;
+            for (const auto& n : top) got += n + " ";
+            check("home_folders: Art, Pictures, Writing -- not Downloads / Desktop (skipped), Archive, hidden, "
+                  "a -project, a symlink", top == std::vector<std::string>{"Art", "Pictures", "Writing"}, got);
+            check("home_folders: a folder named there takes the subfolder rule (Pictures + Old -> Pictures/Old; "
+                  "empty refused)", [&] {
+                      std::string f;
+                      return ho::by_type("Pictures", "Old", &f).empty() && f == "Pictures/Old" &&
+                             !ho::by_type("Pictures", "", &f).empty();
+                  }());
+            fs::remove(H + "/PicLink", se);
+            fs::remove_all(H + "/Top-project", se);
+            fs::remove_all(H + "/Writing", se);
+            fs::remove_all(H + "/Archive", se);
+            fs::remove_all(H + "/.config", se);
+        }
         const auto rep = core::birth::report(H, core::birth::places(H, ""));
         const auto off = ho::offered(rep);
         std::set<std::string> names;
@@ -2879,24 +3040,34 @@ int main(int argc, char** argv) {
         fs::remove_all(root);
     }
 
-    // ── s017: How to use Tidy -- every step's page exists; every page is in the process ──
+    // ── s017a: How to use Tidy -- topics; every page has one; every page a topic names exists ──
     {
         std::cout << "[help]\n";
-        std::set<std::string> used;
-        bool all_exist = true;
+        namespace hp = core::help;
+        std::set<std::string> used, ids;
+        bool all_exist = true, whole = true;
         std::string bad;
-        for (const auto& sec : core::help::sections())
-            for (const auto& st : sec.steps)
-                if (!st.page.empty()) {
-                    used.insert(st.page);
-                    if (!core::pages::find(st.page)) { all_exist = false; bad = st.page; }
-                }
-        check("help: every page a step sends you to exists", all_exist, bad);
+        for (const auto& t : hp::topics()) {
+            whole &= !t.title.empty() && !t.about.empty() && ids.insert(t.id).second;
+            if (t.page.empty()) continue;
+            used.insert(t.page);
+            if (!core::pages::find(t.page)) { all_exist = false; bad = t.page; }
+        }
+        check("help: topics open on the Introduction; each has a title, words, a unique id",
+              !hp::topics().empty() && hp::topics()[0].id == "intro" && whole && hp::find("removal"));
+        check("help: every page a topic names exists", all_exist, bad);
         std::string missing;
         for (const auto& id : {"closet", "due", "projects", "templates", "purposes", "home", "archive", "activity"})
             if (!used.count(id)) missing += std::string(missing.empty() ? "" : ", ") + id;
-        check("help: every page is in the process", missing.empty(), missing);
-        check("help: the retention levels, one line each", core::help::levels().size() == core::retention::all().size());
+        check("help: every page has a topic", missing.empty(), missing);
+        const auto* lv = hp::find("levels");
+        bool each = lv && lv->about.size() == core::retention::all().size() + 1;
+        for (const auto& i : core::retention::all()) {
+            bool found = false;
+            if (lv) for (const auto& p : lv->about) found |= p.rfind(i.title + " --", 0) == 0;
+            each &= found;
+        }
+        check("help: Retention levels -- one line per level, by its title", each);
     }
 
     std::cout << "-----------------------------------------------\n";

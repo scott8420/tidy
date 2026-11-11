@@ -148,6 +148,7 @@ add_executable(tidy
     src/Shell_bindings.cpp
     src/Shell_handlers.cpp
     src/Shell_helpers.cpp
+    src/SelectList.cpp       # s018: select like Nautilus + Set to (Closet, Purposes, Files home)
     src/AboutWindow.cpp
     src/SettingsWindow.cpp
     src/IdListsWindow.cpp

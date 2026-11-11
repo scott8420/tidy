@@ -126,29 +126,18 @@ void Shell::on_closet_look() {  // handler: the Closet's Look / Look again
     m_clo_states->set_visible_child("results");
 }
 
-// The three choices (s006): each builds a plan from the checked rows and
-// shows its preview. None of them runs anything.
-void Shell::on_closet_accept() {  // handler
-    const auto items = closet_checked();
-    if (items.empty()) { m_clo_status->set_text("Check some files first."); return; }
-    show_closet_preview(core::closet::accept(items));
-}
-
-void Shell::on_closet_decide() {  // handler
-    const auto items = closet_checked();
-    if (items.empty()) { m_clo_status->set_text("Check some files first."); return; }
-    std::vector<core::retention::Level> levels;   // the dropdown's order: all but Undecided
+// Set to (s018; the three choices of s006): the selected rows -> a plan ->
+// its preview. Choice 0 = each one's proposal; then the levels but Undecided;
+// last the Junk Drawer. None of them runs anything.
+void Shell::on_closet_set(std::size_t choice) {  // handler
+    const auto items = closet_selected();
+    if (items.empty()) { m_clo_status->set_text("Select some files first."); return; }
+    std::vector<core::retention::Level> levels;   // the setter's order: all but Undecided
     for (const auto& i : core::retention::all())
         if (i.level != core::retention::Level::Undecided) levels.push_back(i.level);
-    const auto k = m_clo_level->get_selected();
-    if (k >= levels.size()) return;
-    show_closet_preview(core::closet::decide(items, levels[k]));
-}
-
-void Shell::on_closet_junk() {  // handler
-    const auto items = closet_checked();
-    if (items.empty()) { m_clo_status->set_text("Check some files first."); return; }
-    show_closet_preview(core::closet::junk_drawer(items));
+    if (choice == 0) show_closet_preview(core::closet::accept(items));
+    else if (choice <= levels.size()) show_closet_preview(core::closet::decide(items, levels[choice - 1]));
+    else show_closet_preview(core::closet::junk_drawer(items));
 }
 
 void Shell::on_closet_back() {  // handler: nothing done

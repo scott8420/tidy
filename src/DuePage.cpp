@@ -364,6 +364,7 @@ void DuePage::on_run() {
 }
 
 std::string DuePage::shown(const std::string& path) const {
+    if (path == m_home) return "~";   // s019: a file at home's top
     if (path.rfind(m_home + "/", 0) == 0) return "~" + path.substr(m_home.size());
     return path;
 }

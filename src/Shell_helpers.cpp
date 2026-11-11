@@ -7,6 +7,7 @@
 #include "Log.hpp"
 
 #include <gtkmm/checkbutton.h>
+#include "SelectList.hpp"
 #include <gtkmm/label.h>
 #include <gtkmm/listbox.h>
 #include <gtkmm/listboxrow.h>
@@ -31,8 +32,9 @@ std::string Shell::page_note(const std::string& id) const {  // helper
         return std::string("Nothing done yet. Every change Tidy makes is listed here, with the way back.\n") +
                "Records: " + m_data_dir + (m_fixture ? "\n(a FIXTURE home: " + m_home + ")" : "");
     if (id == "closet")
-        return std::string("Look reads the landing places -- Downloads, Screenshots, Desktop, the loose top of ") +
-               "Documents. What is undecided is here: accept what its birth proposes, decide by hand, or " +
+        return std::string("Look sweeps the whole home for loose files -- at home's top, at the top of each folder ") +
+               "there, and in Downloads, Screenshots and the Desktop. What is undecided is here: select files, then " +
+               "Set to: what its birth (or its age) proposes, a level, or " +
                "the Junk Drawer. Every choice is a preview first, and undoable from Activity." +
                (m_fixture ? "\n(a FIXTURE home: " + m_home + ")" : "");
     return p ? "Comes with " + p->milestone + "." : "";
@@ -89,119 +91,101 @@ std::string born_text(const tidy::core::facts::Facts& f) {
 }
 }  // namespace
 
-// The Closet (s006) from a fresh birth report: what is proposed (checked),
-// what waits (unchecked) -- each row a check button: name + where, why, born.
-// Decided files never visit; the summary counts them.
+// The Closet (s006) from a fresh birth report: what is proposed, what waits --
+// each row name (+ its proposal), where, why, born. s018: one SelectList; the
+// Proposed rows start selected (as they started checked), so "Set to -> Its
+// proposal" is the one-step path. Decided files never visit; the summary counts them.
+namespace { constexpr const char* kLooking = "Looking through the home..."; }
+
+// s019 the home sweep: the whole home's loose files, walked off the window's
+// thread (a real home is big). The page says "Looking..." and stays live; the
+// rows land in show_closet when the walk is done.
 void Shell::fill_closet() {  // helper
+    if (m_clo_status) m_clo_status->set_text(kLooking);
+    if (m_clo_summary && m_clo_rows.empty()) m_clo_summary->set_text("Looking...");
+    const std::string home = m_home, dirs = user_dirs_text();
+    const auto st = m_settings;
+    m_clo_look.start(
+        [home, dirs, st] {
+            ClosetLook l;
+            l.now = static_cast<std::int64_t>(std::time(nullptr));
+            l.rep = core::birth::report(home, core::birth::sweep(home, dirs), l.now, st.old_years);
+            l.view = core::closet::view(l.rep, l.now, st);
+            return l;
+        },
+        [this](ClosetLook l) { show_closet(l); });
+}
+
+void Shell::show_closet(const ClosetLook& look) {  // helper
     namespace cb = core::birth;
     namespace cl = core::closet;
     namespace rt = core::retention;
-    const auto now = static_cast<std::int64_t>(std::time(nullptr));
-    const auto rep = cb::report(m_home, cb::places(m_home, user_dirs_text()));
-    const auto v = cl::view(rep, now, m_settings);
-    while (auto* row = m_clo_list->get_row_at_index(0)) m_clo_list->remove(*row);
+    const auto now = look.now;
+    const auto& rep = look.rep;
+    const auto& v = look.view;
     m_clo_rows.clear();
+    std::vector<SelectList::Item> items;
+    std::vector<std::size_t> pre;
 
-    const auto heading = [&](const std::string& name, const std::string& title, const std::string& sub) {
-        auto hb = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::VERTICAL, 2);
-        hb->set_margin_top(14);
-        hb->set_margin_start(6);
-        auto h = Gtk::make_managed<Gtk::Label>(title);
-        h->set_xalign(0);
-        h->add_css_class("heading");
-        hb->append(*h);
-        auto m = Gtk::make_managed<Gtk::Label>(sub);
-        m->set_xalign(0);
-        m->add_css_class("dim");
-        hb->append(*m);
-        auto hr = Gtk::make_managed<Gtk::ListBoxRow>();
-        hr->set_name(name);
-        hr->set_activatable(false);
-        hr->set_child(*hb);
-        m_clo_list->append(*hr);
-    };
-    constexpr std::size_t kShown = 300;   // per section; the counts are whole
-    const auto rows = [&](const std::vector<cb::Born>& items, bool proposed) {
-        std::size_t shown = 0;
-        for (const auto& b : items) {
-            if (++shown > kShown) {
-                auto more = Gtk::make_managed<Gtk::Label>("... and " + std::to_string(items.size() - kShown) +
-                                                          " more (Accept or decide these, then Look again)");
-                more->set_xalign(0);
-                more->set_margin_start(20);
-                more->add_css_class("dim");
-                auto row = Gtk::make_managed<Gtk::ListBoxRow>();
-                row->set_activatable(false);
-                row->set_child(*more);
-                m_clo_list->append(*row);
-                break;
-            }
-            auto box = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::VERTICAL, 2);
+    const auto rows = [&](const std::vector<cb::Born>& born, bool proposed, const std::string& head, const std::string& sub) {
+        bool first = true;
+        for (const auto& b : born) {
+            SelectList::Item it;
+            if (first) { it.header = head; it.header_sub = sub; first = false; }
             const std::string path = tilde(b.file.path, m_home);
             const auto slash = path.find_last_of('/');
-            auto name = Gtk::make_managed<Gtk::Label>(path.substr(slash + 1) + (b.file.dir ? "  (package)" : "") +
-                                                      (!proposed ? std::string()
-                                                       : b.rule == "junk-list" ? std::string("   \u2192 Junk Drawer")
-                                                       : "   \u2192 " + rt::title_of(b.level)));
-            name->set_xalign(0);
-            name->set_ellipsize(Pango::EllipsizeMode::MIDDLE);
-            box->append(*name);
-            std::string line = path.substr(0, slash) + "   ·   " + b.why;
-            if (const auto bt = born_text(b.file); !bt.empty()) line += "   ·   " + bt;
-            if (!proposed) line += "   ·   " + std::to_string(cl::days_since(b.file.has_btime ? b.file.btime : b.file.mtime, now)) + " days here";
-            auto d = Gtk::make_managed<Gtk::Label>(line);
-            d->set_xalign(0);
-            d->set_ellipsize(Pango::EllipsizeMode::MIDDLE);
-            d->add_css_class("dim");
+            it.title = path.substr(slash + 1) + (b.file.dir ? "  (package)" : "") +
+                       (!proposed ? std::string()
+                        : b.rule == "junk-list" ? std::string("   \u2192 Junk Drawer")
+                        : "   \u2192 " + rt::title_of(b.level));
+            std::string line = path.substr(0, slash) + "   \u00b7   " + b.why;
+            if (const auto bt = born_text(b.file); !bt.empty()) line += "   \u00b7   " + bt;
+            if (!proposed) line += "   \u00b7   " + std::to_string(cl::days_since(b.file.has_btime ? b.file.btime : b.file.mtime, now)) + " days here";
+            it.line = line;
             const auto* r = cb::rule(b.rule);
-            const std::string says = r ? r->title + " -- " + r->says
+            const std::string says = r && r->id == "old" ? r->title + " -- " + r->says.substr(0, r->says.find(" (Settings)")) +
+                                                             " (" + std::to_string(m_settings.old_years) + " years, Settings)" +
+                                                             r->says.substr(r->says.find(" (Settings)") + 11)
+                                   : r ? r->title + " -- " + r->says
                                    : b.rule == "aged-out" ? std::string("Aging out -- undecided, born and unread ") +
                                                                 std::to_string(m_settings.aging_days) + " days: incidental, Ephemeral."
                                    : b.rule == "junk-list" ? std::string("Your junk list (Settings) -- the Junk Drawer: kept, no home.")
                                                           : b.rule;
-            d->set_tooltip_text(b.origin.empty() ? says : says + "\nOrigin: " + b.origin);
-            box->append(*d);
-            auto check = Gtk::make_managed<Gtk::CheckButton>();
-            check->set_child(*box);
-            check->set_active(proposed);
-            check->set_margin_start(14);
-            check->set_margin_top(2);
-            check->set_margin_bottom(2);
-            auto row = Gtk::make_managed<Gtk::ListBoxRow>();
-            row->set_activatable(false);
-            row->set_child(*check);
-            m_clo_list->append(*row);
-            m_clo_rows.emplace_back(check, b);
+            it.tooltip = b.origin.empty() ? says : says + "\nOrigin: " + b.origin;
+            if (proposed) pre.push_back(items.size());
+            items.push_back(std::move(it));
+            m_clo_rows.push_back(b);
         }
     };
-    if (!v.proposed.empty()) {
-        heading("closet.proposed", "Proposed  (" + std::to_string(v.proposed.size()) + ")",
-                "Their birth, your junk list, or their age says what they are. Accept stamps each with its own.");
-        rows(v.proposed, true);
-    }
-    if (!v.waiting.empty()) {
-        heading("closet.waiting", "Waiting  (" + std::to_string(v.waiting.size()) + ")",
-                "Undecided. Decide by hand, or the Junk Drawer. Unread " + std::to_string(m_settings.aging_days) +
-                    " days (Settings), they are proposed to age out.");
-        rows(v.waiting, false);
-    }
-    if (v.total() == 0) heading("closet.empty", "The Closet is empty", "Everything in the landing places is decided.");
+    rows(v.proposed, true, "Proposed  (" + std::to_string(v.proposed.size()) + ")",
+         "Their birth, your junk list, or their age says what they are. Set to \u2192 Its proposal stamps each with its own.");
+    rows(v.waiting, false, "Waiting  (" + std::to_string(v.waiting.size()) + ")",
+         "Undecided. Set a level by hand, or the Junk Drawer. Unread " + std::to_string(m_settings.aging_days) +
+             " days (Settings), they are proposed to age out.");
+    m_clo_list->set_items(items);
+    m_clo_list->select(pre);
+    if (m_clo_status->get_text() == kLooking)   // s019: a "Done: ..." set while it looked stays
+        m_clo_status->set_text(v.total() == 0 ? "The Closet is empty -- every loose file in the home is decided."
+                                              : "Select files, then Set to. Every choice is previewed first.");
 
-    std::string where;
-    for (const auto& pl : rep.places) where += (where.empty() ? "" : ", ") + pl.title;
+    std::size_t old = 0, tops = 0;
+    for (const auto& b : v.proposed) old += b.rule == "old";
+    for (const auto& pl : rep.places) tops += pl.id == "top";
     m_clo_summary->set_text(std::to_string(v.total()) + " in the Closet: " + std::to_string(v.proposed.size()) +
-                            " proposed, " + std::to_string(v.waiting.size()) + " waiting   |   " +
+                            " proposed (" + std::to_string(old) + " untouched for years), " +
+                            std::to_string(v.waiting.size()) + " waiting   |   " +
                             std::to_string(v.decided) + " decided never visit (" + std::to_string(v.junk) +
-                            " in the Junk Drawer)   |   " + where + (m_fixture ? "   |   FIXTURE " + m_home : ""));
+                            " in the Junk Drawer)   |   the whole home: the landing places, home's top, " +
+                            std::to_string(tops) + " top folders" + (m_fixture ? "   |   FIXTURE " + m_home : ""));
     if (auto lg = log::get(log::Area::Shell))
         lg->info("closet: {} proposed, {} waiting, {} decided ({} junk) in {} places",
                  v.proposed.size(), v.waiting.size(), v.decided, v.junk, rep.places.size());
 }
 
-std::vector<core::birth::Born> Shell::closet_checked() const {  // helper
+std::vector<core::birth::Born> Shell::closet_selected() const {  // helper
     std::vector<core::birth::Born> out;
-    for (const auto& [c, b] : m_clo_rows)
-        if (c->get_active()) out.push_back(b);
+    for (auto i : m_clo_list->selected())
+        if (i < m_clo_rows.size()) out.push_back(m_clo_rows[i]);
     return out;
 }
 

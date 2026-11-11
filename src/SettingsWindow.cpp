@@ -50,6 +50,22 @@ SettingsWindow::SettingsWindow(Gtk::Window& parent, SaveFn on_save) : m_save(std
     row->append(*post);
     box->append(*row);
     box->append(*text("An undecided file born and unread this long is proposed as Ephemeral.", "dim"));
+    {   // s019 the home sweep: the first sweep's archive
+        auto r = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::HORIZONTAL, 10);
+        auto a = text("Propose Historical after");
+        a->set_wrap(false);
+        r->append(*a);
+        m_old = Gtk::make_managed<Gtk::SpinButton>(Gtk::Adjustment::create(st::kOldDefault, st::kOldMin, st::kOldMax, 1, 1));
+        m_old->set_name("settings.old_years");
+        m_old->set_numeric(true);
+        r->append(*m_old);
+        auto b = text("years untouched (0 = never)");
+        b->set_wrap(false);
+        r->append(*b);
+        box->append(*r);
+        box->append(*text("A loose file nobody has changed or read this long is a record: proposed Historical, "
+                          "then Due archives it.", "dim"));
+    }
 
     auto prj = text("Projects", "heading");
     prj->set_margin_top(14);
@@ -219,6 +235,7 @@ SettingsWindow::~SettingsWindow() = default;
 void SettingsWindow::show(const st::Settings& current) {
     m_current = current;   // s012b: what this window does not show (bg minutes, notify at) is kept
     m_days->set_value(current.aging_days);
+    m_old->set_value(current.old_years);
     m_rescan->set_value(current.rescan_minutes);
     m_held->set_value(current.held_years);
     m_archive->set_value(current.archive_days);
@@ -239,6 +256,7 @@ void SettingsWindow::show(const st::Settings& current) {
 void SettingsWindow::on_save_clicked() {
     st::Settings s = m_current;
     s.aging_days = m_days->get_value_as_int();
+    s.old_years = m_old->get_value_as_int();
     s.rescan_minutes = m_rescan->get_value_as_int();
     s.held_years = m_held->get_value_as_int();
     s.archive_days = m_archive->get_value_as_int();

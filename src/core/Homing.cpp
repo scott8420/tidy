@@ -139,6 +139,13 @@ std::vector<std::string> subfolders(const std::string& home, const std::string& 
     return out;
 }
 
+std::vector<std::string> home_folders(const std::string& home, const std::vector<std::string>& skip) {
+    std::vector<std::string> out;
+    for (auto& n : subfolders(home, home))
+        if (n != "Archive" && std::find(skip.begin(), skip.end(), n) == skip.end()) out.push_back(std::move(n));
+    return out;
+}
+
 std::string by_type(const std::string& type_folder, const std::string& sub_in, std::string* folder) {
     std::string sub = trim(sub_in);
     while (!sub.empty() && sub.back() == '/') sub.pop_back();

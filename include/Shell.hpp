@@ -3,6 +3,8 @@
 #include "core/Look.hpp"
 #include "core/Birth.hpp"
 #include "core/Settings.hpp"
+#include "core/Closet.hpp"
+#include "OffThread.hpp"
 
 #include <gtkmm/applicationwindow.h>
 #include <gtkmm/label.h>
@@ -59,6 +61,7 @@
 // filesystem or xattr write, or SQLite outside core/Catalog.cpp.
 // ─────────────────────────────────────────────────────────────────────────────
 namespace Gtk { class CheckButton; class DropDown; }
+namespace tidy { class SelectList; }
 
 namespace tidy {
 
@@ -112,18 +115,19 @@ private:
     void on_dump_registry();                       // category: handler: print the live widget tree
     void on_activity_undo();                       // category: handler: undo the newest batch, through the door
     void on_closet_look();                         // category: handler: run the birth report (reads only)
-    void on_closet_accept();                       // category: handler: checked -> their proposals (a plan, previewed)
-    void on_closet_decide();                       // category: handler: checked -> the chosen level (previewed)
-    void on_closet_junk();                         // category: handler: checked -> the Junk Drawer (previewed)
+    void on_closet_set(std::size_t choice);        // category: handler: selected -> Set to choice (s018: its proposal |
+                                                   //   a level | the Junk Drawer) -> a plan, previewed
     void on_closet_run();                          // category: handler: the previewed plan, through the door
     void on_closet_back();                         // category: handler: preview -> the list, nothing done
 
     // ── helpers ────────────────────────────────────────────────────────────
     std::string page_note(const std::string& id) const;   // category: helper: the line under a page's promise
     void refresh_activity();                       // category: helper: Activity from the door's manifest
-    void fill_closet();                            // category: helper: the birth report -> the Closet's list
+    void fill_closet();                            // category: helper: the sweep, off the window's thread (s019) -> show_closet
+    struct ClosetLook { core::birth::Report rep; core::closet::View view; std::int64_t now = 0; };
+    void show_closet(const ClosetLook& look);      // category: helper: a finished look -> the Closet's list
     std::string user_dirs_text() const;            // category: helper: ~/.config/user-dirs.dirs, read ("" if none)
-    std::vector<core::birth::Born> closet_checked() const;   // category: helper: the checked rows
+    std::vector<core::birth::Born> closet_selected() const;  // category: helper: the selected rows (s018)
     void show_closet_preview(latch::door::Plan plan);  // category: helper: the plan's steps + refusals -> preview state
 
     // Titlebar: brand logo (start) + hamburger (end).
@@ -154,12 +158,12 @@ private:
 
     // s005: The Closet's birth report (read-only).
     Gtk::Stack*   m_clo_states = nullptr;   // "start" | "results"
-    Gtk::ListBox* m_clo_list = nullptr;
+    SelectList*   m_clo_list = nullptr;     // s018: select like Nautilus, Set to
     Gtk::Label*   m_clo_summary = nullptr;
     Gtk::Label*   m_clo_status = nullptr;
-    // s006: the Closet decides -- checked rows, a level to decide, the preview.
-    std::vector<std::pair<Gtk::CheckButton*, core::birth::Born>> m_clo_rows;
-    Gtk::DropDown* m_clo_level = nullptr;
+    // s006: the Closet decides; s018: selected rows -> Set to -> the preview.
+    std::vector<core::birth::Born> m_clo_rows;    // the list's rows, by index
+    OffThread<ClosetLook> m_clo_look;             // s019: the walk off the window's thread
     Gtk::Label*    m_clo_prev_summary = nullptr;
     Gtk::ListBox*  m_clo_prev_list = nullptr;
     Gtk::Label*    m_clo_prev_status = nullptr;

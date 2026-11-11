@@ -63,6 +63,11 @@ std::vector<birth::Born> offered(const birth::Report& r);
 // The folders directly in `dir` a file may go into: not hidden, not a symlink,
 // not a -project, not latch-protected (fixes/). Sorted. READ-ONLY.
 std::vector<std::string> subfolders(const std::string& home, const std::string& dir);
+// s018d (Scott: "files home should allow the std folders too"): the folders at
+// home's top a file may be sent into by name -- subfolders(home, home) less
+// `skip` (the landing places Downloads / Desktop, by name) and Archive (which
+// goes through core::archive, fingerprinted, never a plain move). READ-ONLY.
+std::vector<std::string> home_folders(const std::string& home, const std::vector<std::string>& skip);
 
 // Where one file goes.
 struct Pick {

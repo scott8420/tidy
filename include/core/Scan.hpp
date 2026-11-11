@@ -16,6 +16,11 @@ std::vector<facts::Facts> walk(const std::string& home, const std::vector<std::s
 
 // Only the loose top of one folder: its files and packages, never its
 // sub-folders (s005: the top of Documents is a landing place, its folders are not).
+// s019: `dir` may be home itself (the files at home's top).
 std::vector<facts::Facts> top(const std::string& home, const std::string& dir);
+
+// s019 the sweep: walk() that never enters a whole tree -- a <name>-project or a
+// git repo (a folder holding .git) -- nor starts in one.
+std::vector<facts::Facts> walk_loose(const std::string& home, const std::vector<std::string>& roots);
 
 }  // namespace tidy::core::scan

@@ -1,5 +1,7 @@
 #include "HomePage.hpp"
+#include "SelectList.hpp"
 #include "Log.hpp"
+#include "core/Archive.hpp"
 #include "core/Catalog.hpp"
 #include "core/Own.hpp"
 #include "core/Pages.hpp"
@@ -31,7 +33,6 @@ namespace dr = latch::door;
 namespace fs = std::filesystem;
 
 namespace {
-constexpr std::size_t kMaxRows = 300;
 Gtk::Label* label(const std::string& text, const char* css, float x = 0.5f) {
     auto l = Gtk::make_managed<Gtk::Label>(text);
     if (css) l->add_css_class(css);
@@ -85,15 +86,6 @@ Gtk::Box* bar_box() {
     bar->add_css_class("act-bar");
     return bar;
 }
-Gtk::Box* append_row(Gtk::ListBox* list, int margin = 8) {
-    auto b = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::HORIZONTAL, 10);
-    b->set_margin(margin);
-    auto row = Gtk::make_managed<Gtk::ListBoxRow>();
-    row->set_activatable(false);
-    row->set_child(*b);
-    list->append(*row);
-    return b;
-}
 }  // namespace
 
 HomePage::HomePage(dr::Door& door, std::string home, std::string data_dir, bool fixture, Text user_dirs, Changed changed)
@@ -124,7 +116,7 @@ void HomePage::build_start() {
     auto sub = label(p ? p->promise : "", "hero-sub");
     sub->set_max_width_chars(52);
     start->append(*sub);
-    auto note = label(std::string("Decided files still sitting in Downloads, the Desktop and the other landing places. ") +
+    auto note = label(std::string("Decided files still sitting loose -- at home's top, at a top folder's top, in Downloads or the Desktop. ") +
                       "By type, a file goes into a subfolder of its home folder (Pictures/Covers -- never loose in "
                       "Pictures); into a project, the project's template picks the folder. A name already taken "
                       "there gets \"(2)\", and the preview says so. Every move undoable from Activity." +
@@ -152,19 +144,48 @@ void HomePage::build_results() {
     again->signal_clicked().connect([this] { fill(); });
     head->append(*again);
     box->append(*head);
-    m_list = listbox("home.list");
-    box->append(*scrolled(*m_list));
+    // s018c: select like Nautilus; one destination per selection.
+    m_list = Gtk::make_managed<SelectList>("home.list");
+    m_list->set_vexpand(true);
+    m_list->set_margin_start(32);
+    m_list->set_margin_end(32);
+    m_list->set_margin_bottom(16);
+    m_list->on_choose([this](std::size_t i) { on_set(i); });
+    m_list->on_changed([this](std::size_t) { on_selection(); });
+    box->append(*m_list);
     auto bar = bar_box();
-    m_status = label("Pick where each file goes, check it, then Go home.", "dim", 0.0f);
+    m_status = label("", "dim", 0.0f);
     m_status->set_name("home.status");
     m_status->set_hexpand(true);
     bar->append(*m_status);
-    auto go = Gtk::make_managed<Gtk::Button>("Go home...");
-    go->set_name("home.go");
-    go->add_css_class("act");
-    go->set_tooltip_text("The checked files -> the folder beside each (previewed first)");
-    go->signal_clicked().connect([this] { on_go(); });
-    bar->append(*go);
+    // "N selected   Folder [....] [there: v]   Set to [..]"
+    auto& setter = m_list->setter();
+    m_folder = Gtk::make_managed<Gtk::Entry>();
+    m_folder->set_name("home.folder");
+    m_folder->set_width_chars(16);
+    m_folder->set_placeholder_text("subfolder / folder");
+    m_folder->set_tooltip_text("By type: the subfolder (required) -- Covers -> ~/Pictures/Covers.\n"
+                               "Into a project: a folder in it; empty = the template's route for each file.");
+    m_there = Gtk::make_managed<Gtk::DropDown>(Gtk::StringList::create({"there:"}));
+    m_there->set_name("home.there");
+    m_there->set_tooltip_text("Subfolders already in the selected files' type folders -- pick one to fill the box");
+    m_there->property_selected().signal_changed().connect([this] {
+        const auto s = m_there->get_selected();
+        if (s == 0 || s > m_there_names.size()) return;
+        m_folder->set_text(m_there_names[s - 1]);
+        m_there->set_selected(0);   // a menu, not a state: the box holds the choice
+    });
+    auto fl = label("Folder", nullptr, 0.0f);
+    fl->set_wrap(false);
+    auto* count = setter.get_first_child();
+    setter.insert_child_after(*fl, *count);
+    setter.insert_child_after(*m_folder, *fl);
+    setter.insert_child_after(*m_there, *m_folder);
+    // s019: at a narrow window the status wrapped to a word per line and the
+    // controls stretched to its height -- give it room, keep them their size.
+    m_status->set_width_chars(26);
+    setter.set_valign(Gtk::Align::CENTER);
+    bar->append(setter);
     box->append(*bar);
     add(*box, "results");
 }
@@ -182,7 +203,7 @@ void HomePage::build_preview() {
     bar->append(*m_prev_status);
     auto back = Gtk::make_managed<Gtk::Button>("Back");
     back->set_name("home.preview.back");
-    back->signal_clicked().connect([this] { m_plan.reset(); set_visible_child("results"); });
+    back->signal_clicked().connect([this] { m_plan.reset(); set_visible_child("results"); m_status->set_text("Nothing done."); });
     bar->append(*back);
     m_prev_run = Gtk::make_managed<Gtk::Button>("Do it");
     m_prev_run->set_name("home.preview.run");
@@ -197,236 +218,189 @@ void HomePage::refresh_if_shown() {
     if (get_visible_child_name() == "results") fill();
 }
 
-int HomePage::target_of(const Row& r) const {
-    const auto i = static_cast<int>(r.to->get_selected());
-    if (i <= 0) return -1;
-    if (!r.type_folder.empty()) {
-        if (i == 1) return -2;
-        return i - 2;
+// The "there:" list: the subfolders already in the selected files' type
+// folders (by type is where a subfolder is required). Picking one fills the box.
+void HomePage::on_selection() {
+    std::vector<std::string> names, seen;
+    for (auto i : m_list->selected()) {
+        if (i >= m_rows.size() || m_rows[i].type_folder.empty()) continue;
+        const auto& tf = m_rows[i].type_folder;
+        if (std::find(seen.begin(), seen.end(), tf) != seen.end()) continue;
+        seen.push_back(tf);
+        for (const auto& n : ho::subfolders(m_home, m_home + "/" + tf))
+            if (std::find(names.begin(), names.end(), n) == names.end()) names.push_back(n);
     }
-    return i - 1;
+    std::sort(names.begin(), names.end());
+    if (names == m_there_names) return;
+    m_there_names = names;
+    auto m = Gtk::StringList::create({names.empty() ? "(none there)" : "there:"});
+    for (const auto& n : names) m->append(n);
+    m_there->set_model(m);
+    m_there->set_selected(0);
+    m_there->set_sensitive(!names.empty());
 }
 
-// The row's destination changed: refill what is there already, and the folder
-// (by type: empty -- the subfolder is the user's to pick or name; a project:
-// its template's route, if any).
-void HomePage::on_to_changed(std::size_t idx) {
-    auto& r = m_rows[idx];
-    const int t = target_of(r);
-    std::string dir, fill_with, hint = "a folder";
-    if (t == -2) {
-        dir = m_home + "/" + r.type_folder;
-        hint = "a subfolder (required)";
-    } else if (t >= 0) {
-        const auto& p = m_projects[static_cast<std::size_t>(t)];
-        dir = p.path;
-        const auto* tm = pj::template_for(p, m_templates);
-        std::string folder;
-        if (ho::into_project(p.rel, tm, fs::path(r.born.file.path).filename().string(), "", &folder).empty())
-            fill_with = folder.substr(p.rel.size() + 1);
-        hint = "a folder in it";
-    }
-    r.existing_names = dir.empty() ? std::vector<std::string>{} : ho::subfolders(m_home, dir);
-    if (t >= 0) {   // a project: the template's folders too, even if not made yet
-        const auto& p = m_projects[static_cast<std::size_t>(t)];
-        if (const auto* tm = pj::template_for(p, m_templates))
-            for (const auto& f : tm->folders)
-                if (std::find(r.existing_names.begin(), r.existing_names.end(), f.path) == r.existing_names.end() &&
-                    ho::into_project(p.rel, tm, "x", f.path, nullptr).empty())
-                    r.existing_names.push_back(f.path);
-        std::sort(r.existing_names.begin(), r.existing_names.end());
-    }
-    auto m = Gtk::StringList::create({r.existing_names.empty() ? "(none yet)" : "there:"});
-    for (const auto& n : r.existing_names) m->append(n);
-    r.existing->set_model(m);
-    r.existing->set_selected(0);
-    r.existing->set_sensitive(!r.existing_names.empty());
-    r.folder->set_text(fill_with);
-    r.folder->set_placeholder_text(hint);
-    r.folder->set_sensitive(t != -1);
-}
+namespace { constexpr const char* kLooking = "Looking through the home..."; }
 
+// s019 the home sweep: every decided file loose anywhere in the home (home's
+// top, a top folder's top, a landing place) -- walked off the window's thread.
 void HomePage::fill() {
-    m_table = ho::table(core::settings::parse(core::own::read(m_data_dir, core::settings::kFile)));
-    m_projects = pj::find(m_home, pj::parse_left(core::own::read(m_data_dir, pj::kFile)));
-    std::sort(m_projects.begin(), m_projects.end(), [](const auto& a, const auto& b) { return a.rel < b.rel; });
-    m_templates = core::templates::list(m_data_dir);
-    const auto places = core::birth::places(m_home, m_user_dirs ? m_user_dirs() : "");
-    const auto offered = ho::offered(core::birth::report(m_home, places));
-    clear(m_list);
+    m_status->set_text(kLooking);
+    if (m_rows.empty()) m_summary->set_text("Looking...");
+    const std::string home = m_home, data = m_data_dir, dirs = m_user_dirs ? m_user_dirs() : "";
+    m_look.start(
+        [home, data, dirs] {
+            Look l;
+            l.table = ho::table(core::settings::parse(core::own::read(data, core::settings::kFile)));
+            l.projects = pj::find(home, pj::parse_left(core::own::read(data, pj::kFile)));
+            std::sort(l.projects.begin(), l.projects.end(), [](const auto& a, const auto& b) { return a.rel < b.rel; });
+            l.templates = core::templates::list(data);
+            const auto places = core::birth::places(home, dirs);
+            l.offered = ho::offered(core::birth::report(home, core::birth::sweep(home, dirs)));
+            // s018d (Scott: "the std folders too"): By type | Into ~/<each top folder> |
+            // Archive (fingerprinted) | Into <each project>.
+            std::vector<std::string> skip;
+            for (const auto& pl : places)
+                if (pl.id == "downloads" || pl.id == "desktop") skip.push_back(fs::path(pl.path).filename().string());
+            l.tops = ho::home_folders(home, skip);
+            return l;
+        },
+        [this](Look l) { show(std::move(l)); });
+}
+
+void HomePage::show(Look look) {
+    m_table = std::move(look.table);
+    m_projects = std::move(look.projects);
+    m_templates = std::move(look.templates);
+    const auto offered = std::move(look.offered);
     m_rows.clear();
-    m_rows.reserve(std::min(offered.size(), kMaxRows));
-
-    // s011a: All, then one destination for every checked file -- by type (each
-    // to its own type folder, the same subfolder) or into one project.
-    if (!offered.empty()) {
-        auto bb = append_row(m_list, 4);
-        auto all = Gtk::make_managed<Gtk::CheckButton>("All");
-        all->set_name("home.bulk.all");
-        all->set_tooltip_text("Check or uncheck every file below");
-        all->signal_toggled().connect([this, all] {
-            for (auto& r : m_rows) r.check->set_active(all->get_active());
-        });
-        bb->append(*all);
-        auto gap = label("", nullptr);
-        gap->set_hexpand(true);
-        bb->append(*gap);
-        auto setl = label("Set checked to", "dim");
-        setl->set_wrap(false);
-        bb->append(*setl);
-        auto to = Gtk::StringList::create({"--", "by type"});
-        for (const auto& p : m_projects) to->append("into " + fs::path(p.path).filename().string());
-        auto dd = Gtk::make_managed<Gtk::DropDown>(to);
-        dd->set_name("home.bulk.to");
-        dd->set_size_request(240, -1);
-        bb->append(*dd);
-        auto folder = Gtk::make_managed<Gtk::Entry>();
-        folder->set_name("home.bulk.folder");
-        folder->set_width_chars(16);
-        folder->set_placeholder_text("subfolder / folder");
-        bb->append(*folder);
-        auto set = Gtk::make_managed<Gtk::Button>("Set");
-        set->set_name("home.bulk.set");
-        set->set_size_request(130, -1);
-        set->set_tooltip_text("Each checked row -> this (an empty folder box keeps the route's folder; nothing moves until Go home)");
-        set->signal_clicked().connect([this, dd, folder] {
-            const auto i = dd->get_selected();
-            if (i == 0) { m_status->set_text("Pick where the checked files go."); return; }
-            std::size_t n = 0, skipped = 0;
-            for (auto& r : m_rows) {
-                if (!r.check->get_active()) continue;
-                guint want;
-                if (i == 1) {
-                    if (r.type_folder.empty()) { r.check->set_active(false); ++skipped; continue; }
-                    want = 1;
-                } else {
-                    want = (r.type_folder.empty() ? 1u : 2u) + (i - 2);
-                }
-                if (r.to->get_selected() != want) r.to->set_selected(want);   // refills the folder box
-                if (!folder->get_text().empty()) r.folder->set_text(folder->get_text());
-                r.check->set_active(true);
-                ++n;
-            }
-            m_status->set_text(std::to_string(n) + " set" +
-                               (skipped ? ", " + std::to_string(skipped) + " skipped and unchecked (no type -- pick a project for them)" : "") +
-                               (n ? " -- Go home to preview." : ""));
-        });
-        bb->append(*set);
-    }
-
     std::size_t typed = 0;
+    std::vector<SelectList::Item> items;
     for (const auto& b : offered) {
-        if (m_rows.size() >= kMaxRows) break;
         Row r;
         r.born = b;
         const auto name = fs::path(b.file.path).filename().string();
         if (const auto* tr = ho::type_of(m_table, name)) { r.type_folder = tr->folder; r.type_pattern = tr->pattern; ++typed; }
-
-        auto box = append_row(m_list, 4);
-        r.check = Gtk::make_managed<Gtk::CheckButton>();
-        r.check->set_name("home.file." + b.file.path);
-        r.check->set_valign(Gtk::Align::CENTER);
-        box->append(*r.check);
-        auto t = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::VERTICAL, 2);
-        t->set_hexpand(true);
-        t->append(*label(name, nullptr, 0.0f));
         core::retention::Level lv{};
         const std::string level = core::retention::parse(b.file.tags.retention, lv) ? core::retention::title_of(lv) : b.file.tags.retention;
-        t->append(*label(shown(fs::path(b.file.path).parent_path().string()) + "   -- " + level +
-                         (r.type_folder.empty() ? "   -- no type for it (Settings: the type table)" : ""),
-                         "dim", 0.0f));
-        box->append(*t);
-
-        auto to = Gtk::StringList::create({"--"});
-        if (!r.type_folder.empty()) to->append("by type: ~/" + r.type_folder);
-        for (const auto& p : m_projects) to->append("into " + fs::path(p.path).filename().string());
-        r.to = Gtk::make_managed<Gtk::DropDown>(to);
-        r.to->set_name("home.to." + b.file.path);
-        r.to->set_valign(Gtk::Align::CENTER);
-        r.to->set_size_request(240, -1);   // columns line up row to row
-        box->append(*r.to);
-        r.folder = Gtk::make_managed<Gtk::Entry>();
-        r.folder->set_name("home.folder." + b.file.path);
-        r.folder->set_width_chars(16);
-        r.folder->set_valign(Gtk::Align::CENTER);
-        box->append(*r.folder);
-        r.existing = Gtk::make_managed<Gtk::DropDown>(Gtk::StringList::create({"(none yet)"}));
-        r.existing->set_name("home.existing." + b.file.path);
-        r.existing->set_valign(Gtk::Align::CENTER);
-        r.existing->set_size_request(130, -1);
-        r.existing->set_tooltip_text("Folders already there -- pick one to fill the box");
-        box->append(*r.existing);
+        SelectList::Item it;
+        it.title = name;
+        it.line = shown(fs::path(b.file.path).parent_path().string()) + "   -- " + level +
+                  (r.type_folder.empty() ? "   -- no type for it (Settings: the type table) -- into a project"
+                                         : "   -- by type: ~/" + r.type_folder);
+        items.push_back(std::move(it));
         m_rows.push_back(r);
     }
-    // Signals after the vector stops moving: rows are found by index.
-    for (std::size_t i = 0; i < m_rows.size(); ++i) {
-        auto& r = m_rows[i];
-        r.to->property_selected().signal_changed().connect([this, i] { on_to_changed(i); });
-        r.existing->property_selected().signal_changed().connect([this, i] {
-            auto& x = m_rows[i];
-            const auto s = x.existing->get_selected();
-            if (s == 0 || s > x.existing_names.size()) return;
-            x.folder->set_text(x.existing_names[s - 1]);
-        });
-        r.folder->signal_changed().connect([this, i] {
-            auto& x = m_rows[i];
-            if (!x.folder->get_text().empty() && target_of(x) != -1) x.check->set_active(true);
-        });
-        if (!r.type_folder.empty()) r.to->set_selected(1);   // by type, first; the subfolder is still to pick
-        else on_to_changed(i);
-    }
+    m_list->set_items(items);
+    m_tops = std::move(look.tops);
+    std::vector<std::string> choices{"By type"};
+    for (const auto& t : m_tops) choices.push_back("Into ~/" + t);
+    choices.push_back("Archive  (~/Archive/<year>, fingerprinted)");
+    for (const auto& p : m_projects) choices.push_back("Into " + fs::path(p.path).filename().string());
+    m_list->set_choices(choices);
+    m_there_names = {"\x01"};   // force the refill
+    on_selection();
     m_summary->set_text(std::to_string(offered.size()) + " decided file" + (offered.size() == 1 ? "" : "s") +
-                        " in the landing places" + (offered.size() > kMaxRows ? " (first " + std::to_string(kMaxRows) + " shown)" : "") +
+                        " loose in the home" +
                         "   |   " + std::to_string(typed) + " with a type   |   " + std::to_string(m_projects.size()) +
                         " project" + (m_projects.size() == 1 ? "" : "s"));
-    if (offered.empty())
+    if (m_status->get_text() != kLooking) {}   // s019: a "Done: ..." set while it looked stays
+    else if (offered.empty())
         m_status->set_text("Nothing to send home: a file is offered once it carries a decision (the Closet) and still "
-                           "sits in a landing place.");
+                           "sits loose -- at home's top, at a top folder's top, or in a landing place.");
     else
-        m_status->set_text("Pick where each file goes, check it, then Go home.");
+        m_status->set_text("Select files, name a folder, then Set to. Every move is previewed first.");
 }
 
-void HomePage::on_go() {
+// Set to (s018c): every selected file -> one destination. By type: each to its
+// own type folder, the box's subfolder (required); a file with no type is left
+// out (said). Into a project: the box's folder, or each file's route.
+void HomePage::on_set(std::size_t choice) {
+    const auto sel = m_list->selected();
+    if (sel.empty()) { m_status->set_text("Select some files first."); return; }
+    const std::size_t T = m_tops.size();
+    if (choice > T + 1 + m_projects.size()) return;
+    if (choice == T + 1) { archive(sel); return; }   // s018d: the archive, as Due does it
+    const std::string box = m_folder->get_text();
     std::vector<ho::Pick> picks;
-    for (const auto& r : m_rows) {
-        if (!r.check->get_active()) continue;
+    std::size_t untyped = 0;
+    for (auto i : sel) {
+        if (i >= m_rows.size()) continue;
+        const auto& r = m_rows[i];
         const auto name = fs::path(r.born.file.path).filename().string();
-        const int t = target_of(r);
-        std::string folder, why, route;
-        if (t == -1) why = "pick where it goes";
-        else if (t == -2) why = ho::by_type(r.type_folder, r.folder->get_text(), &folder);
-        else {
-            const auto& p = m_projects[static_cast<std::size_t>(t)];
+        std::string folder, why, route, reason;
+        if (choice == 0) {
+            if (r.type_folder.empty()) { ++untyped; continue; }
+            why = ho::by_type(r.type_folder, box, &folder);
+            reason = "by type: " + r.type_pattern + " -> ~/" + r.type_folder;
+        } else if (choice <= T) {   // s018d: a folder at home's top -- the subfolder rule as by type
+            why = ho::by_type(m_tops[choice - 1], box, &folder);
+            reason = "into ~/" + m_tops[choice - 1] + ": the folder you named";
+        } else {
+            const auto& p = m_projects[choice - T - 2];
             const auto* tm = pj::template_for(p, m_templates);
-            why = ho::into_project(p.rel, tm, name, r.folder->get_text(), &folder, &route);
-            // The box was filled from the route and left as it was: say the route, not "you named".
+            why = ho::into_project(p.rel, tm, name, box, &folder, &route);
+            // The box was empty or named the route's own folder: say the route, not "you named".
             std::string routed, via;
             if (why.empty() && route.empty() && ho::into_project(p.rel, tm, name, "", &routed, &via).empty() && routed == folder)
                 route = via;
-        }
-        if (!why.empty()) { m_status->set_text(name + ": " + why); return; }
-        std::string reason;
-        if (t == -2) reason = "by type: " + r.type_pattern + " -> ~/" + r.type_folder;
-        else {
-            const auto& p = m_projects[static_cast<std::size_t>(t)];
             reason = "into " + fs::path(p.path).filename().string() + ": " +
                      (route.empty() ? "the folder you named" : route + " -> " + folder.substr(p.rel.size() + 1));
         }
+        if (!why.empty()) { m_status->set_text(name + ": " + why); return; }
         picks.push_back({r.born.file.path, folder, reason});
     }
-    if (picks.empty()) { m_status->set_text("Check a file and pick where it goes first."); return; }
+    if (picks.empty()) {
+        m_status->set_text(untyped ? "No type for " + std::string(untyped == 1 ? "that file" : "those files") +
+                                         " (Settings: the type table) -- Set to a project instead."
+                                   : "Select some files first.");
+        return;
+    }
     auto planned = ho::plan(m_home, picks);
+    if (untyped) planned.plan.label += " (" + std::to_string(untyped) + " without a type left out)";
 
+    m_archiving = false;
+    show_preview(std::move(planned.plan), planned.renamed, {}, false);
+}
+
+// s018d: Archive -- the selected files into ~/Archive/<year>/<their folder>,
+// tagged archived, through core::archive (Due's path): fingerprinted at Do it.
+void HomePage::archive(const std::vector<std::size_t>& sel) {
+    std::vector<std::string> paths;
+    for (auto i : sel) if (i < m_rows.size()) paths.push_back(m_rows[i].born.file.path);
+    auto planned = core::archive::plan(m_home, paths, static_cast<std::int64_t>(std::time(nullptr)));
+    m_archiving = true;
+    show_preview(std::move(planned.plan), planned.renamed, planned.refused, true);
+}
+
+// The plan's every step (tags, new folders, moves) and each refusal, before it runs.
+void HomePage::show_preview(dr::Plan plan, const std::vector<std::string>& renamed,
+                            const std::vector<std::pair<std::string, std::string>>& not_planned, bool archiving) {
     clear(m_prev_list);
+    const auto row = [&](const std::string& text, const char* css) {
+        auto l = label(text, css, 0.0f);
+        l->set_margin(4);
+        auto r = Gtk::make_managed<Gtk::ListBoxRow>();
+        r->set_activatable(false);
+        r->set_child(*l);
+        m_prev_list->append(*r);
+    };
+    for (const auto& [p, why] : not_planned) row(shown(p) + "\nNOT ARCHIVED: " + why, "stop");
     std::vector<std::string> made;
-    std::size_t refused = 0, moves = 0;
-    for (const auto& a : planned.plan.actions) {
+    std::size_t refused = 0, moves = 0, dirs = 0, tags = 0;
+    for (const auto& a : plan.actions) {
         const std::string why = m_door.refusal(a, made);   // in order: a Move may use a folder made above it
         refused += !why.empty();
         if (why.empty() && a.verb == dr::Verb::MakeDir) made.push_back(a.to);
         std::string text;
         const char* css = nullptr;
-        if (a.verb == dr::Verb::MakeDir) {
+        if (a.verb == dr::Verb::Tag) {
+            ++tags;
+            const std::string key = a.attr.rfind(dr::kTagPrefix, 0) == 0 ? a.attr.substr(std::string(dr::kTagPrefix).size()) : a.attr;
+            text = "tag   " + shown(a.from) + "   " + key + " = " + (key == "id" ? std::string("a new id") : a.content);
+            css = "dim";
+        } else if (a.verb == dr::Verb::MakeDir) {
+            ++dirs;
             text = "new folder   " + shown(a.to);
             css = "dim";
         } else {
@@ -435,27 +409,23 @@ void HomePage::on_go() {
             if (a.reason.find("is taken there") != std::string::npos) css = "note";
         }
         if (!why.empty()) { text += "\nREFUSED: " + why; css = "stop"; }
-        auto l = label(text, css, 0.0f);
-        l->set_margin(4);
-        auto row = Gtk::make_managed<Gtk::ListBoxRow>();
-        row->set_activatable(false);
-        row->set_child(*l);
-        m_prev_list->append(*row);
+        row(text, css);
     }
-    m_prev_summary->set_text(planned.plan.label + "   |   " + std::to_string(moves) + " move" + (moves == 1 ? "" : "s") +
-                             ", " + std::to_string(planned.plan.actions.size() - moves) + " new folder" +
-                             (planned.plan.actions.size() - moves == 1 ? "" : "s"));
+    const auto n = [](std::size_t k, const char* one) { return std::to_string(k) + " " + one + (k == 1 ? "" : "s"); };
+    m_prev_summary->set_text(plan.label + "   |   " + n(moves, "move") + ", " + n(dirs, "new folder") +
+                             (tags ? ", " + n(tags, "tag") : std::string()));
     std::string st = refused ? std::to_string(refused) + " step(s) the door refuses -- they will not happen. "
                              : std::string();
-    if (!planned.renamed.empty())
-        st += std::to_string(planned.renamed.size()) + " name" + (planned.renamed.size() == 1 ? " is" : "s are") +
+    if (!renamed.empty())
+        st += std::to_string(renamed.size()) + " name" + (renamed.size() == 1 ? " is" : "s are") +
               " taken there -- renamed with (2), (3)... Nothing is overwritten. ";
+    if (archiving) st += "After Do it each file's fingerprint (SHA-256) goes into the catalog. ";
     st += "Every step can be undone from Activity.";
     m_prev_status->set_text(st);
     m_prev_status->remove_css_class("note");
-    if (!planned.renamed.empty()) m_prev_status->add_css_class("note");
-    m_prev_run->set_sensitive(planned.plan.actions.size() > refused);
-    m_plan = std::move(planned.plan);
+    if (!renamed.empty()) m_prev_status->add_css_class("note");
+    m_prev_run->set_sensitive(moves > 0 && plan.actions.size() > refused);
+    m_plan = std::move(plan);
     set_visible_child("preview");
 }
 
@@ -473,17 +443,23 @@ void HomePage::on_run() {
         }
         plan.actions = std::move(keep);
     }
-    plan.previewed = true;   // shown in full by on_go() (RULES: preview first)
+    plan.previewed = true;   // shown in full by on_set() (RULES: preview first)
     const auto r = m_door.run(plan);
-    std::size_t synced = 0;
+    std::size_t synced = 0, prints = 0;
     core::catalog::Catalog cat;
-    if (cat.open(m_data_dir, true))   // the catalog follows each tagged file to its new path
-        synced = core::tagging::record(cat, core::tagging::moved_paths(m_door, r.batch),
-                                       static_cast<std::int64_t>(std::time(nullptr)));
+    if (cat.open(m_data_dir, true)) {   // the catalog follows each tagged file to its new path
+        const auto now = static_cast<std::int64_t>(std::time(nullptr));
+        synced = core::tagging::record(cat, core::tagging::moved_paths(m_door, r.batch), now);
+        if (m_archiving) prints = core::archive::record(cat, m_door, r.batch, now);   // s018d: read back AT the archive
+    }
+    const bool archived = m_archiving;
+    m_archiving = false;
     if (m_changed) m_changed();
     fill();
     set_visible_child("results");
-    m_status->set_text(r.ok ? "Done: " + plan.label + " (" + std::to_string(r.done) + " steps) -- undo in Activity"
+    m_status->set_text(r.ok ? "Done: " + plan.label + " (" + std::to_string(r.done) + " steps" +
+                                  (archived ? "; " + std::to_string(prints) + " fingerprinted" : std::string()) +
+                                  ") -- undo in Activity"
                             : plan.label + ": " + std::to_string(r.done) + " done, " + std::to_string(r.failed) +
                                   " not -- " + (r.messages.empty() ? std::string() : r.messages.front()));
     if (auto lg = log::get(log::Area::Door))

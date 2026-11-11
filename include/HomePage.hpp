@@ -1,4 +1,5 @@
 #pragma once
+#include "OffThread.hpp"
 #include "core/Birth.hpp"
 #include "core/Homing.hpp"
 #include "core/Projects.hpp"
@@ -21,8 +22,13 @@
 // taken name is warned and substituted "name (2)". Undo in Activity.
 //
 // States: start (hero + Look) | results (one row per file) | preview.
+// s018c: the files are a SelectList (select like Nautilus); ONE destination per
+// selection (Scott, 2026-11-11): "Folder [..]  Set to [By type | Into <project>]"
+// -> the preview at once. The folder box: by type, the subfolder (required);
+// into a project, a folder in it ("" = the template's route).
 // ─────────────────────────────────────────────────────────────────────────────
 namespace Gtk { class Label; class ListBox; class Button; class Entry; class DropDown; class CheckButton; }
+namespace tidy { class SelectList; }
 
 namespace tidy {
 
@@ -39,21 +45,25 @@ private:
         core::birth::Born born;
         std::string type_folder;               // "Pictures"; "" = no type for it
         std::string type_pattern;              // "*.png"
-        Gtk::CheckButton* check = nullptr;
-        Gtk::DropDown* to = nullptr;           // "--" | "by type: ~/Pictures" | each project
-        Gtk::Entry* folder = nullptr;          // the subfolder (by type) / the folder in the project
-        Gtk::DropDown* existing = nullptr;     // what is there already -> fills `folder`
-        std::vector<std::string> existing_names;
     };
 
     void build_start();
     void build_results();
     void build_preview();
-    void fill();
-    void on_to_changed(std::size_t row);
-    // What the row's "to" dropdown means: -1 none, -2 by type, else an index into m_projects.
-    int target_of(const Row& r) const;
-    void on_go();
+    void fill();                           // s019: the sweep off the window's thread -> show()
+    struct Look {
+        std::vector<core::homing::TypeRoute> table;
+        std::vector<core::projects::Project> projects;
+        std::vector<core::templates::Template> templates;
+        std::vector<core::birth::Born> offered;
+        std::vector<std::string> tops;
+    };
+    void show(Look look);
+    void on_set(std::size_t choice);       // 0 by type | 1..T ~/top | T+1 Archive | then each project
+    void on_selection();                   // the "there:" list follows the selection
+    void archive(const std::vector<std::size_t>& sel);   // s018d: Set to Archive -> core::archive's plan
+    void show_preview(latch::door::Plan plan, const std::vector<std::string>& renamed,
+                      const std::vector<std::pair<std::string, std::string>>& not_planned, bool archiving);
     void on_run();
     std::string shown(const std::string& path) const;
 
@@ -68,9 +78,15 @@ private:
     std::vector<core::templates::Template> m_templates;
     std::vector<Row> m_rows;
     std::optional<latch::door::Plan> m_plan;
+    bool m_archiving = false;                 // s018d: the plan shown is core::archive's (record at Do it)
+    std::vector<std::string> m_tops;          // s018d: home's top folders, as in Set to after "By type"
+    OffThread<Look> m_look;                   // s019
 
     Gtk::Label*    m_summary = nullptr;
-    Gtk::ListBox*  m_list = nullptr;
+    SelectList*    m_list = nullptr;          // s018c
+    Gtk::Entry*    m_folder = nullptr;        // the subfolder / the folder in the project
+    Gtk::DropDown* m_there = nullptr;         // folders already there -> fills m_folder
+    std::vector<std::string> m_there_names;
     Gtk::Label*    m_status = nullptr;
     Gtk::Label*    m_prev_summary = nullptr;
     Gtk::ListBox*  m_prev_list = nullptr;

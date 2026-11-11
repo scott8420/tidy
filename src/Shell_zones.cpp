@@ -12,6 +12,7 @@
 
 #include <gtkmm/button.h>
 #include <gtkmm/checkbutton.h>
+#include "SelectList.hpp"
 #include <gtkmm/dropdown.h>
 #include <gtkmm/headerbar.h>
 #include <gtkmm/stringlist.h>
@@ -299,7 +300,7 @@ void Shell::build_closet() {  // zone: The Closet
     orb->add_css_class("orb");
     orb->set_halign(Gtk::Align::CENTER);
     orb->set_margin_top(18);
-    orb->set_tooltip_text("Read the landing places and show what each file's birth says -- nothing is tagged");
+    orb->set_tooltip_text("Sweep the home for loose files and show what each one's birth (or age) says -- nothing is tagged");
     orb->signal_clicked().connect([this] { on_closet_look(); });
     start->append(*orb);
     m_clo_states->add(*start, "start");
@@ -327,48 +328,31 @@ void Shell::build_closet() {  // zone: The Closet
     head->append(*again);
     results->append(*head);
 
-    auto scroll = Gtk::make_managed<Gtk::ScrolledWindow>();
-    scroll->set_vexpand(true);
-    scroll->set_margin_start(32);
-    scroll->set_margin_end(32);
-    scroll->set_margin_bottom(16);
-    m_clo_list = Gtk::make_managed<Gtk::ListBox>();
-    m_clo_list->set_name("closet.list");
-    m_clo_list->set_selection_mode(Gtk::SelectionMode::NONE);
-    scroll->set_child(*m_clo_list);
-    results->append(*scroll);
+    // s018: select like Nautilus (click, Shift, Ctrl, Ctrl+A, drag a box);
+    // "N selected  Set to [..]" -- a pick builds the plan and shows its
+    // preview; right-click offers the same. Nothing runs from here.
+    m_clo_list = Gtk::make_managed<SelectList>("closet.list");
+    m_clo_list->set_vexpand(true);
+    m_clo_list->set_margin_start(32);
+    m_clo_list->set_margin_end(32);
+    m_clo_list->set_margin_bottom(16);
+    {
+        std::vector<std::string> choices{"Its proposal"};
+        for (const auto& i : core::retention::all())
+            if (i.level != core::retention::Level::Undecided) choices.push_back(i.title);
+        choices.push_back("Junk Drawer");
+        m_clo_list->set_choices(choices);
+    }
+    m_clo_list->on_choose([this](std::size_t i) { on_closet_set(i); });
+    results->append(*m_clo_list);
 
-    // The act bar (s006): every button builds a plan and shows its preview;
-    // nothing runs from here.
     auto bar = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::HORIZONTAL, 10);
     bar->add_css_class("act-bar");
-    m_clo_status = label("Check files, then choose. Every choice is previewed first.", "dim", 0.0f);
+    m_clo_status = label("", "dim", 0.0f);
     m_clo_status->set_name("closet.status");
     m_clo_status->set_hexpand(true);
     bar->append(*m_clo_status);
-    auto junk = Gtk::make_managed<Gtk::Button>("Junk Drawer");
-    junk->set_name("closet.junk");
-    junk->set_tooltip_text("Keep them, with no home yet");
-    junk->signal_clicked().connect([this] { on_closet_junk(); });
-    bar->append(*junk);
-    auto levels = Gtk::StringList::create({});
-    for (const auto& i : core::retention::all())
-        if (i.level != core::retention::Level::Undecided) levels->append(i.title);
-    m_clo_level = Gtk::make_managed<Gtk::DropDown>(levels);
-    m_clo_level->set_name("closet.level");
-    m_clo_level->set_tooltip_text("The level for Decide");
-    bar->append(*m_clo_level);
-    auto decide = Gtk::make_managed<Gtk::Button>("Decide");
-    decide->set_name("closet.decide");
-    decide->set_tooltip_text("The checked files -> the level beside it");
-    decide->signal_clicked().connect([this] { on_closet_decide(); });
-    bar->append(*decide);
-    auto accept = Gtk::make_managed<Gtk::Button>("Accept");
-    accept->set_name("closet.accept");
-    accept->add_css_class("act");
-    accept->set_tooltip_text("The checked files -> each one's proposal");
-    accept->signal_clicked().connect([this] { on_closet_accept(); });
-    bar->append(*accept);
+    bar->append(m_clo_list->setter());
     results->append(*bar);
     m_clo_states->add(*results, "results");
 

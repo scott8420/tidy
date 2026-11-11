@@ -1,5 +1,7 @@
 #include "core/Scan.hpp"
 
+#include "core/Projects.hpp"
+
 #include <latch/Package.hpp>
 #include <latch/Protect.hpp>
 
@@ -11,7 +13,16 @@ namespace tidy::core::scan {
 namespace fs = std::filesystem;
 
 namespace {
-void walk_dir(const std::string& home, const fs::path& dir, std::vector<facts::Facts>& out, bool deep) {
+// s019: a tree that is somebody's whole -- a <name>-project, a git repo -- is
+// never entered by the loose walk (its files are home already).
+bool whole_tree(const fs::path& dir) {
+    if (projects::is_project_name(dir.filename().string())) return true;
+    std::error_code ec;
+    return fs::exists(fs::symlink_status(dir / ".git", ec));
+}
+
+void walk_dir(const std::string& home, const fs::path& dir, std::vector<facts::Facts>& out, bool deep,
+              bool loose = false) {
     std::error_code ec;
     std::vector<fs::directory_entry> kids;
     for (fs::directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec)) kids.push_back(*it);
@@ -26,7 +37,7 @@ void walk_dir(const std::string& home, const fs::path& dir, std::vector<facts::F
         const auto st = e.symlink_status(e2);
         if (e2 || fs::is_symlink(st)) continue;
         if (fs::is_directory(st) && !latch::pkg::is_package_name(name)) {
-            if (deep) walk_dir(home, e.path(), out, true);
+            if (deep && !(loose && whole_tree(e.path()))) walk_dir(home, e.path(), out, true, loose);
             continue;
         }
         if (!fs::is_regular_file(st) && !fs::is_directory(st)) continue;
@@ -54,7 +65,16 @@ std::vector<facts::Facts> walk(const std::string& home, const std::vector<std::s
 
 std::vector<facts::Facts> top(const std::string& home, const std::string& dir) {
     std::vector<facts::Facts> out;
-    if (root_ok(home, dir)) walk_dir(home, dir, out, false);
+    std::error_code ec;
+    if (dir == home ? fs::is_directory(fs::symlink_status(home, ec)) : root_ok(home, dir))   // s019: home's own top
+        walk_dir(home, dir, out, false);
+    return out;
+}
+
+std::vector<facts::Facts> walk_loose(const std::string& home, const std::vector<std::string>& roots) {
+    std::vector<facts::Facts> out;
+    for (const auto& r : roots)
+        if (root_ok(home, r) && !whole_tree(r)) walk_dir(home, r, out, true, true);
     return out;
 }
 

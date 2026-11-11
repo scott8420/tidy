@@ -144,7 +144,9 @@ Attention look(const std::string& home, const std::string& data_dir, const std::
     const auto st = settings::parse(own::read(data_dir, settings::kFile));
     const auto book = purposes::parse(own::read(data_dir, purposes::kFile));
     const auto files = scan::walk(home, filelists::roots(home));
-    auto list = due(files, book, st, now);
+    auto judged = files;   // s019: and the files at home's own top (the sweep shows them; the id lists don't cover them)
+    for (auto& f : scan::top(home, home)) judged.push_back(std::move(f));
+    auto list = due(judged, book, st, now);
     {   // s014: archived files proved on media are "to remove" (the bytes are read again before they go)
         catalog::Catalog cat;
         if (cat.open(data_dir, false)) {
@@ -161,7 +163,7 @@ Attention look(const std::string& home, const std::string& data_dir, const std::
         (it.to == To::Remove ? a.remove : it.to == To::Archive ? a.archive : a.settle)++;
     const auto stale = filelists::stale(files);
     a.lists = stale.lists + stale.refound;
-    a.closet = closet::view(birth::report(home, birth::places(home, user_dirs)), now, st).proposed.size();
+    a.closet = closet::view(birth::report(home, birth::sweep(home, user_dirs), now, st.old_years), now, st).proposed.size();   // s019: the whole home
     if (items) *items = std::move(list);
     a.ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
     return a;

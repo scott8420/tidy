@@ -1,10 +1,17 @@
 #include "core/Birth.hpp"
+#include "core/Archive.hpp"
+#include "core/Projects.hpp"
 #include "core/Scan.hpp"
+
+#include <latch/Package.hpp>
+#include <latch/Protect.hpp>
 
 #include <latch/Door.hpp>   // tag_of: reads one xattr, never following a symlink
 
 #include <algorithm>
 #include <cctype>
+#include <ctime>
+#include <filesystem>
 #include <map>
 #include <set>
 #include <sstream>
@@ -83,6 +90,31 @@ std::vector<Place> places(const std::string& home, const std::string& user_dirs)
     return out;
 }
 
+std::vector<Place> sweep(const std::string& home, const std::string& user_dirs) {
+    namespace fs = std::filesystem;
+    auto out = places(home, user_dirs);
+    std::set<std::string> taken;
+    for (const auto& p : out) taken.insert(p.path);
+    out.push_back({"home", "Home", home, true});
+    std::vector<std::string> tops;
+    std::error_code ec;
+    for (fs::directory_iterator it(home, ec), end; !ec && it != end; it.increment(ec)) {
+        const std::string n = it->path().filename().string();
+        if (n.empty() || n[0] == '.' || n == archive::kFolder || projects::is_project_name(n) ||
+            latch::pkg::is_package_name(n) || latch::protect::here(n))
+            continue;
+        std::error_code e2;
+        const auto st = it->symlink_status(e2);
+        if (e2 || !fs::is_directory(st)) continue;   // a symlink is not a directory here
+        if (fs::exists(fs::symlink_status(it->path() / ".git", e2))) continue;   // a repo is whole
+        if (taken.count(it->path().string())) continue;   // a landing place already
+        tops.push_back(n);
+    }
+    std::sort(tops.begin(), tops.end());
+    for (const auto& n : tops) out.push_back({"top", n, home + "/" + n, true});
+    return out;
+}
+
 const std::vector<Rule>& rules() {
     static const std::vector<Rule> r = {
         {"stamped", "Already decided", rt::Level::Keep,
@@ -95,6 +127,8 @@ const std::vector<Rule>& rules() {
          "A random image off the web is incidental -- Ephemeral."},
         {"installer-download", "A downloaded installer", rt::Level::Ephemeral,
          "An installer or disk image is spent once installed -- Ephemeral. (lean)"},
+        {"old", "Untouched for years", rt::Level::Historical,
+         "Nobody has changed or read it in years (Settings) -- a record: Historical, and Due archives it."},
         {"download", "A download no rule knows", rt::Level::Undecided,
          "Downloaded, but its origin says nothing yet -- Undecided, to the Closet."},
         {"unknown", "Born unannounced", rt::Level::Undecided,
@@ -133,7 +167,10 @@ std::string ext_of(const std::string& name) {
     return lower(name.substr(dot + 1));
 }
 
-Born classify(const facts::Facts& f, const std::string& place_id, const std::string& origin_url) {
+std::int64_t untouched_since(const facts::Facts& f) { return std::max(f.mtime, f.atime); }
+
+Born classify(const facts::Facts& f, const std::string& place_id, const std::string& origin_url,
+              std::int64_t now, int old_years) {
     Born b;
     b.file = f;
     b.place = place_id;
@@ -175,11 +212,22 @@ Born classify(const facts::Facts& f, const std::string& place_id, const std::str
             return fit("installer-download", rt::Level::Ephemeral,
                        "." + ext + (host.empty() ? std::string() : " from " + host) + was);
     }
+    // 4. s019: untouched for years -> a record (Historical; Due archives it).
+    if (!f.dir && now > 0 && old_years > 0) {
+        const std::int64_t t = untouched_since(f);
+        if (t > 0 && now - t >= static_cast<std::int64_t>(old_years) * 365 * 86400) {
+            const std::time_t tt = static_cast<std::time_t>(t);
+            std::tm tm{};
+            localtime_r(&tt, &tm);
+            return fit("old", rt::Level::Historical, "untouched since " + std::to_string(tm.tm_year + 1900) + was);
+        }
+    }
+
     if (downloaded)
         return fit("download", rt::Level::Undecided,
                    (host.empty() ? std::string("no origin recorded") : "from " + host) + was);
 
-    // 4. Anything else.
+    // 5. Anything else.
     return fit("unknown", rt::Level::Undecided, (f.dir ? std::string("a package") : std::string("no rule fits")) + was);
 }
 
@@ -190,11 +238,11 @@ std::size_t Report::count_rule(const std::string& id) const {
     return static_cast<std::size_t>(std::count_if(items.begin(), items.end(), [&](const Born& b) { return b.rule == id; }));
 }
 
-Report report(const std::string& home, const std::vector<Place>& ps) {
+Report report(const std::string& home, const std::vector<Place>& ps, std::int64_t now, int old_years) {
     Report r;
     std::set<std::string> seen;   // a file under two places (nested folders) is reported once
     for (const auto& p : ps) {
-        auto files = p.top_only ? scan::top(home, p.path) : scan::walk(home, {p.path});
+        auto files = p.top_only ? scan::top(home, p.path) : scan::walk_loose(home, {p.path});
         if (files.empty()) {
             // walk() returns nothing for a missing folder AND an empty one: keep
             // the place only if it is a folder, so the report can say "empty".
@@ -206,7 +254,7 @@ Report report(const std::string& home, const std::vector<Place>& ps) {
             if (!seen.insert(f.path).second) continue;
             std::string origin;
             latch::door::tag_of(f.path, kOriginUrl, origin);
-            r.items.push_back(classify(f, p.id, origin));
+            r.items.push_back(classify(f, p.id, origin, now, old_years));
         }
     }
     return r;
@@ -214,11 +262,11 @@ Report report(const std::string& home, const std::vector<Place>& ps) {
 
 std::string text(const Report& r, const std::string& home) {
     const auto rel = [&](const std::string& p) {
-        return p.rfind(home + "/", 0) == 0 ? "~/" + p.substr(home.size() + 1) : p;
+        return p == home ? std::string("~") : p.rfind(home + "/", 0) == 0 ? "~/" + p.substr(home.size() + 1) : p;
     };
     std::ostringstream o;
     o << "Birth report -- REPORT ONLY, nothing tagged\n";
-    o << r.items.size() << " items in " << r.places.size() << " landing places:";
+    o << r.items.size() << " items in " << r.places.size() << " places:";
     for (const auto& p : r.places) o << " " << rel(p.path) << (p.top_only ? " (top)" : "");
     o << "\n";
     for (const auto& lv : rt::all()) {
