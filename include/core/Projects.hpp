@@ -26,6 +26,10 @@ namespace tidy::core::projects {
 inline constexpr const char* kSuffix = "-project";
 inline constexpr const char* kFile = "projects.ini";
 inline constexpr int kDepth = 4;            // how deep under home find() looks
+// s010d: each project's id lives in a dot file at its top, so it travels with
+// the folder (moves, copies, USB sticks). Written only through the door
+// (Write), at New project; read by find(). "id=<uuid v4>" + newline.
+inline constexpr const char* kIdFile = ".tidy-project";
 
 struct Project {
     std::string path;                       // absolute
@@ -34,7 +38,22 @@ struct Project {
     std::string category;                   // "Writing"; "" = uncategorized
     bool code = false;                      // .git or CMakeLists.txt at its top
     bool left = false;                      // uncategorized, and the user said leave it
+    std::string id;                         // from .tidy-project; "" = none yet (s010d)
 };
+
+// The id in <dir>/.tidy-project ("" if none or not a uuid). READ-ONLY.
+std::string read_id(const std::string& dir);
+std::string id_text(const std::string& id);          // the dot file's text
+bool is_uuid(const std::string& s);
+
+// New project (s010d): <home>/<category>/<Name>-project with the template's
+// folders and a .tidy-project carrying `id`. Name: a folder name, the suffix
+// added if not typed. A door plan -- MakeDir each missing category level,
+// the project, each template folder (parents first), then Write the dot file.
+// Empty plan + `why` if not: bad name, no category, it exists already.
+latch::door::Plan create(const templates::Template& t, const std::string& name, const std::string& home,
+                         const std::string& id, std::string* why);
+std::string folder_for(const std::string& name);      // "Jasper" -> "Jasper-project"; "x-project" kept
 
 // Is `rel` (relative to home, the folder's own path) a -project folder name?
 bool is_project_name(const std::string& folder_name);

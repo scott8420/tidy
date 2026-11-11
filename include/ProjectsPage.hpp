@@ -1,6 +1,9 @@
 #pragma once
 #include "core/Projects.hpp"
+#include "core/Templates.hpp"
 
+#include <gtkmm/entry.h>
+#include <gtkmm/dropdown.h>
 #include <gtkmm/stack.h>
 
 #include <functional>
@@ -35,6 +38,9 @@ private:
     void build_start();
     void build_results();
     void build_preview();
+    void build_new();                        // s010d: New project -- a template + a name
+    void show_new();
+    void on_new_preview();
 
     void on_look();
     void fill();
@@ -58,6 +64,11 @@ private:
     Gtk::ListBox* m_prev_list = nullptr;
     Gtk::Label*   m_prev_status = nullptr;
     Gtk::Button*  m_prev_run = nullptr;
+    Gtk::DropDown* m_new_tpl = nullptr;      // New project (s010d)
+    Gtk::Entry*    m_new_name = nullptr;
+    Gtk::Label*    m_new_where = nullptr;
+    Gtk::Label*    m_new_status = nullptr;
+    std::vector<core::templates::Template> m_new_templates;
 };
 
 }  // namespace tidy

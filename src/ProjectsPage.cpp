@@ -1,5 +1,6 @@
 #include "ProjectsPage.hpp"
 #include "Log.hpp"
+#include "core/Facts.hpp"
 #include "core/Own.hpp"
 #include "core/Pages.hpp"
 #include "core/Templates.hpp"
@@ -7,6 +8,8 @@
 #include <gtkmm/box.h>
 #include <gtkmm/button.h>
 #include <gtkmm/dropdown.h>
+#include <gtkmm/entry.h>
+#include <gtkmm/grid.h>
 #include <gtkmm/image.h>
 #include <gtkmm/label.h>
 #include <gtkmm/listbox.h>
@@ -77,6 +80,18 @@ Gtk::Box* bar_box() {
     bar->add_css_class("act-bar");
     return bar;
 }
+// Each step's refusal judged IN ORDER (s010d): a MakeDir earlier in the plan
+// counts as made for the steps after it -- a new project's folders sit inside
+// one the plan makes first. Asked one by one against today's disk, every
+// child of a new folder read as "does not exist" and was dropped.
+std::vector<std::string> refusals(const dr::Door& door, const dr::Plan& plan) {
+    std::vector<std::string> out, made;
+    for (const auto& a : plan.actions) {
+        out.push_back(door.refusal(a, made));
+        if (out.back().empty() && a.verb == dr::Verb::MakeDir) made.push_back(a.to);
+    }
+    return out;
+}
 }  // namespace
 
 ProjectsPage::ProjectsPage(dr::Door& door, std::string home, std::string data_dir, bool fixture, Changed changed)
@@ -86,6 +101,7 @@ ProjectsPage::ProjectsPage(dr::Door& door, std::string home, std::string data_di
     build_start();
     build_results();
     build_preview();
+    build_new();
     set_visible_child("start");
 }
 
@@ -124,6 +140,13 @@ void ProjectsPage::build_start() {
     orb->set_tooltip_text("Find the projects -- nothing is moved");
     orb->signal_clicked().connect([this] { on_look(); });
     start->append(*orb);
+    auto nw = Gtk::make_managed<Gtk::Button>("New project...");
+    nw->set_name("projects.start.new");
+    nw->set_halign(Gtk::Align::CENTER);
+    nw->set_margin_top(10);
+    nw->set_tooltip_text("A template's tree under a name you give, with its id -- previewed first");
+    nw->signal_clicked().connect([this] { show_new(); });
+    start->append(*nw);
     add(*start, "start");
 }
 
@@ -144,6 +167,10 @@ void ProjectsPage::build_results() {
     m_status->set_name("projects.status");
     m_status->set_hexpand(true);
     bar->append(*m_status);
+    auto nw = Gtk::make_managed<Gtk::Button>("New project...");
+    nw->set_name("projects.new");
+    nw->signal_clicked().connect([this] { show_new(); });
+    bar->append(*nw);
     box->append(*bar);
     add(*box, "results");
 }
@@ -161,7 +188,11 @@ void ProjectsPage::build_preview() {
     bar->append(*m_prev_status);
     auto back = Gtk::make_managed<Gtk::Button>("Back");
     back->set_name("projects.preview.back");
-    back->signal_clicked().connect([this] { m_plan.reset(); set_visible_child("results"); });
+    back->signal_clicked().connect([this] {
+        const bool fresh = m_plan && m_plan->label.rfind("New project: ", 0) == 0;
+        m_plan.reset();
+        set_visible_child(fresh ? "new" : "results");
+    });
     bar->append(*back);
     m_prev_run = Gtk::make_managed<Gtk::Button>("Do it");
     m_prev_run->set_name("projects.preview.run");
@@ -170,6 +201,85 @@ void ProjectsPage::build_preview() {
     bar->append(*m_prev_run);
     box->append(*bar);
     add(*box, "preview");
+}
+
+void ProjectsPage::build_new() {
+    auto box = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::VERTICAL, 0);
+    box->set_name("projects.new.page");
+    Gtk::Label* sum = nullptr;
+    box->append(*head_box(&sum, "New project", "projects.new.summary"));
+    sum->set_text("A template's folders under a name you give. Tidy gives it an id (.tidy-project inside).");
+    auto grid = Gtk::make_managed<Gtk::Grid>();
+    grid->set_row_spacing(10);
+    grid->set_column_spacing(12);
+    grid->set_margin(24);
+    grid->attach(*label("Template", nullptr, 0.0f), 0, 0);
+    m_new_tpl = Gtk::make_managed<Gtk::DropDown>();
+    m_new_tpl->set_name("projects.new.template");
+    m_new_tpl->set_hexpand(true);
+    const auto where = [this] {
+        const auto i = m_new_tpl->get_selected();
+        const std::string n = m_new_name->get_text();
+        m_new_where->set_text(i < m_new_templates.size() && !n.empty()
+            ? "~/" + m_new_templates[i].category + "/" + pj::folder_for(n) + "  --  " +
+                  std::to_string(m_new_templates[i].folders.size()) + " folders"
+            : "");
+    };
+    m_new_tpl->property_selected().signal_changed().connect(where);
+    grid->attach(*m_new_tpl, 1, 0);
+    grid->attach(*label("Name", nullptr, 0.0f), 0, 1);
+    m_new_name = Gtk::make_managed<Gtk::Entry>();
+    m_new_name->set_name("projects.new.name");
+    m_new_name->set_placeholder_text("Jasper  (-project is added)");
+    m_new_name->signal_changed().connect(where);
+    m_new_name->signal_activate().connect([this] { on_new_preview(); });
+    grid->attach(*m_new_name, 1, 1);
+    m_new_where = label("", "dim", 0.0f);
+    m_new_where->set_name("projects.new.where");
+    grid->attach(*m_new_where, 1, 2);
+    box->append(*grid);
+    auto spacer = Gtk::make_managed<Gtk::Box>();
+    spacer->set_vexpand(true);
+    box->append(*spacer);
+    auto bar = bar_box();
+    m_new_status = label("Then save into it from your app.", "dim", 0.0f);
+    m_new_status->set_name("projects.new.status");
+    m_new_status->set_hexpand(true);
+    bar->append(*m_new_status);
+    auto back = Gtk::make_managed<Gtk::Button>("Back");
+    back->set_name("projects.new.back");
+    back->signal_clicked().connect([this] { set_visible_child(m_list->get_first_child() ? "results" : "start"); });
+    bar->append(*back);
+    auto pv = Gtk::make_managed<Gtk::Button>("Preview...");
+    pv->set_name("projects.new.preview");
+    pv->add_css_class("act");
+    pv->signal_clicked().connect([this] { on_new_preview(); });
+    bar->append(*pv);
+    box->append(*bar);
+    add(*box, "new");
+}
+
+void ProjectsPage::show_new() {
+    m_new_templates = tp::list(m_data_dir);
+    auto names = Gtk::StringList::create({});
+    for (const auto& t : m_new_templates) names->append(t.name + "  (~/" + t.category + ")");
+    m_new_tpl->set_model(names);
+    m_new_name->set_text("");
+    m_new_where->set_text("");
+    m_new_status->set_text(m_new_templates.empty()
+        ? "No templates saved yet -- Templates -> Starters... -> Use -> Save, then come back."
+        : "Then save into it from your app.");
+    set_visible_child("new");
+    m_new_name->grab_focus();
+}
+
+void ProjectsPage::on_new_preview() {
+    const auto i = m_new_tpl->get_selected();
+    if (i >= m_new_templates.size()) { m_new_status->set_text("Pick a template first."); return; }
+    std::string why;
+    auto plan = pj::create(m_new_templates[i], m_new_name->get_text(), m_home, core::facts::new_id(), &why);
+    if (plan.actions.empty()) { m_new_status->set_text("Not possible: " + why); return; }
+    preview(std::move(plan));
 }
 
 // The categories to offer: each template's, then the home's top folders --
@@ -296,7 +406,7 @@ void ProjectsPage::fill() {
             // Offer Fix only when the door would make something (fixes/ is always refused: Scott's).
             std::size_t doable = 0;
             if (missing)
-                for (const auto& a : pj::fix(p, d).actions) doable += m_door.refusal(a).empty();
+                for (const auto& w : refusals(m_door, pj::fix(p, d))) doable += w.empty();
             if (doable) {
                 auto fix = Gtk::make_managed<Gtk::Button>("Fix...");
                 fix->set_name("projects.fix." + p.rel);
@@ -339,8 +449,10 @@ void ProjectsPage::on_leave(const std::string& rel, bool leave) {
 void ProjectsPage::preview(dr::Plan plan) {
     clear(m_prev_list);
     std::size_t refused = 0;
-    for (const auto& a : plan.actions) {
-        const std::string why = m_door.refusal(a);
+    const auto whys = refusals(m_door, plan);
+    for (std::size_t k = 0; k < plan.actions.size(); ++k) {
+        const auto& a = plan.actions[k];
+        const std::string& why = whys[k];
         refused += !why.empty();
         std::string text = a.verb == dr::Verb::Move ? "move  " + shown(a.from) + "  ->  " + shown(a.to) + "   (whole)"
                                                     : std::string(dr::verb_name(a.verb)) + "  " + shown(a.to);
@@ -366,7 +478,13 @@ void ProjectsPage::on_run() {
     if (!m_plan) return;
     auto plan = std::move(*m_plan);
     m_plan.reset();
-    std::erase_if(plan.actions, [&](const dr::Action& a) { return !m_door.refusal(a).empty(); });   // shown as refused
+    {   // drop what the preview showed as refused, judged in order as it was shown
+        const auto whys = refusals(m_door, plan);
+        std::vector<dr::Action> keep;
+        for (std::size_t k = 0; k < plan.actions.size(); ++k)
+            if (whys[k].empty()) keep.push_back(plan.actions[k]);
+        plan.actions = std::move(keep);
+    }
     if (plan.label.rfind("Fix: ", 0) == 0) {   // the label names what will happen, refusals dropped
         const auto n = plan.actions.size();
         plan.label = plan.label.substr(0, plan.label.find(" -- ")) + " -- " + std::to_string(n) + " folder" +

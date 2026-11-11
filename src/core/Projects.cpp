@@ -3,6 +3,10 @@
 #include <latch/Protect.hpp>
 
 #include <algorithm>
+#include <cctype>
+
+#include <fcntl.h>
+#include <unistd.h>
 #include <filesystem>
 #include <sstream>
 
@@ -43,6 +47,76 @@ bool is_code(const fs::path& dir) {
     return false;
 }
 
+bool is_uuid(const std::string& s) {
+    if (s.size() != 36) return false;
+    for (std::size_t i = 0; i < s.size(); ++i) {
+        const bool dash = i == 8 || i == 13 || i == 18 || i == 23;
+        if (dash ? s[i] != '-' : !std::isxdigit(static_cast<unsigned char>(s[i]))) return false;
+    }
+    return true;
+}
+
+std::string id_text(const std::string& id) { return "id=" + id + "\n"; }
+
+std::string read_id(const std::string& dir) {
+    // POSIX read, read-only (the gate forbids <fstream> in Tidy's sources).
+    const int fd = ::open((dir + "/" + kIdFile).c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+    if (fd < 0) return "";
+    char buf[256];
+    const auto n = ::read(fd, buf, sizeof buf - 1);
+    ::close(fd);
+    if (n <= 0) return "";
+    std::istringstream in(std::string(buf, static_cast<std::size_t>(n)));
+    std::string line;
+    while (std::getline(in, line)) {
+        while (!line.empty() && (line.back() == '\r' || line.back() == ' ')) line.pop_back();
+        if (line.rfind("id=", 0) == 0 && is_uuid(line.substr(3))) return line.substr(3);
+    }
+    return "";
+}
+
+std::string folder_for(const std::string& name) {
+    return is_project_name(name) ? name : name + kSuffix;
+}
+
+dr::Plan create(const templates::Template& t, const std::string& name, const std::string& home,
+                const std::string& id, std::string* why) {
+    const auto no = [&](const std::string& w) { if (why) *why = w; return dr::Plan{}; };
+    if (name.empty()) return no("a project needs a name");
+    if (const auto w = templates::part_refusal(name); !w.empty()) return no("name: " + w);
+    if (!is_uuid(id)) return no("no id");
+    if (t.category.empty()) return no("the template " + t.name + " has no category");
+    if (const auto w = templates::category_refusal(t.category); !w.empty()) return no("category: " + w);
+    const std::string top = t.category.substr(0, t.category.find('/'));
+    if (top == "Desktop" || top == "Downloads") return no("a landing place is not a category");
+    const std::string folder = folder_for(name);
+    const std::string dir = home + "/" + t.category;
+    const std::string at = dir + "/" + folder;
+    std::error_code ec;
+    if (fs::exists(fs::symlink_status(at, ec))) return no("~/" + t.category + "/" + folder + " already exists");
+    dr::Plan plan;
+    plan.label = "New project: " + folder + " (" + t.name + ")";
+    auto mk = [&](const std::string& p, const std::string& reason) {
+        dr::Action a;
+        a.verb = dr::Verb::MakeDir;
+        a.to = p;
+        a.reason = reason;
+        plan.actions.push_back(a);
+    };
+    if (!fs::is_directory(home + "/" + top, ec)) mk(home + "/" + top, "the category's folder");
+    if (dir != home + "/" + top && !fs::is_directory(dir, ec)) mk(dir, "the category's folder");
+    mk(at, "the project");
+    for (const auto& f : t.folders) mk(at + "/" + f.path, "the template names it");   // tree order: parents first
+    dr::Action w;
+    w.verb = dr::Verb::Write;
+    w.to = at + "/" + kIdFile;
+    w.content = id_text(id);
+    w.reason = "the project's id";
+    plan.actions.push_back(w);
+    if (why) why->clear();
+    return plan;
+}
+
 std::vector<Project> find(const std::string& home, const std::set<std::string>& left) {
     std::vector<Project> out;
     const auto walk = [&](const fs::path& at, const std::string& rel, int depth, auto& self) -> void {
@@ -62,6 +136,7 @@ std::vector<Project> find(const std::string& home, const std::set<std::string>& 
                 p.category = category_of(r);
                 p.code = is_code(it->path());
                 p.left = p.category.empty() && left.count(r);
+                p.id = read_id(p.path);
                 out.push_back(std::move(p));
                 continue;                                            // never inside a project
             }

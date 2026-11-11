@@ -1616,6 +1616,81 @@ int main(int argc, char** argv) {
         fs::remove_all(root);
     }
 
+    // ── s010d: New project -- a template's tree + its .tidy-project id ───────
+    {
+        std::cout << "[new project]\n";
+        namespace dr = latch::door;
+        namespace pj = core::projects;
+        namespace st = core::starters;
+        namespace fc = core::facts;
+        check("id: uuid shape; folder_for adds the suffix once",
+              pj::is_uuid(fc::new_id()) && !pj::is_uuid("x") && !pj::is_uuid("") &&
+              pj::folder_for("Jasper") == "Jasper-project" && pj::folder_for("Jasper-project") == "Jasper-project");
+        const fs::path root = fs::temp_directory_path() / ("tidy_selftest_newproj_" + std::to_string(::getpid()));
+        fs::remove_all(root);
+        const std::string H = (root / "home").string(), D = (root / "data").string();
+        fs::create_directories(H);
+        const auto& art = st::find("art-project")->t;
+        const auto& code = st::find("code-project")->t;
+        const std::string id = fc::new_id();
+        std::string why;
+        const bool bad = pj::create(art, "", H, id, &why).actions.empty() &&
+                         pj::create(art, ".hid", H, id, &why).actions.empty() &&
+                         pj::create(art, "a/b", H, id, &why).actions.empty() &&
+                         pj::create(art, "Ok", H, "not-an-id", &why).actions.empty();
+        check("create: no name, hidden, a slash, no id -- refused", bad);
+        const auto before = tree_facts(H);
+        auto plan = pj::create(art, "Sunrise", H, id, &why);
+        check("create: a plan -- ~/Art, the project, 16 folders parents first, then the id",
+              plan.actions.size() == 19 && plan.actions[0].to == H + "/Art" &&
+              plan.actions[1].to == H + "/Art/Sunrise-project" &&
+              plan.actions.back().verb == dr::Verb::Write &&
+              plan.actions.back().to == H + "/Art/Sunrise-project/.tidy-project", why);
+        check("create: READ-ONLY until run -- nothing made", tree_facts(H) == before);
+        latch::door::set_app_name("Tidy");
+        dr::Door door(H, D);
+        door.load();
+        {   // what the preview shows: each step judged in order, earlier MakeDirs counted
+            std::vector<std::string> made;
+            std::size_t ok_in_order = 0, ok_alone = 0;
+            for (const auto& a : plan.actions) {
+                ok_alone += door.refusal(a).empty();
+                if (door.refusal(a, made).empty()) { ++ok_in_order; if (a.verb == dr::Verb::MakeDir) made.push_back(a.to); }
+            }
+            check("create: the preview judges in order -- all 19 allowed (alone, only the first would be)",
+                  ok_in_order == 19 && ok_alone == 1, std::to_string(ok_in_order) + " / " + std::to_string(ok_alone));
+        }
+        const bool refused = !door.run(plan).ok && !fs::exists(H + "/Art");
+        plan.previewed = true;
+        const auto r = door.run(plan);
+        const auto found = pj::find(H);
+        check("create: refused unpreviewed; run -> the tree on disk, Assets/Brushes too",
+              refused && r.ok && fs::is_directory(H + "/Art/Sunrise-project/Assets/Brushes") &&
+              fs::is_directory(H + "/Art/Sunrise-project/Work"), r.messages.empty() ? "" : r.messages.front());
+        check("create: find() reads the id back from .tidy-project",
+              found.size() == 1 && found[0].id == id && pj::read_id(H + "/Art/Sunrise-project") == id &&
+              found[0].category == "Art");
+        check("create: the same name again -- refused (it exists)",
+              pj::create(art, "Sunrise-project", H, fc::new_id(), &why).actions.empty() &&
+              why.find("exists") != std::string::npos, why);
+        auto c2 = pj::create(code, "kiln", H, fc::new_id(), &why);
+        check("create: two-deep category -> ~/Develop, ~/Develop/gtk made first",
+              c2.actions.size() >= 3 && c2.actions[0].to == H + "/Develop" && c2.actions[1].to == H + "/Develop/gtk" &&
+              c2.actions[2].to == H + "/Develop/gtk/kiln-project", why);
+        const auto u = door.undo();
+        // Undo of a create puts it in the home's Trash (latch: recoverable),
+        // so outside .local/share/Trash the home is as it was.
+        auto outside_trash = [&] {
+            auto m = tree_facts(H);
+            std::erase_if(m, [&](const auto& kv) { return kv.first.rfind(H + "/.local", 0) == 0; });
+            return m;
+        };
+        check("create: undone -- the home as before outside the Trash; ~/Art gone",
+              u.ok && outside_trash() == before && !fs::exists(H + "/Art"),
+              u.messages.empty() ? "" : u.messages.front());
+        fs::remove_all(root);
+    }
+
     // ── s009: purposes -- the learned list; assign / close -- on a FIXTURE ──
     {
         std::cout << "[purposes]\n";
