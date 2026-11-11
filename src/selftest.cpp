@@ -265,9 +265,11 @@ void make_projects(const fs::path& home) {
     std::error_code ec;
     fs::create_directory_symlink(j / "docs", j / "link-to-docs", ec);
     // s008: a code project in Develop/gtk, loose ones to place, ones never listed.
+    // s010c: our real workspace layout -- the repo one folder down.
     const fs::path t = home / "Develop/gtk/tidy-project";
-    fs::create_directories(t / ".git");
-    put_file(t / "CMakeLists.txt", "project(tidy)");
+    fs::create_directories(t / "tidy/.git");
+    put_file(t / "tidy/CMakeLists.txt", "project(tidy)");
+    for (const char* d : {"backups/Old", "docs", "scripts"}) fs::create_directories(t / d);
     fs::create_directories(t / "nested-project");                 // never inside a project
     put_file(home / "Desktop/Essay-project/draft.odt", "draft");
     put_file(home / "Desktop/Essay-project/Research/notes.txt", "notes");
@@ -1440,8 +1442,8 @@ int main(int argc, char** argv) {
         check("starters: pdf / epub route nowhere -- the row asks", no_pdf);
         {
             const auto& c = st::find("code-project")->t;
-            check("starters: code-project -- our gtk workspace: backups(+Old) history, docs, fixes, scripts; ~/Develop",
-                  c.category == "Develop" && c.folders.size() == 5 && tp::find(c, "fixes") &&
+            check("starters: code-project -- our gtk workspace: backups(+Old) history, docs, fixes, scripts; ~/Develop/gtk",
+                  c.category == "Develop/gtk" && c.folders.size() == 5 && tp::find(c, "fixes") &&
                   tp::find(c, "backups/Old")->role == R::History && !tp::find(c, "Assets") &&
                   tp::route_for(c, "s010a_starters.zip") == "backups" && tp::route_for(c, "HANDOFF.md") == "docs" &&
                   tp::route_for(c, "tidy_backup.sh") == "scripts");
@@ -1513,6 +1515,49 @@ int main(int argc, char** argv) {
         const bool r3 = pj::place(*by("Desktop/Essay-project"), H, "Downloads", &why).actions.empty() &&
                         pj::place(*by("Desktop/Essay-project"), H, ".x", &why).actions.empty();
         check("place: a code project, a placed one, a landing place, a hidden category -- refused", r1 && r2 && r3);
+
+        // s010c: categories two deep; the deepest template wins; code one down.
+        {
+            namespace tp = core::templates;
+            check("category: one or two deep -- Writing, Develop/gtk; never three, hidden, or empty",
+                  tp::category_refusal("Writing").empty() && tp::category_refusal("Develop/gtk").empty() &&
+                  !tp::category_refusal("a/b/c").empty() && !tp::category_refusal(".x/gtk").empty() &&
+                  !tp::category_refusal("").empty());
+            tp::Template dev = tp::shell("dev-project", "Develop");
+            const auto code = core::starters::find("code-project")->t;
+            const std::vector<tp::Template> ts = {dev, code};
+            pj::Project loose = *by("Develop/gtk/tidy-project");
+            loose.rel = "Develop/foo-project";
+            check("template_for: Develop/gtk/tidy-project -> code-project (Develop/gtk) over Develop; "
+                  "Develop/foo-project -> Develop",
+                  pj::template_for(*by("Develop/gtk/tidy-project"), ts) == &ts[1] &&
+                  pj::template_for(loose, ts) == &ts[0] && !pj::template_for(*by("Stray-project"), ts));
+            const auto p2 = pj::place(*by("Stray-project"), H, "Art/Old", &why);
+            check("place: two deep -> make ~/Art, make ~/Art/Old, move -- parents first",
+                  p2.actions.size() == 3 && p2.actions[0].to == H + "/Art" && p2.actions[1].to == H + "/Art/Old" &&
+                  p2.actions[2].verb == dr::Verb::Move && p2.actions[2].to == H + "/Art/Old/Stray-project", why);
+            check("place: a landing place two deep is still refused",
+                  pj::place(*by("Stray-project"), H, "Desktop/x", &why).actions.empty());
+
+            const fs::path r2 = fs::temp_directory_path() / ("tidy_selftest_code_" + std::to_string(::getpid()));
+            fs::remove_all(r2);
+            fs::create_directories(r2 / "Desktop/Ws-project/ws/.git");
+            fs::create_directories(r2 / "Desktop/Make-project/src/lib");
+            put_file(r2 / "Desktop/Make-project/src/lib/CMakeLists.txt", "x");    // two down: not code
+            fs::create_directories(r2 / "Desktop/Hid-project/.inner/.git");       // hidden one down: not looked into
+            fs::create_directories(r2 / "Desktop/Plain-project/notes");
+            const auto f2 = pj::find(r2.string());
+            auto code_of = [&](const std::string& rel) { for (const auto& p : f2) if (p.rel == rel) return p.code; return false; };
+            const pj::Project* ws = nullptr;
+            for (const auto& p : f2) if (p.rel == "Desktop/Ws-project") ws = &p;
+            check("code: .git one folder down is code (our workspace on the Desktop); two down, hidden, none -- not",
+                  f2.size() == 4 && code_of("Desktop/Ws-project") && !code_of("Desktop/Make-project") &&
+                  !code_of("Desktop/Hid-project") && !code_of("Desktop/Plain-project"));
+            check("place: a workspace found on the Desktop is never moved",
+                  ws && pj::place(*ws, r2.string(), "Develop/gtk", &why).actions.empty() &&
+                  why.find("code") != std::string::npos, why);
+            fs::remove_all(r2);
+        }
 
         latch::door::set_app_name("Tidy");
         dr::Door door(H, D);

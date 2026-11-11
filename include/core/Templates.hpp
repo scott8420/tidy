@@ -62,6 +62,8 @@ Template shell(const std::string& name = "", const std::string& category = "");
 std::string name_refusal(const std::string& name);       // [a-z0-9-], 1..64, starts with a letter or digit
 std::string part_refusal(const std::string& part);       // one folder name: not hidden, no '/', not '..'
 std::string path_refusal(const std::string& path);       // 1..kDepth parts
+// A category: one or two folders under home ("Writing", "Develop/gtk" -- s010c).
+std::string category_refusal(const std::string& category);
 // Everything wrong with a template, each a sentence ("" list = fine).
 std::vector<std::string> problems(const Template& t);
 

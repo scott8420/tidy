@@ -24,6 +24,25 @@ std::string category_of(const std::string& rel) {
     return top;
 }
 
+// Code: .git or CMakeLists.txt at the project's top, or one folder down --
+// our workspace keeps the repo inside (tidy-project/tidy/.git; s010c). Hidden
+// folders and symlinks one down are not looked into.
+bool is_code(const fs::path& dir) {
+    std::error_code ec;
+    const auto marks = [&](const fs::path& d) {
+        return fs::exists(d / ".git", ec) || fs::exists(d / "CMakeLists.txt", ec);
+    };
+    if (marks(dir)) return true;
+    for (fs::directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec)) {
+        const std::string fn = it->path().filename().string();
+        if (fn.empty() || fn[0] == '.') continue;
+        const auto st = it->symlink_status(ec);
+        if (ec || !fs::is_directory(st)) continue;
+        if (marks(it->path())) return true;
+    }
+    return false;
+}
+
 std::vector<Project> find(const std::string& home, const std::set<std::string>& left) {
     std::vector<Project> out;
     const auto walk = [&](const fs::path& at, const std::string& rel, int depth, auto& self) -> void {
@@ -41,7 +60,7 @@ std::vector<Project> find(const std::string& home, const std::set<std::string>& 
                 p.rel = r;
                 p.name = fn.substr(0, fn.size() - std::string(kSuffix).size());
                 p.category = category_of(r);
-                p.code = fs::exists(it->path() / ".git", ec) || fs::exists(it->path() / "CMakeLists.txt", ec);
+                p.code = is_code(it->path());
                 p.left = p.category.empty() && left.count(r);
                 out.push_back(std::move(p));
                 continue;                                            // never inside a project
@@ -55,10 +74,19 @@ std::vector<Project> find(const std::string& home, const std::set<std::string>& 
 }
 
 const templates::Template* template_for(const Project& p, const std::vector<templates::Template>& ts) {
+    // The template whose category holds the project, the deepest one winning
+    // (s010c): Develop/gtk/tidy-project -> a "Develop/gtk" template over a
+    // "Develop" one; Develop/foo-project -> only "Develop".
     if (p.category.empty()) return nullptr;
-    for (const auto& t : ts)
-        if (t.category == p.category) return &t;
-    return nullptr;
+    const auto slash = p.rel.rfind('/');
+    const std::string parent = slash == std::string::npos ? "" : p.rel.substr(0, slash);
+    const templates::Template* best = nullptr;
+    for (const auto& t : ts) {
+        if (t.category.empty()) continue;
+        const bool holds = parent == t.category || parent.rfind(t.category + "/", 0) == 0;
+        if (holds && (!best || t.category.size() > best->category.size())) best = &t;
+    }
+    return best;
 }
 
 dr::Plan place(const Project& p, const std::string& home, const std::string& category, std::string* why) {
@@ -66,15 +94,19 @@ dr::Plan place(const Project& p, const std::string& home, const std::string& cat
     const auto no = [&](const std::string& w) { if (why) *why = w; return dr::Plan{}; };
     if (!p.category.empty()) return no("already placed in ~/" + p.category);
     if (p.code) return no("a code project stays where it is");
-    if (const auto w = templates::part_refusal(category); !w.empty()) return no("category: " + w);
-    if (category == "Desktop" || category == "Downloads") return no("a landing place is not a category");
+    if (const auto w = templates::category_refusal(category); !w.empty()) return no("category: " + w);
+    const std::string top = category.substr(0, category.find('/'));
+    if (top == "Desktop" || top == "Downloads") return no("a landing place is not a category");
     const fs::path folder = fs::path(p.path).filename();
     const std::string dir = home + "/" + category;
     const std::string to = dir + "/" + folder.string();
     std::error_code ec;
     if (fs::exists(to, ec)) return no("~/" + category + "/" + folder.string() + " already exists");
     plan.label = "Place: " + folder.string() + " -> ~/" + category;
-    if (!fs::is_directory(dir, ec))
+    // Each missing level, parents first (a category may be two deep).
+    if (const std::string first = home + "/" + top; !fs::is_directory(first, ec))
+        plan.actions.push_back({dr::Verb::MakeDir, "", first, "the category's folder", 0});
+    if (dir != home + "/" + top && !fs::is_directory(dir, ec))
         plan.actions.push_back({dr::Verb::MakeDir, "", dir, "the category's folder", 0});
     dr::Action mv;
     mv.verb = dr::Verb::Move;

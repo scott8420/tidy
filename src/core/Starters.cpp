@@ -74,7 +74,7 @@ std::vector<Starter> make() {
         // repo folder (tidy/, curvz/...) differs per project, so it is unnamed.
         Template t;
         t.name = "code-project";
-        t.category = "Develop";
+        t.category = "Develop/gtk";
         t.folders = {{"backups", Role::History}, {"backups/Old", Role::History}, {"docs", Role::Input},
                      {"fixes", Role::Input},     {"scripts", Role::Input}};
         routes(t, {"zip"}, "backups");

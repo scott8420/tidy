@@ -140,11 +140,17 @@ std::string path_refusal(const std::string& path) {
     return "";
 }
 
+std::string category_refusal(const std::string& category) {
+    // Two deep at most (Scott, s010c): ~/Develop holds plain GitHub repos,
+    // ~/Develop/gtk our workspaces.
+    return path_refusal(category);
+}
+
 std::vector<std::string> problems(const Template& t) {
     std::vector<std::string> out;
     if (auto w = name_refusal(t.name); !w.empty()) out.push_back(w);
     if (t.category.empty()) out.push_back("a template needs a category (the home folder its projects live in)");
-    else if (auto w = part_refusal(t.category); !w.empty()) out.push_back("category: " + w);
+    else if (auto w = category_refusal(t.category); !w.empty()) out.push_back("category: " + w);
     if (t.folders.empty()) out.push_back("a template needs at least one folder");
     std::set<std::string> seen;
     for (const auto& f : t.folders) {
@@ -335,7 +341,7 @@ std::string Builder::set_name(const std::string& name) {
     return apply(std::move(d));
 }
 std::string Builder::set_category(const std::string& category) {
-    if (auto w = part_refusal(category); !w.empty()) return "category: " + w;
+    if (auto w = category_refusal(category); !w.empty()) return "category: " + w;
     Draft d = m_now;
     d.t.category = category;
     return apply(std::move(d));

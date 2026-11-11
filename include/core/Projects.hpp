@@ -16,6 +16,7 @@
 
 #include <latch/Door.hpp>
 
+#include <filesystem>
 #include <set>
 #include <string>
 #include <vector>
@@ -40,14 +41,16 @@ bool is_project_name(const std::string& folder_name);
 // The category a project at `rel` has: the first part, unless it sits in the
 // home's top, Desktop or Downloads -> "".
 std::string category_of(const std::string& rel);
+// Code: .git or CMakeLists.txt at the top or one folder down (s010c).
+bool is_code(const std::filesystem::path& dir);
 
 // Every -project under home, kDepth deep (READ-ONLY): hidden, symlinks,
 // latch-protected places, Tidy's records and the Trash skipped; never inside
 // a project. `left` = the remembered "leave it" answers (rel paths).
 std::vector<Project> find(const std::string& home, const std::set<std::string>& left = {});
 
-// The template for a project: the first saved one whose category is the
-// project's ("" category -> none). nullptr = none.
+// The template for a project: the saved one whose category holds it, the
+// deepest winning (Develop/gtk over Develop; "" category -> none). nullptr = none.
 const templates::Template* template_for(const Project& p, const std::vector<templates::Template>& ts);
 
 // Plans (never run here).
