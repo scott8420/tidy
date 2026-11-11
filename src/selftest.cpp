@@ -92,6 +92,8 @@
 #include "core/Backup.hpp"
 #include "core/Removal.hpp"
 #include "core/Help.hpp"
+#include "core/Code.hpp"
+#include <latch/Vcs.hpp>
 
 #include <latch/Door.hpp>
 #include <fcntl.h>
@@ -3406,6 +3408,258 @@ int main(int argc, char** argv) {
         check("undo: both back from the Trash, the removed row dropped, offered again",
               u.ok && read(H + "/Archive/2026/a.odt") == "alpha" && read(H + "/Downloads/old.iso") == "ephemeral" &&
               dropped == 1 && cat.removed().empty() && rm::offerable(rm::book_of(cat), S).size() == 3);
+        dr::set_media_roots({});
+        fs::remove_all(root);
+    }
+
+    // ── s021: the code archive -- git state, the copy, RESTORE.txt, the live folder, build folders; a FIXTURE with real repos ──
+    {
+        std::cout << "[code]\n";
+        namespace cd = core::code;
+        namespace pj = core::projects;
+        namespace sh = core::sha256;
+        namespace st = core::settings;
+        namespace dr = latch::door;
+        namespace vc = latch::vcs;
+        const auto read = [](const std::string& f) { std::ifstream in(f); std::stringstream o; o << in.rdbuf(); return o.str(); };
+        const fs::path root = fs::temp_directory_path() / ("tidy_selftest_code_" + std::to_string(::getpid()));
+        fs::remove_all(root);
+        const std::string H = (root / "home").string(), D = (root / "data").string(), M = (root / "ssd" / "Tidy").string();
+        const std::string R = (root / "remotes").string();
+        fs::create_directories(M);
+        fs::create_directories(R);
+        fs::create_directories(H + "/.local/share/Trash/files");
+        const auto git = [](const std::string& dir, std::vector<std::string> args) {
+            std::vector<std::string> a{"-c", "user.name=Tidy Test", "-c", "user.email=t@example.com", "-c", "init.defaultBranch=main"};
+            a.insert(a.end(), args.begin(), args.end());
+            return vc::git(dir, a, 30);
+        };
+        bool git_ok = true;
+        // A repo `rel` in project `proj` with files, committed; `remote` = a bare repo it pushes to ("" = none).
+        const auto repo = [&](const std::string& dir, const std::map<std::string, std::string>& files, const std::string& remote) {
+            for (const auto& [f, body] : files) put_file(dir + "/" + f, body);
+            git_ok &= git(dir, {"init", "-q"}).code == 0;
+            git_ok &= git(dir, {"add", "-A"}).code == 0;
+            git_ok &= git(dir, {"commit", "-qm", "first light"}).code == 0;
+            if (!remote.empty()) {
+                git_ok &= git(R, {"init", "-q", "--bare", remote + ".git"}).code == 0;
+                git_ok &= git(dir, {"remote", "add", "origin", R + "/" + remote + ".git"}).code == 0;
+                git_ok &= git(dir, {"push", "-q", "-u", "origin", "HEAD"}).code == 0;
+            }
+        };
+        const std::string A = H + "/Develop/gtk/alpha-project";
+        repo(A + "/alpha", {{"CMakeLists.txt", "project(alpha)\n"}, {"src/a.cpp", "int main(){}\n"},
+                            {".gitignore", "build/\n*.log\n"}}, "alpha");
+        put_file(A + "/alpha/build/CMakeCache.txt", "cache");
+        put_file(A + "/alpha/build/obj/a.o", std::string(20000, 'o'));
+        put_file(A + "/alpha/notes.log", "ignored by git");
+        put_file(A + "/docs/HANDOFF.md", "# handoff\n");
+        put_file(A + "/scripts/alpha_backup.sh", "#!/bin/sh\n");
+        put_file(A + "/backups/s001.zip", "zip");
+        fs::create_directories(A + "/backups/Old");
+        put_file(A + "/fixes/try.cpp", "fix");
+        put_file(A + "/.cache/clangd/index", "idx");
+        put_file(A + "/.tidy-project", "id=aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\n");
+        const std::string B = H + "/Develop/gtk/beta-project";
+        repo(B + "/beta", {{"CMakeLists.txt", "project(beta)\n"}}, "beta");
+        put_file(B + "/beta/more.cpp", "x");
+        git(B + "/beta", {"add", "-A"});
+        git(B + "/beta", {"commit", "-qm", "not pushed yet"});
+        put_file(B + "/.tidy-project", "id=bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb\n");
+        const std::string G = H + "/Develop/gtk/gamma-project";
+        repo(G + "/gamma", {{"CMakeLists.txt", "project(gamma)\n"}}, "gamma");
+        put_file(G + "/gamma/scratch.txt", "untracked");
+        put_file(G + "/.tidy-project", "id=cccccccc-cccc-4ccc-8ccc-cccccccccccc\n");
+        const std::string E = H + "/Develop/delta-project";
+        repo(E, {{"CMakeLists.txt", "project(delta)\n"}}, "");
+        put_file(E + "/.tidy-project", "id=dddddddd-dddd-4ddd-8ddd-dddddddddddd\n");
+        put_file(H + "/Develop/omega-project/CMakeLists.txt", "project(omega)\n");
+        check("fixture: real repos made (git init / commit / a bare remote / push)", git_ok);
+
+        const auto found = pj::find(H);
+        const auto infos = cd::look_all(found);
+        std::map<std::string, cd::Info> by;
+        for (const auto& i : infos) by[i.p.name] = i;
+        check("look_all: the five code projects, by name",
+              infos.size() == 5 && by.count("alpha") && by.count("beta") && by.count("gamma") && by.count("delta") &&
+              by.count("omega"), std::to_string(infos.size()));
+        const auto& al = by["alpha"];
+        check("look: alpha -- one repo one down (alpha), pushed, its remote, the commit",
+              al.repos.size() == 1 && al.repos[0].rel == "alpha" && al.state() == "pushed" && al.problem().empty() &&
+              al.repos[0].url == R + "/alpha.git" && al.repos[0].subject == "first light" && al.repos[0].head.size() == 40 &&
+              al.repos[0].branch == "main" && al.last_commit > 0, al.problem());
+        check("look: alpha's sizes -- the build folder found, build and .git shares inside the total",
+              al.builds == std::vector<std::string>{A + "/alpha/build"} && al.build >= 20000 && al.git > 0 &&
+              al.total > al.build + al.git);
+        check("look: beta -- 1 unpushed (as of the last fetch)",
+              by["beta"].state() == "1 unpushed" && by["beta"].problem().find("not pushed") != std::string::npos,
+              by["beta"].state());
+        check("look: gamma -- an untracked file is an uncommitted change, named",
+              by["gamma"].state() == "1 uncommitted change" && by["gamma"].problem().find("scratch.txt") != std::string::npos,
+              by["gamma"].problem());
+        check("look: delta (the repo at the project's top; Tidy's untracked .tidy-project is not a change) -- no remote",
+              by["delta"].repos.size() == 1 && by["delta"].repos[0].rel == "." && by["delta"].state() == "no remote" &&
+              by["delta"].problem().find("no remote") != std::string::npos, by["delta"].state());
+        check("look: omega (CMakeLists, no .git) -- no git repo",
+              by["omega"].state() == "no git repo" && !by["omega"].problem().empty());
+        put_file(H + "/Documents/build/x.txt", "a folder named build, no CMake beside it");
+        check("is_build: CMakeCache.txt, or \"build\" beside .git / CMakeLists -- not any folder named build",
+              cd::is_build(A + "/alpha/build") && !cd::is_build(H + "/Documents/build") && !cd::is_build(A + "/docs"));
+
+        const auto keep = cd::keep_of(al);
+        std::set<std::string> kept;
+        for (const auto& f : keep.files) kept.insert(f.substr(A.size() + 1));
+        const std::set<std::string> want{".tidy-project", "alpha/.gitignore", "alpha/CMakeLists.txt", "alpha/src/a.cpp",
+                                         "docs/HANDOFF.md", "scripts/alpha_backup.sh"};
+        std::string kl;
+        for (const auto& k : kept) kl += k + " ";
+        check("keep: docs, scripts, the committed source, the id file -- no .git, build, ignored, backups, fixes, hidden folder",
+              kept == want, kl);
+        check("keep: backups/, backups/Old/ as empty placeholders; fixes/ only said (the door never makes one)",
+              keep.empty == std::vector<std::string>{"backups", "backups/Old"} && keep.remake == std::vector<std::string>{"fixes"});
+        std::string left;
+        for (const auto& l : keep.left) left += l + " | ";
+        check("keep: what is left behind is said (.git, build folders, ignored files, backups/ and fixes/ contents, .cache)",
+              left.find(".git (") != std::string::npos && left.find("build folders") != std::string::npos &&
+              left.find("files git ignores (1 file") != std::string::npos && left.find("backups/ contents") != std::string::npos &&
+              left.find("fixes/ contents") != std::string::npos && left.find("hidden folder .cache") != std::string::npos, left);
+
+        core::catalog::Catalog cat;
+        cat.open(D, true);
+        for (const auto& [n, i] : by) {
+            core::catalog::ProjectRow r;
+            r.id = i.p.id; r.path = i.p.path; r.name = n;
+            cat.seen_project(r);
+        }
+        cat.set_status(al.p.id, "done", "");
+        cat.set_status(by["beta"].p.id, "done", "");
+        cat.set_status(by["delta"].p.id, "done", "");
+        const auto now = now_s();
+        const int year = std::stoi(core::archive::day_of(now).substr(0, 4));
+        const auto before = tree_facts(H);
+        std::vector<cd::Info> all;
+        for (const auto& i : infos) all.push_back(i);
+        auto pl = cd::plan_archive(H, all, cat.projects(), cat.archived(), now);
+        std::map<std::string, std::string> why;
+        for (const auto& [n, w] : pl.refused) why[n] = w;
+        check("archive plan: only alpha -- beta unpushed, gamma not Done, delta no remote, omega no id",
+              pl.projects == 1 && why.size() == 4 && why["beta-project"].find("not pushed") != std::string::npos &&
+              why["gamma-project"].find("not Done") != std::string::npos &&
+              why["delta-project"].find("no remote") != std::string::npos &&
+              why["omega-project"].find("no id") != std::string::npos, why["omega-project"]);
+        const std::string X = H + "/Archive/" + std::to_string(year) + "/Develop/gtk/alpha-project";
+        std::size_t dirs = 0, copies = 0, writes = 0;
+        bool order = true;
+        int phase = 0;
+        for (const auto& a : pl.plan.actions) {
+            const int ph = a.verb == dr::Verb::MakeDir ? 0 : a.verb == dr::Verb::Copy ? 1 : 2;
+            order &= ph >= phase;
+            phase = ph;
+            dirs += ph == 0; copies += ph == 1; writes += ph == 2;
+        }
+        check("archive plan: folders (~/Archive down, parents first), then 6 copies, then RESTORE.txt",
+              order && copies == 6 && writes == 1 && pl.plan.actions[0].to == H + "/Archive" &&
+              pl.plan.actions.back().to == X + "/RESTORE.txt" && pl.files == 6, std::to_string(dirs));
+        const auto& rt = pl.plan.actions.back().content;
+        check("RESTORE.txt: the remote, the branch, the commit, the clone line, the placeholders, what was left",
+              rt.find(R + "/alpha.git") != std::string::npos && rt.find("branch   main") != std::string::npos &&
+              rt.find("git clone " + R + "/alpha.git alpha && git -C alpha checkout " + al.repos[0].head) != std::string::npos &&
+              rt.find("backups/ backups/Old/\n") != std::string::npos && rt.find("Make again when you work on it: fixes/") != std::string::npos && rt.find("~/Develop/gtk/alpha-project") != std::string::npos);
+        check("archive plan: READ-ONLY", tree_facts(H) == before);
+
+        dr::Door door(H, D);
+        door.load();
+        check("archive run: refused unpreviewed", !door.run(pl.plan).ok);
+        pl.plan.previewed = true;
+        const auto ino = [](const std::string& p) { struct stat s{}; return ::lstat(p.c_str(), &s) == 0 ? s.st_ino : 0; };
+        const auto a_ino = ino(A + "/alpha/src/a.cpp");
+        const auto run = door.run(pl.plan);
+        check("archive run: the copy on disk -- source without .git / build, docs, scripts, empty placeholders, RESTORE.txt",
+              run.ok && read(X + "/alpha/src/a.cpp") == "int main(){}\n" && read(X + "/docs/HANDOFF.md") == "# handoff\n" &&
+              !fs::exists(X + "/alpha/.git") && !fs::exists(X + "/alpha/build") && !fs::exists(X + "/alpha/notes.log") &&
+              fs::is_empty(X + "/backups/Old") && !fs::exists(X + "/fixes") && !fs::exists(X + "/backups/s001.zip") &&
+              !fs::exists(X + "/.cache") && read(X + "/RESTORE.txt") == rt, run.messages.empty() ? "" : run.messages[0]);
+        check("archive run: a COPY -- the live project untouched (same inode, .git and build still there)",
+              ino(A + "/alpha/src/a.cpp") == a_ino && fs::exists(A + "/alpha/.git") && fs::exists(A + "/alpha/build/obj/a.o"));
+        const auto n = cd::record(cat, door, run.batch, H, now);
+        std::size_t match = 0;
+        for (const auto& r : cat.archived())
+            match += r.sha256 == sh::of_file(r.path) && (r.origin.empty() ? r.path == X + "/RESTORE.txt"
+                                                                         : r.origin.rfind(A + "/", 0) == 0);
+        check("record: 7 fingerprints (6 copies + RESTORE.txt), the bytes' SHA-256, origin = the live file",
+              n == 7 && cat.archived().size() == 7 && match == 7, std::to_string(n));
+        const auto arch = cd::archived_of(cat.archived(), A);
+        st::Settings S;
+        S.media = {{"SSD", M}};
+        auto book = core::removal::book_of(cat);
+        check("archived_of: the batch, its folder, 7 files; the line says not backed up yet",
+              arch.top == X && arch.rows.size() == 7 && arch.batch == run.batch &&
+              cd::archived_line(arch, book, S).find("not backed up yet") != std::string::npos,
+              cd::archived_line(arch, book, S));
+        auto again = cd::plan_archive(H, {al}, cat.projects(), cat.archived(), now);
+        check("archive plan: again -> refused, archived already, nothing changed",
+              again.plan.actions.empty() && again.refused.size() == 1 &&
+              again.refused[0].second.find("archived already") != std::string::npos);
+
+        // The live folder: not before a proof on media read back NOW.
+        core::backup::register_media(S.media, false);
+        auto tr = cd::plan_trash(H, {al}, book, S, false);
+        check("trash plan: not proved -> refused, says how many and what to do",
+              tr.plan.actions.empty() && tr.refused.size() == 1 && tr.refused[0].second.find("7 archive files not proved") != std::string::npos &&
+              tr.refused[0].second.find("back it up first") != std::string::npos, tr.refused.empty() ? "" : tr.refused[0].second);
+        for (const auto& r : cat.archived()) {   // the media copies, as Back up would leave them (proved)
+            const std::string to = M + "/" + r.path.substr((H + "/Archive/").size());
+            put_file(to, read(r.path));
+            cat.put_copy({r.id, "SSD", to, r.sha256, r.size, now, 0});
+        }
+        book = core::removal::book_of(cat);
+        check("archived_line: proved on SSD -- the live folder may go",
+              cd::archived_line(arch, book, S).find("proved on SSD") != std::string::npos, cd::archived_line(arch, book, S));
+        put_file(A + "/docs/HANDOFF.md", "# handoff, edited after the archive\n");
+        tr = cd::plan_trash(H, {cd::look(al.p)}, book, S, false);
+        check("trash plan: a live file changed since the archive -> refused, named",
+              tr.plan.actions.empty() && tr.refused[0].second.find("changed: docs/HANDOFF.md") != std::string::npos,
+              tr.refused[0].second);
+        put_file(A + "/docs/HANDOFF.md", "# handoff\n");
+        put_file(M + "/" + std::to_string(year) + "/Develop/gtk/alpha-project/alpha/src/a.cpp", "rotted");
+        tr = cd::plan_trash(H, {cd::look(al.p)}, book, S, false);
+        check("trash plan: a media copy differs now -> refused (read back, not the catalog's word)",
+              tr.plan.actions.empty() && tr.refused[0].second.find("differs now") != std::string::npos, tr.refused[0].second);
+        put_file(M + "/" + std::to_string(year) + "/Develop/gtk/alpha-project/alpha/src/a.cpp", "int main(){}\n");
+        const auto before_t = tree_facts(H);
+        tr = cd::plan_trash(H, {cd::look(al.p)}, book, S, false);
+        check("trash plan: proved now -> ONE Trash of the live folder, the reason says where; READ-ONLY",
+              tr.plan.actions.size() == 1 && tr.plan.actions[0].verb == dr::Verb::Trash && tr.plan.actions[0].from == A &&
+              tr.plan.actions[0].reason.find("on SSD") != std::string::npos && tree_facts(H) == before_t,
+              tr.refused.empty() ? "" : tr.refused[0].second);
+        tr.plan.previewed = true;
+        const auto tr_run = door.run(tr.plan);
+        check("trash run: the live folder in the Trash whole (its .git too), the archive copy stays",
+              tr_run.ok && !fs::exists(A) && fs::exists(H + "/.local/share/Trash/files/alpha-project/alpha/.git") &&
+              read(X + "/alpha/src/a.cpp") == "int main(){}\n");
+        const auto tr_undo = door.undo();
+        check("trash undo: back where it was, .git and build with it", tr_undo.ok && fs::exists(A + "/alpha/.git") &&
+              ino(A + "/alpha/src/a.cpp") == a_ino && fs::exists(A + "/alpha/build/CMakeCache.txt"));
+
+        // Clean build folders.
+        auto cl = cd::plan_clean({cd::look(al.p), by["beta"]});
+        check("clean plan: alpha's build folder to the Trash, its size; beta has none (said)",
+              cl.plan.actions.size() == 1 && cl.plan.actions[0].from == A + "/alpha/build" && cl.plan.actions[0].bytes >= 20000 &&
+              cl.refused.size() == 1 && cl.refused[0].second == "no build folder" &&
+              cl.plan.label.rfind("Clean build folders: alpha-project (", 0) == 0, cl.plan.label);
+        cl.plan.previewed = true;
+        const auto cl_run = door.run(cl.plan);
+        check("clean run: build/ gone, the source and .git stay; look again -> no build share",
+              cl_run.ok && !fs::exists(A + "/alpha/build") && fs::exists(A + "/alpha/src/a.cpp") &&
+              cd::look(al.p).build == 0 && cd::look(al.p).builds.empty());
+        check("clean undo: build/ back", door.undo().ok && read(A + "/alpha/build/CMakeCache.txt") == "cache");
+
+        // The archive undone: the copy goes (to the Trash), the fingerprints with it.
+        const auto un = door.undo();
+        const auto dropped = core::archive::after_undo(cat, run.batch);
+        check("archive undo: the copy and its folders gone from ~/Archive, the 7 fingerprints dropped, live untouched",
+              un.ok && !fs::exists(X) && dropped == 7 && cat.archived().empty() && ino(A + "/alpha/src/a.cpp") == a_ino,
+              un.messages.empty() ? "" : un.messages[0]);
         dr::set_media_roots({});
         fs::remove_all(root);
     }

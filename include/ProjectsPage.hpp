@@ -24,9 +24,12 @@
 // door's refusals, Do it runs it, Activity undoes it. "Leave it here" is
 // written by core::own (<data>/projects.ini) and never asked again.
 //
-// States: start (hero + Look) | results (to place / placed / left) | preview.
+// States: start (hero + Look) | results (to place / placed / left) | preview |
+// code (s021: CodeView -- code projects: status, pushed, sizes; archive, clean).
 // ─────────────────────────────────────────────────────────────────────────────
 namespace Gtk { class Window; class Label; class ListBox; class Button; }
+
+namespace tidy { class CodeView; }
 
 namespace tidy {
 
@@ -42,6 +45,8 @@ public:
     // s012c: the tile's "New project -> <template>": the form, that template
     // picked, the name box focused. Nothing is made until Preview + Do it.
     void new_from(const std::string& template_name);
+    // s021: the Code projects view (git state, sizes, archive, clean).
+    void show_code();
 
 private:
     void build_start();
@@ -98,6 +103,7 @@ private:
         std::string used, used_name;             // Use*: the other project
     };
     std::vector<Was> m_status_undo;
+    CodeView* m_code = nullptr;              // s021
 };
 
 }  // namespace tidy

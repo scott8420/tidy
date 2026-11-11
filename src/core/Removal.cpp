@@ -62,6 +62,26 @@ std::string offer_why(const Book& b, const std::string& id) {
     return "archived, proved on " + join(on) + " -- read back again before it goes";
 }
 
+std::vector<std::string> proved_now(const std::string& home, const Book& b, const settings::Settings& s,
+                                    const catalog::Archived& a, bool other_disk, std::vector<std::string>* not_on) {
+    std::vector<std::string> on;
+    for (const auto* c : copies_of(b, a.id)) {
+        const auto* m = media_named(s, c->media);
+        if (!m) { if (not_on) not_on->push_back(c->media + " (not in Settings now)"); continue; }
+        if (auto why = backup::problem(*m, home, other_disk); !why.empty()) {
+            if (not_on) not_on->push_back(c->media + " (" + why + ")");
+            continue;
+        }
+        std::uint64_t csize = 0;
+        if (backup::read_back(c->path, &csize) != a.sha256 || csize != a.size) {
+            if (not_on) not_on->push_back(c->media + " (the copy there is gone or differs now)");
+            continue;
+        }
+        on.push_back(c->media);
+    }
+    return on;
+}
+
 Planned plan(const std::string& home, const Book& b, const settings::Settings& s,
              const std::vector<std::string>& paths, bool other_disk) {
     Planned out;
@@ -84,21 +104,8 @@ Planned plan(const std::string& home, const Book& b, const settings::Settings& s
                                             "back it up again first");
                 continue;
             }
-            std::vector<std::string> on, not_on;
-            for (const auto* c : copies_of(b, a.id)) {
-                const auto* m = media_named(s, c->media);
-                if (!m) { not_on.push_back(c->media + " (not in Settings now)"); continue; }
-                if (auto why = backup::problem(*m, home, other_disk); !why.empty()) {
-                    not_on.push_back(c->media + " (" + why + ")");
-                    continue;
-                }
-                std::uint64_t csize = 0;
-                if (backup::read_back(c->path, &csize) != a.sha256 || csize != a.size) {
-                    not_on.push_back(c->media + " (the copy there is gone or differs now)");
-                    continue;
-                }
-                on.push_back(c->media);
-            }
+            std::vector<std::string> not_on;
+            const auto on = proved_now(home, b, s, a, other_disk, &not_on);
             if (static_cast<int>(on.size()) < s.proofs_needed) {
                 std::string why = "proved now on " + std::to_string(on.size()) + " of the " +
                                   std::to_string(s.proofs_needed) + " needed";

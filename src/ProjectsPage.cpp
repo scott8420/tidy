@@ -1,4 +1,5 @@
 #include "ProjectsPage.hpp"
+#include "CodeView.hpp"
 #include "Log.hpp"
 #include "core/Catalog.hpp"
 #include "core/Facts.hpp"
@@ -106,7 +107,15 @@ ProjectsPage::ProjectsPage(dr::Door& door, std::string home, std::string data_di
     build_results();
     build_preview();
     build_new();
+    m_code = Gtk::make_managed<CodeView>(m_door, m_home, m_data_dir, m_fixture, m_changed,
+                                         [this] { on_look(); });
+    add(*m_code, "code");
     set_visible_child("start");
+}
+
+void ProjectsPage::show_code() {
+    set_visible_child("code");
+    if (!m_code->looked()) m_code->fill();
 }
 
 std::string ProjectsPage::shown(const std::string& path) const {
@@ -151,6 +160,12 @@ void ProjectsPage::build_start() {
     nw->set_tooltip_text("A template's tree under a name you give, with its id -- previewed first");
     nw->signal_clicked().connect([this] { show_new(); });
     start->append(*nw);
+    auto code = Gtk::make_managed<Gtk::Button>("Code projects...");
+    code->set_name("projects.start.code");
+    code->set_halign(Gtk::Align::CENTER);
+    code->set_tooltip_text("Each code project: pushed?, sizes (build, .git), status -- archive the done ones, clean builds");
+    code->signal_clicked().connect([this] { show_code(); });
+    start->append(*code);
     add(*start, "start");
 }
 
@@ -195,6 +210,11 @@ void ProjectsPage::build_results() {
     nw->set_name("projects.new");
     nw->signal_clicked().connect([this] { show_new(); });
     bar->append(*nw);
+    auto code = Gtk::make_managed<Gtk::Button>("Code projects...");
+    code->set_name("projects.code");
+    code->set_tooltip_text("Each code project: pushed?, sizes (build, .git), status -- archive the done ones, clean builds");
+    code->signal_clicked().connect([this] { show_code(); });
+    bar->append(*code);
     box->append(*bar);
     add(*box, "results");
 }
@@ -340,6 +360,7 @@ void ProjectsPage::on_look() {
 
 void ProjectsPage::refresh_if_shown() {
     if (get_visible_child_name() == "results") fill();
+    if (get_visible_child_name() == "code") m_code->refresh_if_shown();
 }
 
 void ProjectsPage::fill() {

@@ -103,6 +103,7 @@ add_library(tidy_core STATIC
     src/core/Sha256.cpp      # SHA-256, no library: the archive's fingerprint (s013a)
     src/core/Help.cpp        # "How to use Tidy": the process, step by step (s017)
     src/core/Removal.cpp     # removal: to the Trash, archived ones only when proved NOW on media (s014)
+    src/core/Code.cpp        # code archive: git state, sizes, archive copy + RESTORE.txt, live trash, clean builds (s021)
     src/core/Backup.cpp      # the backup: copies of ~/Archive on media, read back + proved (s013b)
     src/core/Archive.cpp     # the archive: ~/Archive/<year>/<its folder>; tag + move plans; fingerprints (s013a)
     src/core/Homing.cpp      # files home: by type (subfolder required) or into a project; "name (2)" (s011)
@@ -158,6 +159,7 @@ add_executable(tidy
     src/ProjectsPage.cpp
     src/PurposesPage.cpp
     src/HomePage.cpp
+    src/CodeView.cpp          # s021: Code projects -- status, pushed, sizes; archive done, trash archived, clean
     src/SortPage.cpp          # s020: the one-step Sort
     src/DuePage.cpp
     src/ArchivePage.cpp

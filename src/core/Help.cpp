@@ -106,6 +106,19 @@ const std::vector<Topic>& topics() {
           "the same tree. Drift shows where a project has wandered from its template."},
          {"Templates -> Lift from a project.", "Keep or remove folders; set where projects of this kind live.", "Save."},
          "templates"},
+        {"code", "Projects", "Code projects",
+         {"A code project's source lives on its remote (GitHub). What is worth keeping in the archive is the "
+          "project folder: docs, scripts and the committed source -- not .git, not build folders. Done is your "
+          "call; Tidy archives a project only when everything in it is pushed and committed.",
+          "Archive done... makes a COPY in ~/Archive/<year>/<its folder>/ with RESTORE.txt (the remote, branch, last "
+          "commit and the clone line); backups/ and backups/Old/ come empty, fixes/ is yours and not made. The live "
+          "folder goes to the Trash only after Back up, when every archived file reads back the same from your "
+          "disks -- and only if nothing changed since."},
+         {"Projects -> Code projects...: each one, pushed or not, its size and how much is build and .git.",
+          "Select -> Set to Done.", "Archive done... -> preview -> Do it.",
+          "Archive -> Back up... -> Do it.", "Code projects -> select -> Trash archived... -> Do it.",
+          "Clean build folders... frees the build folders of any selected project (the build makes them again)."},
+         "projects"},
 
         // ── When Tidy says so ─────────────────────────────────────────────────
         {"due", "When Tidy says so", "Due",

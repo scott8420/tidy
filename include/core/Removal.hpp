@@ -51,6 +51,12 @@ struct Planned {
 Planned plan(const std::string& home, const Book& b, const settings::Settings& s,
              const std::vector<std::string>& paths, bool other_disk = true);
 
+// s021: the media an archived file is proved on NOW -- each copy on media the
+// settings still name, the disk there, the copy read back (flush + cache
+// drop) the archive's bytes. `not_on` collects why the others don't count.
+std::vector<std::string> proved_now(const std::string& home, const Book& b, const settings::Settings& s,
+                                    const catalog::Archived& a, bool other_disk, std::vector<std::string>* not_on);
+
 // After the door ran `batch`: each archived file it trashed -> a `removed` row.
 std::size_t record(catalog::Catalog& cat, const latch::door::Door& d, std::uint64_t batch,
                    const std::vector<catalog::Removed>& pending, std::int64_t now);

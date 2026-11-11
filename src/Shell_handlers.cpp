@@ -80,6 +80,7 @@ void Shell::on_settings() {  // handler: the Settings window
     if (m_purposes) m_purposes->refresh_if_shown();
     if (m_home_page) m_home_page->refresh_if_shown();
     if (m_sort_page) m_sort_page->refresh_if_shown();   // s020
+    if (m_projects) m_projects->refresh_if_shown();     // s021: the code view's archived lines
             if (auto lg = log::get(log::Area::Shell))
                 lg->info("settings saved: aging {} days, {} junk patterns, rescan every {} min", s.aging_days,
                          s.junk.size(), s.rescan_minutes);
