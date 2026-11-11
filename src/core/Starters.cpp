@@ -70,6 +70,20 @@ std::vector<Starter> make() {
         out.push_back({std::move(t), about});
     };
     kind("creative-project", "Creative", "The base tree every creative kind shares", [](Template&) {});
+    {   // Not a creative kind: our gtk workspace, smaller (Scott, s010a). The
+        // repo folder (tidy/, curvz/...) differs per project, so it is unnamed.
+        Template t;
+        t.name = "code-project";
+        t.category = "Develop";
+        t.folders = {{"backups", Role::History}, {"backups/Old", Role::History}, {"docs", Role::Input},
+                     {"fixes", Role::Input},     {"scripts", Role::Input}};
+        routes(t, {"zip"}, "backups");
+        routes(t, {"md"}, "docs");
+        routes(t, {"sh"}, "scripts");
+        routes(t, {"patch", "diff"}, "fixes");
+        sorted(t);
+        out.push_back({std::move(t), "Our gtk workspace: the repo beside backups, docs, fixes, scripts"});
+    }
     kind("3d-project", "3D", "Models, textures and renders; .blend in Work", [](Template& t) {
         add(t, {"Assets/Models", "Assets/Textures", "Assets/Renders"});
         routes(t, {"blend"}, "Work");

@@ -1396,7 +1396,7 @@ int main(int argc, char** argv) {
             if (auto ps = tp::problems(s.t); !ps.empty()) { clean = false; why = s.t.name + ": " + ps.front(); }
             if (tp::parse(tp::format(s.t)) != s.t) { round = false; why = s.t.name + " round trip"; }
         }
-        check("starters: nine, the base first, every name its own", all.size() == 9 && names.size() == 9 &&
+        check("starters: ten, the base first, every name its own", all.size() == 10 && names.size() == 10 &&
               all.front().t.name == "creative-project" && all.front().t.category == "Creative");
         check("starters: every one passes the template's problems()", clean, why);
         check("starters: every one reads back the same (format -> parse)", round, why);
@@ -1409,6 +1409,7 @@ int main(int argc, char** argv) {
         bool shares = true;
         for (const auto& s : all)
             for (const auto& f : b.folders) {
+                if (s.t.name == "code-project") continue;
                 const auto* g = tp::find(s.t, f.path);
                 if (!g || g->role != f.role) { shares = false; why = s.t.name + " lacks " + f.path; }
             }
@@ -1437,6 +1438,14 @@ int main(int argc, char** argv) {
         for (const auto& s : all)
             if (!tp::route_for(s.t, "book.pdf").empty() || !tp::route_for(s.t, "book.epub").empty()) no_pdf = false;
         check("starters: pdf / epub route nowhere -- the row asks", no_pdf);
+        {
+            const auto& c = st::find("code-project")->t;
+            check("starters: code-project -- our gtk workspace: backups(+Old) history, docs, fixes, scripts; ~/Develop",
+                  c.category == "Develop" && c.folders.size() == 5 && tp::find(c, "fixes") &&
+                  tp::find(c, "backups/Old")->role == R::History && !tp::find(c, "Assets") &&
+                  tp::route_for(c, "s010a_starters.zip") == "backups" && tp::route_for(c, "HANDOFF.md") == "docs" &&
+                  tp::route_for(c, "tidy_backup.sh") == "scripts");
+        }
         check("starters: find by name; an unknown is none", st::find("cad-project") && !st::find("fixes-project"));
 
         const fs::path root = fs::temp_directory_path() / ("tidy_selftest_starters_" + std::to_string(::getpid()));

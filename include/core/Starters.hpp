@@ -5,7 +5,8 @@
 // few Assets/ folders and its own routes in front of the base's (first fit
 // wins). A starter is never saved on its own: the Templates page opens it in
 // the builder as a draft, and Save writes it through core::own like any
-// other template. Kinds Scott never uses never reach his list; a new kind is
+// other template. code-project stands apart: our gtk workspace, smaller, not a
+// creative kind. Kinds Scott never uses never reach his list; a new kind is
 // a new entry here, or a tweak in the builder.
 //
 //   The base drops the code shell's fixes/ (Scott: "fixes are not needed").
@@ -23,7 +24,7 @@ struct Starter {
     std::string about;          // one line: what kind of project it is for
 };
 
-// The base first, then the kinds by name. Every one passes templates::problems().
+// The creative base first, code-project, then the creative kinds by name. Every one passes templates::problems().
 const std::vector<Starter>& all();
 const Starter* find(const std::string& name);
 

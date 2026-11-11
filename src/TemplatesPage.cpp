@@ -354,7 +354,7 @@ void TemplatesPage::show_starters() {
         row->append(*use);
         m_st_list->append(*row);
     }
-    m_st_summary->set_text(std::to_string(core::starters::all().size()) + " built in -- the creative base and its kinds");
+    m_st_summary->set_text(std::to_string(core::starters::all().size()) + " built in -- the creative base, its kinds, and code");
     set_visible_child("starters");
 }
 
