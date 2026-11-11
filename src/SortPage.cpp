@@ -8,6 +8,7 @@
 #include "core/Projects.hpp"
 #include "core/Templates.hpp"
 #include "core/Retention.hpp"
+#include "core/Routes.hpp"
 #include "core/Settings.hpp"
 #include "core/Tagging.hpp"
 
@@ -98,7 +99,8 @@ void SortPage::build_start() {
     sub->set_max_width_chars(52);
     start->append(*sub);
     auto note = label(std::string("Look sweeps the home for loose files. Each gets a place: kept files go home by type ") +
-                      "into a dated folder named for where they came from (~/Pictures/Desktop 2026-11); a download "
+                      "where you sent the same kind before (cover*.png -> ~/Pictures/Covers), else into a dated folder "
+                      "named for where they came from (~/Pictures/Desktop 2026-11); a download "
                       "you have opened goes on to ~/Entertainment (Movies, Series/<Show>/Season 01, Books, Music); "
                       "old records go to ~/Archive, fingerprinted; a folder moves whole; a -project goes to its "
                       "category. Unread downloads and your junk list stay, labelled. Hands-off "
@@ -207,7 +209,8 @@ void SortPage::fill() {
             const auto st = core::settings::parse(core::own::read(data, core::settings::kFile));
             const auto rep = core::birth::report(home, core::birth::sweep(home, dirs), l.now, st.old_years);
             const auto found = core::projects::find(home, core::projects::parse_left(core::own::read(data, core::projects::kFile)));
-            l.rows = so::rows(home, rep, st, l.now, found, core::templates::list(data));
+            const auto book = core::routes::parse(core::own::read(data, core::routes::kFile));   // s022
+            l.rows = so::rows(home, rep, st, l.now, found, core::templates::list(data), &book);
             return l;
         },
         [this](Look l) { show(std::move(l)); });
@@ -265,6 +268,9 @@ void SortPage::on_sort() {
     if (chosen.empty()) { m_status->set_text("Select some files first."); return; }
     auto planned = so::plan(m_home, chosen, static_cast<std::int64_t>(std::time(nullptr)));
     m_archiving = planned.archiving > 0;
+    m_learning.clear();
+    for (const auto& r : chosen)
+        if (r.go == so::Go::Home && !r.learned.folder.empty()) m_learning.push_back(r);
     while (auto* row = m_prev_list->get_row_at_index(0)) m_prev_list->remove(*row);
     const auto row = [&](const std::string& text, const char* css) {
         auto l = label(text, css, 0.0f);
@@ -338,6 +344,18 @@ void SortPage::on_run() {
         if (m_archiving) prints = core::archive::record(cat, m_door, r.batch, now);
     }
     m_archiving = false;
+    std::size_t taught = 0;
+    if (r.done > 0 && !m_learning.empty()) {   // s022: each learned route followed is a yes
+        auto book = core::routes::parse(core::own::read(m_data_dir, core::routes::kFile));
+        for (const auto& row : m_learning) {
+            std::error_code ec;
+            if (std::filesystem::exists(row.born.file.path, ec)) continue;   // refused / not moved: no yes
+            core::routes::learn(book, row.born, row.folder, row.learned);
+            ++taught;
+        }
+        if (taught) core::own::write(m_data_dir, core::routes::kFile, core::routes::format(book));
+    }
+    m_learning.clear();
     if (m_changed) m_changed();
     fill();   // first: it says "Looking..."; the Done line below replaces that and stays
     m_status->set_text(r.ok ? "Done: " + plan.label + " (" + std::to_string(r.done) + " steps; " +

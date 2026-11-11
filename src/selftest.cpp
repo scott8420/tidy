@@ -68,6 +68,7 @@
 #include "core/Paths.hpp"
 #include "core/Protection.hpp"
 #include "core/Sort.hpp"
+#include "core/Routes.hpp"
 #include "core/Shortcuts.hpp"
 #include "core/Catalog.hpp"
 #include "core/Facts.hpp"
@@ -1325,6 +1326,123 @@ int main(int argc, char** argv) {
               core::facts::tags_of(H + "/todo.txt").retention.empty() &&
               core::facts::tags_of(H + "/Downloads/cat.jpg").retention.empty() &&
               core::facts::tags_of(H + "/old-letter.txt").archived.empty());
+        std::error_code ec;
+        fs::remove_all(root, ec);
+    }
+
+    // ── s022: learned routes -- each send home remembered, proposed again ──
+    {
+        std::cout << "[routes]\n";
+        namespace ro = core::routes;
+        namespace so = core::sort;
+        namespace cb = core::birth;
+        check("name_glob: cover-final.png -> cover*.png; IMG_2034.JPG -> img*.jpg",
+              ro::name_glob("cover-final.png") == "cover*.png" && ro::name_glob("IMG_2034.JPG") == "img*.jpg",
+              ro::name_glob("IMG_2034.JPG"));
+        check("name_glob: no leading word, a short one, no extension -> none; cover.png -> cover*.png",
+              ro::name_glob("2026-03 invoice.pdf").empty() && ro::name_glob("ab-1.png").empty() &&
+              ro::name_glob("README").empty() && ro::name_glob("cover.png") == "cover*.png");
+        check("ext_glob: photo.PNG -> *.png; none without one",
+              ro::ext_glob("photo.PNG") == "*.png" && ro::ext_glob("Makefile").empty());
+
+        const fs::path root = fs::temp_directory_path() / ("tidy_selftest_routes_" + std::to_string(::getpid()));
+        fs::remove_all(root);
+        const fs::path home = root / "home";
+        make_home(home);
+        make_birth_extras(home);
+        fs::remove_all(home / ".local");
+        fs::create_directories(home / "Pictures/Covers");
+        fs::create_directories(home / "Pictures/Art");
+        put_file(home / "Desktop/cover-2.png", "png");
+        put_file(home / "Desktop/holiday.png", "png");
+        latch::protect::set_owned({});
+        const std::string H = fs::canonical(home).string();
+        const auto born = [&](const std::string& rel, const std::string& place) {
+            cb::Born b;
+            b.place = place;
+            b.file.path = H + "/" + rel;
+            return b;
+        };
+        check("from_of: Desktop, Downloads, Home, the folder it sits loose in",
+              ro::from_of(born("Desktop/a.png", "desktop")) == "Desktop" &&
+              ro::from_of(born("Downloads/a.png", "downloads")) == "Downloads" &&
+              ro::from_of(born("a.png", "home")) == "Home" && ro::from_of(born("Writing/a.txt", "top")) == "Writing");
+
+        ro::Book b;
+        check("propose: an empty book proposes nothing", ro::propose(b, H, born("Desktop/cover-2.png", "desktop")).folder.empty());
+        ro::learn(b, born("Desktop/cover-final.png", "desktop"), "Pictures/Covers", {});
+        check("learn: one send -> a name route and a from route, a yes each",
+              b.routes.size() == 2 && b.routes[0].kind == ro::Route::Kind::Name && b.routes[0].pattern == "cover*.png" &&
+              b.routes[1].kind == ro::Route::Kind::From && b.routes[1].pattern == "*.png" && b.routes[1].from == "Desktop" &&
+              b.routes[0].yes == 1 && b.routes[1].yes == 1, ro::format(b));
+        const auto p1 = ro::propose(b, H, born("Desktop/cover-2.png", "desktop"));
+        check("propose: the same kind -> the folder, by its name route", p1.folder == "Pictures/Covers" && p1.because == "cover*.png",
+              p1.because);
+        const auto p2 = ro::propose(b, H, born("Desktop/holiday.png", "desktop"));
+        check("propose: another .png from the Desktop -> by the from route", p2.folder == "Pictures/Covers" &&
+              p2.because == "*.png from Desktop", p2.because);
+        check("propose: a .png from Downloads, a .jpg from the Desktop -> nothing",
+              ro::propose(b, H, born("Downloads/holiday.png", "downloads")).folder.empty() &&
+              ro::propose(b, H, born("Desktop/holiday.jpg", "desktop")).folder.empty());
+        check("propose: a file already at the folder's top -> nothing",
+              ro::propose(b, H, born("Pictures/Covers/cover-9.png", "top")).folder.empty());
+        ro::learn(b, born("Desktop/cover-2.png", "desktop"), "Pictures/Covers", p1);
+        check("learn: a proposal followed is ONE yes (not two), no no",
+              b.routes.size() == 2 && b.routes[0].yes == 2 && b.routes[0].no == 0 && b.routes[1].yes == 2, ro::format(b));
+        const auto p3 = ro::propose(b, H, born("Desktop/cover-3.png", "desktop"));
+        ro::learn(b, born("Desktop/cover-3.png", "desktop"), "Pictures/Art", p3);
+        check("learn: sent elsewhere -> a no for the proposal, a yes for the new place",
+              b.routes[0].no == 1 && b.routes.size() == 4, ro::format(b));
+        check("propose: right more than wrong still wins (2-1 over 1-0: more yes)",
+              ro::propose(b, H, born("Desktop/cover-4.png", "desktop")).folder == "Pictures/Covers");
+        for (const char* n : {"Desktop/cover-4.png", "Desktop/cover-5.png"}) {
+            const auto p = ro::propose(b, H, born(n, "desktop"));
+            ro::learn(b, born(n, "desktop"), "Pictures/Art", p);
+        }
+        check("propose: corrected often enough, it turns", ro::propose(b, H, born("Desktop/cover-6.png", "desktop")).folder == "Pictures/Art");
+        const auto text = ro::format(b);
+        check("book: format / parse round trip", ro::parse(text) == b, text);
+        check("book: bad lines dropped (hidden, .., absolute, counts, a from without its place)",
+              ro::parse("route=name|a*.png||.secret|1|0\nroute=name|a*.png||Pictures/../..|1|0\n"
+                        "route=name|a*.png||/etc|1|0\nroute=name|a*.png||Pictures|x|0\nroute=from|*.png||Pictures|1|0\n")
+                  .routes.empty());
+        check("own: routes.ini is Tidy's own file to write", core::own::refusal(ro::kFile).empty(),
+              core::own::refusal(ro::kFile));
+        {   // a folder removed proposes nothing
+            ro::Book g;
+            ro::learn(g, born("Desktop/gone-1.png", "desktop"), "Pictures/Gone", {});
+            check("propose: the folder no longer there -> nothing",
+                  ro::propose(g, H, born("Desktop/gone-2.png", "desktop")).folder.empty());
+        }
+
+        // Sort: a learned route before the dated default; nothing learned -> dated as before.
+        const std::int64_t now = now_s();
+        core::settings::Settings st;
+        ro::Book sb;
+        ro::learn(sb, born("Desktop/cover-1.png", "desktop"), "Pictures/Covers", {});
+        const auto before = tree_facts(H);
+        const auto rep = cb::report(H, cb::sweep(H, ""), now, st.old_years);
+        const auto rows = so::rows(H, rep, st, now, {}, {}, &sb);
+        const auto row = [&](const std::string& rel) -> const so::Row* {
+            for (const auto& r : rows) if (r.born.file.path == H + "/" + rel) return &r;
+            return nullptr;
+        };
+        const auto* rc = row("Desktop/cover-final.png");
+        const auto* rp = row("Desktop/plan.txt");
+        check("sort: cover-final.png goes where you sent covers -- learned, said so",
+              rc && rc->go == so::Go::Home && rc->folder == "Pictures/Covers" && !rc->learned.folder.empty() &&
+              rc->why.rfind("learned: cover*.png -> Pictures/Covers (1 time)", 0) == 0, rc ? rc->why : "missing");
+        check("sort: holiday.png (a .png from the Desktop) too; plan.txt (nothing learned) -> the dated default",
+              row("Desktop/holiday.png") && row("Desktop/holiday.png")->folder == "Pictures/Covers" &&
+              rp && rp->learned.folder.empty() && rp->folder.rfind("Documents/Desktop ", 0) == 0, rp ? rp->folder : "missing");
+        check("sort: READ-ONLY with a book", tree_facts(H) == before);
+        const auto planned = so::plan(H, rows, now);
+        bool moved = false, made = false;
+        for (const auto& a : planned.plan.actions) {
+            moved |= a.verb == latch::door::Verb::Move && a.to == H + "/Pictures/Covers/cover-final.png";
+            made |= a.verb == latch::door::Verb::MakeDir && a.to == H + "/Pictures/Covers";
+        }
+        check("plan: into the learned folder, which is there already (no new folder)", moved && !made);
         std::error_code ec;
         fs::remove_all(root, ec);
     }

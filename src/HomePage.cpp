@@ -119,7 +119,8 @@ void HomePage::build_start() {
     auto note = label(std::string("Decided files still sitting loose -- at home's top, at a top folder's top, in Downloads or the Desktop. ") +
                       "By type, a file goes into a subfolder of its home folder (Pictures/Covers -- never loose in "
                       "Pictures); into a project, the project's template picks the folder. A name already taken "
-                      "there gets \"(2)\", and the preview says so. Every move undoable from Activity." +
+                      "there gets \"(2)\", and the preview says so. Tidy remembers where you send each kind "
+                      "(cover*.png -> Pictures/Covers) and proposes it next time. Every move undoable from Activity." +
                       (m_fixture ? "\n(a FIXTURE home: " + m_home + ")" : ""), "dim");
     note->set_name("home.note");
     note->set_max_width_chars(60);
@@ -263,6 +264,7 @@ void HomePage::fill() {
             for (const auto& pl : places)
                 if (pl.id == "downloads" || pl.id == "desktop") skip.push_back(fs::path(pl.path).filename().string());
             l.tops = ho::home_folders(home, skip);
+            l.book = core::routes::parse(core::own::read(data, core::routes::kFile));   // s022
             return l;
         },
         [this](Look l) { show(std::move(l)); });
@@ -273,14 +275,17 @@ void HomePage::show(Look look) {
     m_projects = std::move(look.projects);
     m_templates = std::move(look.templates);
     const auto offered = std::move(look.offered);
+    m_book = std::move(look.book);
     m_rows.clear();
-    std::size_t typed = 0;
+    std::size_t typed = 0, learned = 0;
+    std::vector<std::size_t> proposed;
     std::vector<SelectList::Item> items;
     for (const auto& b : offered) {
         Row r;
         r.born = b;
         const auto name = fs::path(b.file.path).filename().string();
         if (const auto* tr = ho::type_of(m_table, name)) { r.type_folder = tr->folder; r.type_pattern = tr->pattern; ++typed; }
+        r.learned = core::routes::propose(m_book, m_home, b);   // s022
         core::retention::Level lv{};
         const std::string level = core::retention::parse(b.file.tags.retention, lv) ? core::retention::title_of(lv) : b.file.tags.retention;
         SelectList::Item it;
@@ -288,28 +293,42 @@ void HomePage::show(Look look) {
         it.line = shown(fs::path(b.file.path).parent_path().string()) + "   -- " + level +
                   (r.type_folder.empty() ? "   -- no type for it (Settings: the type table) -- into a project"
                                          : "   -- by type: ~/" + r.type_folder);
+        if (!r.learned.folder.empty()) {   // s022: the proposal leads the line; the row starts selected
+            it.title += "   -> ~/" + r.learned.folder;
+            it.line += "   -- learned: " + r.learned.because + " (" + std::to_string(r.learned.times) +
+                       (r.learned.times == 1 ? " time)" : " times)");
+            proposed.push_back(m_rows.size());
+            ++learned;
+        }
         items.push_back(std::move(it));
         m_rows.push_back(r);
     }
     m_list->set_items(items);
     m_tops = std::move(look.tops);
-    std::vector<std::string> choices{"By type"};
+    m_offer = learned ? 1 : 0;
+    std::vector<std::string> choices;
+    if (m_offer) choices.push_back("Its proposal  (learned)");
+    choices.push_back("By type");
     for (const auto& t : m_tops) choices.push_back("Into ~/" + t);
     choices.push_back("Archive  (~/Archive/<year>, fingerprinted)");
     for (const auto& p : m_projects) choices.push_back("Into " + fs::path(p.path).filename().string());
     m_list->set_choices(choices);
+    m_list->select(proposed);   // s022: the learned ones start selected (Purposes' guesses do too)
     m_there_names = {"\x01"};   // force the refill
     on_selection();
     m_summary->set_text(std::to_string(offered.size()) + " decided file" + (offered.size() == 1 ? "" : "s") +
                         " loose in the home" +
                         "   |   " + std::to_string(typed) + " with a type   |   " + std::to_string(m_projects.size()) +
-                        " project" + (m_projects.size() == 1 ? "" : "s"));
+                        " project" + (m_projects.size() == 1 ? "" : "s") +
+                        (learned ? "   |   " + std::to_string(learned) + " with a learned home" : std::string()));
     if (m_status->get_text() != kLooking) {}   // s019: a "Done: ..." set while it looked stays
     else if (offered.empty())
         m_status->set_text("Nothing to send home: a file is offered once it carries a decision (the Closet) and still "
                            "sits loose -- at home's top, at a top folder's top, or in a landing place.");
     else
-        m_status->set_text("Select files, name a folder, then Set to. Every move is previewed first.");
+        m_status->set_text(learned ? "The files with a learned home are selected -- Set to: Its proposal. Or select "
+                                     "files, name a folder, then Set to. Every move is previewed first."
+                                   : "Select files, name a folder, then Set to. Every move is previewed first.");
 }
 
 // Set to (s018c): every selected file -> one destination. By type: each to its
@@ -318,11 +337,15 @@ void HomePage::show(Look look) {
 void HomePage::on_set(std::size_t choice) {
     const auto sel = m_list->selected();
     if (sel.empty()) { m_status->set_text("Select some files first."); return; }
+    m_teach.clear();
+    if (m_offer && choice == 0) { propose(sel); return; }   // s022: each to its learned home
+    choice -= m_offer;
     const std::size_t T = m_tops.size();
     if (choice > T + 1 + m_projects.size()) return;
     if (choice == T + 1) { archive(sel); return; }   // s018d: the archive, as Due does it
     const std::string box = m_folder->get_text();
     std::vector<ho::Pick> picks;
+    std::vector<Teach> teach;
     std::size_t untyped = 0;
     for (auto i : sel) {
         if (i >= m_rows.size()) continue;
@@ -349,6 +372,7 @@ void HomePage::on_set(std::size_t choice) {
         }
         if (!why.empty()) { m_status->set_text(name + ": " + why); return; }
         picks.push_back({r.born.file.path, folder, reason});
+        teach.push_back({r.born, folder, r.learned});
     }
     if (picks.empty()) {
         m_status->set_text(untyped ? "No type for " + std::string(untyped == 1 ? "that file" : "those files") +
@@ -360,6 +384,36 @@ void HomePage::on_set(std::size_t choice) {
     if (untyped) planned.plan.label += " (" + std::to_string(untyped) + " without a type left out)";
 
     m_archiving = false;
+    m_teach = std::move(teach);
+    show_preview(std::move(planned.plan), planned.renamed, {}, false);
+}
+
+// s022: Its proposal -- each selected file to where you sent its kind before.
+// One without a learned home is left out (said in the label).
+void HomePage::propose(const std::vector<std::size_t>& sel) {
+    std::vector<ho::Pick> picks;
+    std::vector<Teach> teach;
+    std::size_t none = 0;
+    for (auto i : sel) {
+        if (i >= m_rows.size()) continue;
+        const auto& r = m_rows[i];
+        if (r.learned.folder.empty()) { ++none; continue; }
+        picks.push_back({r.born.file.path, r.learned.folder,
+                         "learned: " + r.learned.because + " -> ~/" + r.learned.folder + " (" +
+                             std::to_string(r.learned.times) + (r.learned.times == 1 ? " time)" : " times)")});
+        teach.push_back({r.born, r.learned.folder, r.learned});
+    }
+    if (picks.empty()) {
+        m_status->set_text("No learned home for " + std::string(none == 1 ? "that file" : "those files") +
+                           " yet -- name a folder and Set to; Tidy remembers it.");
+        return;
+    }
+    auto planned = ho::plan(m_home, picks);
+    planned.plan.label = "Files home: " + std::to_string(picks.size()) + (picks.size() == 1 ? " file" : " files") +
+                         " to their learned homes";
+    if (none) planned.plan.label += " (" + std::to_string(none) + " without one left out)";
+    m_archiving = false;
+    m_teach = std::move(teach);
     show_preview(std::move(planned.plan), planned.renamed, {}, false);
 }
 
@@ -454,10 +508,22 @@ void HomePage::on_run() {
     }
     const bool archived = m_archiving;
     m_archiving = false;
+    if (r.done > 0 && !m_teach.empty()) {   // s022: each file that moved teaches its route
+        auto book = core::routes::parse(core::own::read(m_data_dir, core::routes::kFile));
+        std::size_t taught = 0;
+        for (const auto& t : m_teach) {
+            std::error_code ec;
+            if (fs::exists(t.born.file.path, ec)) continue;   // refused / not moved: nothing learned
+            core::routes::learn(book, t.born, t.folder, t.proposed);
+            ++taught;
+        }
+        if (taught) core::own::write(m_data_dir, core::routes::kFile, core::routes::format(book));
+    }
+    m_teach.clear();
     if (m_changed) m_changed();
     fill();
     set_visible_child("results");
-    m_status->set_text(r.ok ? "Done: " + plan.label + " (" + std::to_string(r.done) + " steps" +
+    m_status->set_text(r.ok ? "Done: " + plan.label + " (" + std::to_string(r.done) + (r.done == 1 ? " step" : " steps") +
                                   (archived ? "; " + std::to_string(prints) + " fingerprinted" : std::string()) +
                                   ") -- undo in Activity"
                             : plan.label + ": " + std::to_string(r.done) + " done, " + std::to_string(r.failed) +

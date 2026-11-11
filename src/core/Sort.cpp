@@ -113,7 +113,7 @@ std::string month_now(std::int64_t now) { return month_of(now); }
 
 std::vector<Row> rows(const std::string& home, const birth::Report& rep, const settings::Settings& st,
                       std::int64_t now, const std::vector<projects::Project>& found,
-                      const std::vector<templates::Template>& ts) {
+                      const std::vector<templates::Template>& ts, const routes::Book* learned) {
     const auto table = homing::table(st);
     const auto v = closet::view(rep, now, st);
     std::vector<Row> out;
@@ -182,9 +182,20 @@ std::vector<Row> rows(const std::string& home, const birth::Report& rep, const s
         }
         default: break;
         }
+        r.go = Go::Home;
+        // s022: where you sent the same kind before, before the dated default.
+        if (learned) {
+            if (auto p = routes::propose(*learned, home, r.born); !p.folder.empty()) {
+                r.folder = p.folder;
+                r.learned = p;
+                r.why = "learned: " + p.because + " -> " + p.folder + " (" + std::to_string(p.times) +
+                        (p.times == 1 ? " time" : " times") + "), " + rt::title_of(r.level) +
+                        (was_read ? " (read since it arrived)" : "");
+                return;
+            }
+        }
         const auto* t = homing::type_of(table, name);
         const std::string tf = t ? t->folder : "Documents";
-        r.go = Go::Home;
         std::string folder;
         if (const auto why = homing::by_type(tf, dated(r.born, tf, now), &folder); !why.empty()) {
             r.go = Go::Stays;

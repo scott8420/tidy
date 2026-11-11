@@ -82,6 +82,7 @@ add_library(tidy_core STATIC
     src/core/Paths.cpp       # where Tidy's records live (resolved, not created)
     src/core/Protection.cpp  # s019a: Hands-off folders + Samson's places -> latch
     src/core/Sort.cpp        # s020: the one-step Sort -- a level and a place for every loose file
+    src/core/Routes.cpp      # s022: learned routes -- each send home remembered, proposed again
     src/core/Shortcuts.cpp   # one shortcut list, two consumers (Cairn)
     src/core/Facts.cpp       # statx times + user.tidy.* tags, read (s004)
     src/core/Scan.cpp        # walk folders, read-only: never Protected, packages whole (s004)

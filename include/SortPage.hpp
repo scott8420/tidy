@@ -54,6 +54,7 @@ private:
     std::vector<core::sort::Row> m_rows;   // the list's rows, by index
     std::optional<latch::door::Plan> m_plan;
     bool m_archiving = false;
+    std::vector<core::sort::Row> m_learning;   // s022: rows moved by a learned route -- a yes each at Do it
 
     Gtk::Label* m_summary = nullptr;
     Gtk::Label* m_status = nullptr;

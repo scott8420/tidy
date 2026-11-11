@@ -62,7 +62,9 @@ const std::vector<Topic>& topics() {
          "purposes"},
         {"sort", "Every day", "Sort -- the whole home in one pass",
          {"Sort gives every loose file in the home a level and a place at once. Kept files go home by type (Settings: "
-          "the type table; no type -> Documents) into a dated folder named for where they came from: "
+          "the type table; no type -> Documents) where you sent the same kind before (a learned route: "
+          "cover*.png -> ~/Pictures/Covers, or *.png from the Desktop -> wherever those went), else into a dated "
+          "folder named for where they came from: "
           "~/Pictures/Desktop 2026-11, ~/Documents/Downloads 2026-11, ~/Pictures/Loose 2026-11 for one already "
           "loose in Pictures. Old records (Historical) go to ~/Archive/<year>, fingerprinted. Ephemeral files and "
           "your junk list stay where they are, labelled.",
@@ -84,14 +86,19 @@ const std::vector<Topic>& topics() {
         {"home", "Every day", "Files home",
          {"Sends decided files to their folder: by type (pictures to Pictures, from the type table in Settings), into "
           "a folder at home's top you name (a subfolder of it, never loose), into the project they serve, or into the "
-          "archive (~/Archive/<year>, fingerprinted -- as Due archives). A name already taken becomes \"name (2)\" -- nothing is overwritten."},
+          "archive (~/Archive/<year>, fingerprinted -- as Due archives). A name already taken becomes \"name (2)\" -- nothing is overwritten.",
+          "Tidy remembers each send: the file's leading word (cover-final.png -> cover*.png) and its type + where it "
+          "sat (*.png from the Desktop) -> the folder. Next time a file of that kind shows \"-> ~/Pictures/Covers\", "
+          "already selected; Set to -> Its proposal sends each to its learned home. Sending one elsewhere teaches "
+          "that too -- a route you override often enough gives way. Sort uses the same routes."},
          {"Files home -> Look.",
           "Select the files that go to one place (click, Shift, Ctrl, Ctrl+A, or drag a box).",
           "Folder: by type, the subfolder (required -- there: lists the ones already made); into a project, a folder "
           "in it, or leave it empty for the template's route.",
           "Set to -> By type, Into ~/<a folder at home's top> (Photos, Documents ...), Archive, or Into <project> "
           "(or right-click the selection).",
-          "Preview -> Do it. Files going elsewhere: select them and Set to again."},
+          "Preview -> Do it. Files going elsewhere: select them and Set to again.",
+          "Files with a learned home come up selected: Set to -> Its proposal."},
          "home"},
 
         // ── Projects ──────────────────────────────────────────────────────────

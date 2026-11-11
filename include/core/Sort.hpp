@@ -8,7 +8,8 @@
 //     age, the junk list), or Keep when nothing is proposed;
 //   * Keep / Until done / Held -> home BY TYPE (Settings: the type table; no
 //     type -> Documents) into a DATED subfolder named for where it came from:
-//     ~/Pictures/Desktop 2026-11 (Scott chose the dated default, s020);
+//     ~/Pictures/Desktop 2026-11 (Scott chose the dated default, s020) --
+//     unless a learned route knows better (s022: cover*.png -> Pictures/Covers);
 //   * Historical -> ~/Archive/<year>/<its folder> (core::archive, fingerprinted);
 //   * Ephemeral -> stays (tagged); Due removes it when its days are up;
 //   * the junk list -> the Junk Drawer: stays (tagged Keep, role junk-drawer);
@@ -21,6 +22,7 @@
 #include "core/Projects.hpp"
 #include "core/Templates.hpp"
 #include "core/Retention.hpp"
+#include "core/Routes.hpp"
 #include "core/Settings.hpp"
 
 #include <latch/Door.hpp>
@@ -45,6 +47,7 @@ struct Row {
     bool             folder_whole = false;             // s020a: a plain folder, moved whole (born.file is the folder)
     bool             is_project = false;               // s020a: a <name>-project, placed by its category
     projects::Project project;
+    routes::Proposal learned;                          // s022: the learned route it goes by (folder "" = none)
 };
 
 // s020a -- Downloads (Scott): everything arrives Ephemeral; once READ (opened
@@ -71,7 +74,8 @@ std::string dated(const birth::Born& b, const std::string& type_folder, std::int
 // Projects page"); a code project stays where it is.
 std::vector<Row> rows(const std::string& home, const birth::Report& rep, const settings::Settings& st,
                       std::int64_t now, const std::vector<projects::Project>& found = {},
-                      const std::vector<templates::Template>& ts = {});
+                      const std::vector<templates::Template>& ts = {},
+                      const routes::Book* learned = nullptr);   // s022: a learned route before the dated default
 
 struct Planned {
     latch::door::Plan plan;

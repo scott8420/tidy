@@ -3,6 +3,7 @@
 #include "core/Birth.hpp"
 #include "core/Homing.hpp"
 #include "core/Projects.hpp"
+#include "core/Routes.hpp"
 #include "core/Templates.hpp"
 
 #include <gtkmm/stack.h>
@@ -45,6 +46,7 @@ private:
         core::birth::Born born;
         std::string type_folder;               // "Pictures"; "" = no type for it
         std::string type_pattern;              // "*.png"
+        core::routes::Proposal learned;        // s022: where you sent its kind before ("" = none)
     };
 
     void build_start();
@@ -57,10 +59,12 @@ private:
         std::vector<core::templates::Template> templates;
         std::vector<core::birth::Born> offered;
         std::vector<std::string> tops;
+        core::routes::Book book;           // s022
     };
     void show(Look look);
-    void on_set(std::size_t choice);       // 0 by type | 1..T ~/top | T+1 Archive | then each project
+    void on_set(std::size_t choice);       // [Its proposal] | by type | ~/top x T | Archive | each project
     void on_selection();                   // the "there:" list follows the selection
+    void propose(const std::vector<std::size_t>& sel);   // s022: Set to Its proposal
     void archive(const std::vector<std::size_t>& sel);   // s018d: Set to Archive -> core::archive's plan
     void show_preview(latch::door::Plan plan, const std::vector<std::string>& renamed,
                       const std::vector<std::pair<std::string, std::string>>& not_planned, bool archiving);
@@ -81,6 +85,10 @@ private:
     bool m_archiving = false;                 // s018d: the plan shown is core::archive's (record at Do it)
     std::vector<std::string> m_tops;          // s018d: home's top folders, as in Set to after "By type"
     OffThread<Look> m_look;                   // s019
+    core::routes::Book m_book;                // s022: the learned routes, as read at the last look
+    std::size_t m_offer = 0;                  // s022: 1 when Set to opens with "Its proposal"
+    struct Teach { core::birth::Born born; std::string folder; core::routes::Proposal proposed; };
+    std::vector<Teach> m_teach;               // s022: learned at Do it, for the files that moved
 
     Gtk::Label*    m_summary = nullptr;
     SelectList*    m_list = nullptr;          // s018c
