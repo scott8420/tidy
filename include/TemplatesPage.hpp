@@ -34,6 +34,8 @@ private:
     void build_start();
     void build_list();
     void build_builder();
+    void build_starters();                           // s010a: the built-in templates
+    void show_starters();
 
     void show_home();                                // start or list, from what is saved
     void open(core::templates::Builder b);           // -> builder
@@ -66,6 +68,9 @@ private:
     Gtk::Label*   m_list_summary = nullptr;
     Gtk::ListBox* m_list = nullptr;
     Gtk::Label*   m_list_status = nullptr;
+
+    Gtk::Label*   m_st_summary = nullptr;          // starters (s010a)
+    Gtk::ListBox* m_st_list = nullptr;
 
     Gtk::ScrolledWindow* m_b_scroll = nullptr;   // its place kept across a refresh
     Gtk::Label*    m_b_summary = nullptr;

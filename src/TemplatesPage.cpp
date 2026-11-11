@@ -1,6 +1,9 @@
 #include "TemplatesPage.hpp"
 #include "Log.hpp"
 #include "core/Pages.hpp"
+#include "core/Starters.hpp"
+
+#include <algorithm>
 
 #include <gtkmm/adjustment.h>
 #include <gtkmm/box.h>
@@ -93,6 +96,7 @@ TemplatesPage::TemplatesPage(Gtk::Window& parent, std::string home, std::string 
     build_start();
     build_list();
     build_builder();
+    build_starters();
     show_home();
 }
 
@@ -115,7 +119,8 @@ void TemplatesPage::build_start() {
     auto sub = label(p ? p->promise : "", "hero-sub");
     sub->set_max_width_chars(52);
     start->append(*sub);
-    auto note = label(std::string("No templates yet. Start from the common shell (backups, docs, fixes, scripts), or ") +
+    auto note = label(std::string("No templates yet. Start from a built-in starter (the creative base and its kinds), the common shell "
+                      "(backups, docs, fixes, scripts), or ") +
                       "lift one from a project you have -- a proposal you go through folder by folder, never "
                       "copied as-is. Saved in " + shown(m_data_dir) + "/templates." +
                       (m_fixture ? "\n(a FIXTURE home: " + m_home + ")" : ""), "dim");
@@ -126,6 +131,12 @@ void TemplatesPage::build_start() {
     auto row = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::HORIZONTAL, 12);
     row->set_halign(Gtk::Align::CENTER);
     row->set_margin_top(18);
+    auto sts = Gtk::make_managed<Gtk::Button>("Starters...");
+    sts->set_name("templates.start.starters");
+    sts->set_valign(Gtk::Align::CENTER);
+    sts->set_tooltip_text("Built-in templates for creative work -- open one, change what you like, Save");
+    sts->signal_clicked().connect([this] { show_starters(); });
+    row->append(*sts);
     auto lift = Gtk::make_managed<Gtk::Button>("Lift from a project...");
     lift->set_name("templates.start.lift");
     lift->set_valign(Gtk::Align::CENTER);
@@ -154,6 +165,10 @@ void TemplatesPage::build_list() {
     m_list_status->set_name("templates.list.status");
     m_list_status->set_hexpand(true);
     bar->append(*m_list_status);
+    auto sts = Gtk::make_managed<Gtk::Button>("Starters...");
+    sts->set_name("templates.list.starters");
+    sts->signal_clicked().connect([this] { show_starters(); });
+    bar->append(*sts);
     auto lift = Gtk::make_managed<Gtk::Button>("Lift from a project...");
     lift->set_name("templates.list.lift");
     lift->signal_clicked().connect([this] { on_lift(); });
@@ -292,7 +307,57 @@ void TemplatesPage::build_builder() {
     add(*box, "builder");
 }
 
+void TemplatesPage::build_starters() {
+    auto box = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::VERTICAL, 0);
+    box->set_name("templates.starters.page");
+    box->append(*head_box(&m_st_summary, "Starters", "templates.starters.summary"));
+    m_st_list = listbox("templates.starters");
+    box->append(*scrolled(*m_st_list));
+    auto bar = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::HORIZONTAL, 10);
+    bar->add_css_class("act-bar");
+    auto note = label("Use opens one in the builder. Nothing is written until you Save.", "dim", 0.0f);
+    note->set_hexpand(true);
+    bar->append(*note);
+    auto back = Gtk::make_managed<Gtk::Button>("Back");
+    back->set_name("templates.starters.back");
+    back->signal_clicked().connect([this] { show_home(); });
+    bar->append(*back);
+    box->append(*bar);
+    add(*box, "starters");
+}
+
 // ── States ─────────────────────────────────────────────────────────────────
+void TemplatesPage::show_starters() {
+    m_saved = tp::list(m_data_dir);
+    clear(m_st_list);
+    for (const auto& s : core::starters::all()) {
+        const auto& t = s.t;
+        const bool have = std::any_of(m_saved.begin(), m_saved.end(), [&](const tp::Template& x) { return x.name == t.name; });
+        auto row = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::HORIZONTAL, 10);
+        row->set_margin(8);
+        auto text = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::VERTICAL, 2);
+        text->set_hexpand(true);
+        text->append(*label(t.name + (have ? "  (saved)" : ""), nullptr, 0.0f));
+        text->append(*label(s.about + " -- ~/" + t.category + ", " + std::to_string(t.folders.size()) + " folders, " +
+                            std::to_string(t.routes.size()) + " routes", "dim", 0.0f));
+        row->append(*text);
+        auto use = Gtk::make_managed<Gtk::Button>("Use...");
+        use->set_name("templates.starters.use." + t.name);
+        use->set_tooltip_text(have ? "Saved already -- rename it in the builder to keep a second one"
+                                   : "Open in the builder; Save writes it");
+        use->signal_clicked().connect([this, t, have] {
+            open(tp::Builder(tp::Draft{t, {}, ""}));
+            m_b_status->set_text(have
+                ? "The starter " + t.name + " -- that name is saved already. Rename it to keep this one too."
+                : "The starter " + t.name + ". Change what you like; Save writes it. Nothing is written until then.");
+        });
+        row->append(*use);
+        m_st_list->append(*row);
+    }
+    m_st_summary->set_text(std::to_string(core::starters::all().size()) + " built in -- the creative base and its kinds");
+    set_visible_child("starters");
+}
+
 void TemplatesPage::show_home() {
     m_saved = tp::list(m_data_dir);
     if (m_saved.empty()) { set_visible_child("start"); return; }

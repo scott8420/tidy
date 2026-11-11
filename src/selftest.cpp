@@ -77,6 +77,7 @@
 #include "core/Settings.hpp"
 #include "core/Own.hpp"
 #include "core/Templates.hpp"
+#include "core/Starters.hpp"
 #include "core/Projects.hpp"
 #include "core/Purposes.hpp"
 
@@ -1377,6 +1378,79 @@ int main(int argc, char** argv) {
               tp::drift(ab.tpl(), tp::folders_of(H + "/Writing/Mary-project")).empty() && ab.edits() == 3 &&
               ab.save_refusal({"writing-project"}).empty());
         check("drift: READ-ONLY -- the projects untouched", tree_facts(H + "/Writing") == writing);
+        fs::remove_all(root);
+    }
+
+    // ── s010a: the starters -- the creative base + its kinds ─────────────────
+    {
+        std::cout << "[starters]\n";
+        namespace tp = core::templates;
+        namespace st = core::starters;
+        using R = tp::Role;
+        const auto& all = st::all();
+        std::set<std::string> names;
+        bool clean = true, round = true;
+        std::string why;
+        for (const auto& s : all) {
+            names.insert(s.t.name);
+            if (auto ps = tp::problems(s.t); !ps.empty()) { clean = false; why = s.t.name + ": " + ps.front(); }
+            if (tp::parse(tp::format(s.t)) != s.t) { round = false; why = s.t.name + " round trip"; }
+        }
+        check("starters: nine, the base first, every name its own", all.size() == 9 && names.size() == 9 &&
+              all.front().t.name == "creative-project" && all.front().t.category == "Creative");
+        check("starters: every one passes the template's problems()", clean, why);
+        check("starters: every one reads back the same (format -> parse)", round, why);
+        const auto& b = all.front().t;
+        check("starters: the base -- no fixes/; Assets/ by medium with Fonts; Work + Final + Promo product; Drafts history",
+              b.folders.size() == 15 && !tp::find(b, "fixes") && tp::find(b, "Assets/Fonts") &&
+              tp::find(b, "Work")->role == R::Product && tp::find(b, "Final")->role == R::Product &&
+              tp::find(b, "Promo")->role == R::Product && tp::find(b, "Drafts")->role == R::History &&
+              tp::find(b, "backups")->role == R::History);
+        bool shares = true;
+        for (const auto& s : all)
+            for (const auto& f : b.folders) {
+                const auto* g = tp::find(s.t, f.path);
+                if (!g || g->role != f.role) { shares = false; why = s.t.name + " lacks " + f.path; }
+            }
+        check("starters: every kind holds the whole base tree, roles unchanged", shares, why);
+        bool free_work = true;
+        for (const auto& s : all)
+            for (const auto& f : s.t.folders)
+                if (f.path.rfind("Work/", 0) == 0) free_work = false;
+        std::vector<std::string> proj;
+        for (const auto& f : b.folders) proj.push_back(f.path);
+        proj.push_back("Work/r003_2026-11-10");
+        proj.push_back("Work/r004_2026-11-11");
+        std::sort(proj.begin(), proj.end());
+        check("starters: Work/ names no children -- revision folders are never drift",
+              free_work && tp::drift(b, proj).empty());
+        auto rt = [&](const char* n, const char* file) { return tp::route_for(st::find(n)->t, file); };
+        check("starters: base routes -- curvz -> Graphics, ttf -> Fonts, scriv -> Work, md -> Notes",
+              rt("creative-project", "cover.curvz") == "Assets/Graphics" && rt("creative-project", "Body.TTF") == "Assets/Fonts" &&
+              rt("creative-project", "Jasper.scriv") == "Work" && rt("creative-project", "ideas.md") == "Notes");
+        check("starters: a kind's route wins over the base's",
+              rt("design-project", "logo.curvz") == "Work" && rt("music-project", "kick.wav") == "Assets/Samples" &&
+              rt("music-project", "take.mp3") == "Assets/Audio" && rt("3d-project", "beauty.png") == "Assets/Renders" &&
+              rt("video-project", "a001.MOV") == "Assets/Footage" && rt("photo-project", "IMG_0001.NEF") == "Assets/Raw" &&
+              rt("writing-project", "ch1.odt") == "Work" && rt("cad-project", "bracket.step") == "Assets/Parts");
+        bool no_pdf = true;
+        for (const auto& s : all)
+            if (!tp::route_for(s.t, "book.pdf").empty() || !tp::route_for(s.t, "book.epub").empty()) no_pdf = false;
+        check("starters: pdf / epub route nowhere -- the row asks", no_pdf);
+        check("starters: find by name; an unknown is none", st::find("cad-project") && !st::find("fixes-project"));
+
+        const fs::path root = fs::temp_directory_path() / ("tidy_selftest_starters_" + std::to_string(::getpid()));
+        fs::remove_all(root);
+        const std::string D = (root / "data").string();
+        tp::Builder ub(tp::Draft{st::find("art-project")->t, {}, ""});
+        const bool may = ub.save_refusal({}).empty();
+        check("starters: nothing written until Save -- no data folder", !fs::exists(root));
+        const auto err = tp::save(D, ub.tpl());
+        const auto back = tp::list(D);
+        check("starters: Use -> Save writes it through own; it reads back the same",
+              may && err.empty() && back.size() == 1 && back.front() == st::find("art-project")->t, err);
+        check("starters: Use again over the saved name -> Save refused",
+              !tp::Builder(tp::Draft{st::find("art-project")->t, {}, ""}).save_refusal({"art-project"}).empty());
         fs::remove_all(root);
     }
 
