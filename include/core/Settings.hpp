@@ -32,6 +32,20 @@ inline constexpr int kArchiveDefault = 365, kArchiveMin = 30, kArchiveMax = 3650
 inline constexpr int kBgDefault = 60, kBgMin = 15, kBgMax = 1440;
 inline constexpr int kNotifyDefault = 10, kNotifyMin = 1, kNotifyMax = 100000;
 
+// s013b backup media (Scott, s014: "a mounted folder picked in Settings"):
+// the SSD's folder, the Pi's mount. Tidy copies the archive there and never
+// moves anything there. `label` is what the Archive page calls it, and what a
+// proof is kept under -- rename it and the old proofs stay under the old name.
+// In settings.ini: "media=Big SSD|/run/media/scott/Big SSD/Tidy".
+struct Media {
+    std::string label, path;
+    bool operator==(const Media&) const = default;
+};
+// "Big SSD | /run/media/..." or a bare path -> a Media (label = the folder's
+// name when none). false = not a line (no absolute path).
+bool media_of(const std::string& line, Media& out);
+std::string media_line(const Media& m);   // "Big SSD | /run/media/..."
+
 struct Settings {
     int aging_days = kAgingDefault;
     int bg_minutes = kBgDefault;
@@ -45,6 +59,7 @@ struct Settings {
     // exactly these lines, even none.
     std::vector<std::string> home;
     bool home_set = false;
+    std::vector<Media> media;   // s013b: labels unique, first wins
     bool operator==(const Settings&) const = default;
 };
 

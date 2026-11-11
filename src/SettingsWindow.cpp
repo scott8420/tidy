@@ -4,6 +4,7 @@
 #include <gtkmm/adjustment.h>
 #include <gtkmm/box.h>
 #include <gtkmm/button.h>
+#include <gtkmm/filedialog.h>
 #include <gtkmm/label.h>
 #include <gtkmm/scrolledwindow.h>
 #include <gtkmm/spinbutton.h>
@@ -29,7 +30,7 @@ SettingsWindow::SettingsWindow(Gtk::Window& parent, SaveFn on_save) : m_save(std
     set_transient_for(parent);
     set_modal(true);
     set_hide_on_close(true);
-    set_default_size(480, 640);
+    set_default_size(520, 700);
 
     auto box = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::VERTICAL, 8);
     box->set_margin(20);
@@ -140,6 +141,47 @@ SettingsWindow::SettingsWindow(Gtk::Window& parent, SaveFn on_save) : m_save(std
     });
     box->append(*reset);
 
+    // s013b: the backup media -- the SSD's folder, the Pi's mount.
+    auto media = text("Backup media", "heading");
+    media->set_margin_top(14);
+    box->append(*media);
+    box->append(*text("One per line: a name | a folder on the disk (\"Big SSD | /run/media/scott/Big SSD/Tidy\"). "
+                      "The Archive page copies ~/Archive there and proves each copy by reading it back. Tidy never "
+                      "moves or overwrites anything there. The folder must be on its own disk -- an unplugged "
+                      "disk's empty mount point is refused.", "dim"));
+    auto mscroll = Gtk::make_managed<Gtk::ScrolledWindow>();
+    mscroll->set_has_frame(true);
+    mscroll->set_min_content_height(60);
+    m_media = Gtk::make_managed<Gtk::TextView>();
+    m_media->set_name("settings.media");
+    m_media->set_monospace(true);
+    m_media->set_top_margin(6);
+    m_media->set_left_margin(6);
+    mscroll->set_child(*m_media);
+    box->append(*mscroll);
+    auto addm = Gtk::make_managed<Gtk::Button>("Add folder...");
+    addm->set_name("settings.media.add");
+    addm->set_halign(Gtk::Align::START);
+    addm->set_tooltip_text("Pick a folder on a backup disk; it is added as a line (Save keeps it)");
+    addm->signal_clicked().connect([this] {
+        auto dlg = Gtk::FileDialog::create();
+        dlg->set_title("A folder on the backup disk");
+        dlg->set_modal(true);
+        dlg->select_folder(*this, [this, dlg](const Glib::RefPtr<Gio::AsyncResult>& res) {
+            try {
+                const auto f = dlg->select_folder_finish(res);
+                if (!f || f->get_path().empty()) return;
+                st::Media m;
+                if (!st::media_of(f->get_path(), m)) return;
+                auto buf = m_media->get_buffer();
+                std::string t = buf->get_text();
+                if (!t.empty() && t.back() != '\n') t += "\n";
+                buf->set_text(t + st::media_line(m) + "\n");
+            } catch (const Glib::Error&) {}   // cancelled
+        });
+    });
+    box->append(*addm);
+
     auto bar = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::HORIZONTAL, 10);
     bar->set_margin_top(8);
     m_status = text("");
@@ -154,8 +196,19 @@ SettingsWindow::SettingsWindow(Gtk::Window& parent, SaveFn on_save) : m_save(std
     save->add_css_class("suggested-action");
     save->signal_clicked().connect([this] { on_save_clicked(); });
     bar->append(*save);
-    box->append(*bar);
-    set_child(*box);
+    // s013b: the settings grew past a laptop screen -- they scroll; Save stays in view.
+    auto outer = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::VERTICAL, 0);
+    auto page = Gtk::make_managed<Gtk::ScrolledWindow>();
+    page->set_name("settings.page");
+    page->set_vexpand(true);
+    page->set_policy(Gtk::PolicyType::NEVER, Gtk::PolicyType::AUTOMATIC);
+    page->set_child(*box);
+    outer->append(*page);
+    bar->set_margin_start(20);
+    bar->set_margin_end(20);
+    bar->set_margin_bottom(14);
+    outer->append(*bar);
+    set_child(*outer);
 }
 
 SettingsWindow::~SettingsWindow() = default;
@@ -172,6 +225,9 @@ void SettingsWindow::show(const st::Settings& current) {
     lines.clear();
     for (const auto& l : core::homing::lines_of(core::homing::table(current))) lines += l + "\n";
     m_home->get_buffer()->set_text(lines);
+    lines.clear();
+    for (const auto& m : current.media) lines += st::media_line(m) + "\n";
+    m_media->get_buffer()->set_text(lines);
     m_status->set_text("");
     present();
 }
@@ -211,6 +267,24 @@ void SettingsWindow::on_save_clicked() {
     if (table != core::homing::defaults()) {
         s.home_set = true;
         s.home = core::homing::lines_of(table);
+    }
+    // s013b: the media -- every line must read, names unique.
+    s.media.clear();
+    n = 0;
+    for (const auto& l : st::patterns_of(m_media->get_buffer()->get_text())) {
+        ++n;
+        st::Media m;
+        if (!st::media_of(l, m)) {
+            m_status->set_text("Backup media, line " + std::to_string(n) + ": write it \"name | /a/folder\"");
+            return;
+        }
+        for (const auto& x : s.media)
+            if (x.label == m.label) {
+                m_status->set_text("Backup media, line " + std::to_string(n) + ": the name \"" + m.label +
+                                   "\" is used twice");
+                return;
+            }
+        s.media.push_back(m);
     }
     const std::string err = m_save ? m_save(s) : std::string("nothing to save to");
     if (err.empty()) set_visible(false);

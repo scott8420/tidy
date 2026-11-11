@@ -7,6 +7,7 @@
 #include "ProjectsPage.hpp"
 #include "PurposesPage.hpp"
 #include "HomePage.hpp"
+#include "ArchivePage.hpp"
 #include "DuePage.hpp"
 
 #include <gtkmm/button.h>
@@ -145,6 +146,13 @@ void Shell::build_page(const std::string& id) {  // zone: a page's hero
         m_due = Gtk::make_managed<DuePage>(*m_door, m_home, m_data_dir, m_fixture, [this] { return user_dirs_text(); },
                                            [this] { refresh_activity(); });
         m_stack.add(*m_due, id, pp ? pp->title : "Due");
+        return;
+    }
+    if (id == "archive") {                                 // s013b: what is archived, on which media; Back up...
+        const auto* pp = core::pages::find(id);
+        m_archive = Gtk::make_managed<ArchivePage>(*m_door, m_home, m_data_dir, m_fixture,
+                                                   [this] { return m_settings.media; }, [this] { refresh_activity(); });
+        m_stack.add(*m_archive, id, pp ? pp->title : "Archive");
         return;
     }
     if (id == "home") {                                    // s011: files home -- moves through the door

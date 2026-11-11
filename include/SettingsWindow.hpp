@@ -36,6 +36,7 @@ private:
     Gtk::SpinButton* m_archive = nullptr;    // s012a
     Gtk::TextView*   m_junk = nullptr;
     Gtk::TextView*   m_home = nullptr;      // s011: the type table
+    Gtk::TextView*   m_media = nullptr;     // s013b: backup media, "name | /folder"
     Gtk::Label*      m_status = nullptr;
 };
 

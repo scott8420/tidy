@@ -87,6 +87,7 @@
 #include "core/Background.hpp"
 #include "core/Archive.hpp"
 #include "core/Sha256.hpp"
+#include "core/Backup.hpp"
 
 #include <latch/Door.hpp>
 #include <latch/Protect.hpp>
@@ -2573,6 +2574,172 @@ int main(int argc, char** argv) {
               dropped == 3 && cat.archived().empty() &&
               read(H + "/Archive/2026/Documents/Letters/old.odt") == "already there",
               u.messages.empty() ? "" : u.messages[0]);
+        fs::remove_all(root);
+    }
+
+    // ── s013b: backup to media + proof, through the door (latch 0.4 media roots), on a FIXTURE ──
+    {
+        std::cout << "[backup]\n";
+        const auto read = [](const std::string& f) { std::ifstream in(f); std::stringstream o; o << in.rdbuf(); return o.str(); };
+        namespace bk = core::backup;
+        namespace sh = core::sha256;
+        namespace st = core::settings;
+        namespace dr = latch::door;
+
+        {   // settings: media lines
+            st::Media m;
+            const auto s1 = st::parse("media=Big SSD|/run/media/scott/Big SSD/Tidy/\nmedia=Pi|/mnt/pi//arc\n"
+                                      "media=Big SSD|/elsewhere\nmedia=relative/path\n");
+            check("settings: media lines -- name | folder; cleaned; a name used twice -> the first; a relative folder dropped",
+                  s1.media.size() == 2 && s1.media[0] == st::Media{"Big SSD", "/run/media/scott/Big SSD/Tidy"} &&
+                  s1.media[1] == st::Media{"Pi", "/mnt/pi/arc"} && st::parse(st::format(s1)) == s1);
+            check("settings: a bare folder is named after itself; \"name | folder\" reads back",
+                  st::media_of("/run/media/scott/Samsung T7", m) && m.label == "Samsung T7" &&
+                  st::media_of(st::media_line({"Pi", "/mnt/pi"}), m) && m == st::Media{"Pi", "/mnt/pi"} &&
+                  !st::media_of("Pi | ", m));
+        }
+
+        const fs::path root = fs::temp_directory_path() / ("tidy_selftest_bk_" + std::to_string(::getpid()));
+        fs::remove_all(root);
+        const std::string H = (root / "home").string(), D = (root / "data").string(), M = (root / "ssd" / "Tidy").string();
+        const st::Media media{"SSD", M};
+        check("where: ~/Archive/2026/Documents/a.odt -> <media>/2026/Documents/a.odt; outside ~/Archive -> none",
+              bk::where_on(media, H, H + "/Archive/2026/Documents/a.odt") == M + "/2026/Documents/a.odt" &&
+              bk::where_on(media, H, H + "/Documents/a.odt").empty() && bk::where_on(media, H, H + "/Archive").empty());
+
+        // The archive (as s013a leaves it): files + their fingerprints in the catalog.
+        core::catalog::Catalog cat;
+        cat.open(D, true);
+        const auto arc = [&](const std::string& id, const std::string& rel, const std::string& body,
+                             const std::string& fingerprint_of) {
+            put_file(H + "/Archive/" + rel, body);
+            core::catalog::Archived a;
+            a.id = id;
+            a.path = H + "/Archive/" + rel;
+            a.sha256 = sh::of_text(fingerprint_of);
+            a.size = fingerprint_of.size();
+            a.when = now_s();
+            cat.put_archived(a);
+        };
+        arc("a", "2026/Documents/Letters/a.odt", "alpha", "alpha");
+        arc("b", "2026/notes.txt", "beta", "beta");
+        arc("c", "2025/c.odt", "gamma", "gamma");              // already on the disk, the same bytes
+        arc("d", "2025/d.odt", "delta", "delta");              // already on the disk, other bytes
+        arc("f", "2026/f.odt", "FOXTROT", "foxtrot");          // changed since it was archived
+        arc("e", "2026/gone.odt", "echo", "echo");
+        fs::remove(H + "/Archive/2026/gone.odt");               // the catalog's, not on disk any more
+        put_file(M + "/2025/c.odt", "gamma");
+        put_file(M + "/2025/d.odt", "DELTA!");
+        fs::create_directories(H + "/.local/share/Trash/files");
+
+        dr::set_media_roots({});
+        auto pl = bk::plan(H, media, cat.archived(), cat.copies());
+        check("no media registered -> the door refuses every copy there (latch 0.4)",
+              !pl.plan.actions.empty() && !dr::Door(H, D).refusal(pl.plan.actions.back(), {}).empty());
+
+        check("problem: missing -> said; on home's own disk (other_disk on) -> \"not mounted?\"; one-disk fixture (off) -> none",
+              !bk::problem({"X", (root / "nope").string()}, H, false).empty() &&
+              bk::problem(media, H, true).find("mounted") != std::string::npos && bk::problem(media, H, false).empty());
+
+        bk::register_media({media}, false);
+        const auto home_before = tree_facts(H), media_before = tree_facts((root / "ssd").string());
+        pl = bk::plan(H, media, cat.archived(), cat.copies());
+        std::size_t mk = 0, cp = 0;
+        bool dirs_first = true, seen_copy = false;
+        std::vector<std::string> made;
+        for (const auto& a : pl.plan.actions) {
+            if (a.verb == dr::Verb::MakeDir) { ++mk; dirs_first &= !seen_copy; made.push_back(a.to.substr(M.size())); }
+            if (a.verb == dr::Verb::Copy) { ++cp; seen_copy = true; }
+        }
+        check("plan: 3 copies, the missing folders top down and first (2025 is there), 2 already there, the gone one said",
+              cp == 3 && mk == 3 && dirs_first &&
+              made == std::vector<std::string>{"/2026", "/2026/Documents", "/2026/Documents/Letters"} &&
+              pl.checks.size() == 2 && pl.skipped.size() == 1 && pl.proved == 0 &&
+              pl.plan.label == "Back up: 3 files -> SSD", pl.plan.label);
+        check("plan: READ-ONLY until run (home and media)",
+              tree_facts(H) == home_before && tree_facts((root / "ssd").string()) == media_before);
+
+        dr::Door door(H, D);
+        door.load();
+        {
+            std::vector<std::string> mm;
+            bool all = true;
+            for (const auto& a : pl.plan.actions) {
+                all &= door.refusal(a, mm).empty();
+                if (a.verb == dr::Verb::MakeDir) mm.push_back(a.to);
+            }
+            check("the door accepts every step, in order", all);
+        }
+        check("run: refused unpreviewed", !door.run(pl.plan).ok);
+        struct stat s0{};
+        ::stat((H + "/Archive/2026/Documents/Letters/a.odt").c_str(), &s0);
+        pl.plan.previewed = true;
+        const auto run = door.run(pl.plan);
+        struct stat s1{}, s2{};
+        ::stat((H + "/Archive/2026/Documents/Letters/a.odt").c_str(), &s1);
+        ::stat((M + "/2026/Documents/Letters/a.odt").c_str(), &s2);
+        check("run: copied (a new file on the media; the archive's file untouched); the different one there untouched",
+              run.ok && read(M + "/2026/Documents/Letters/a.odt") == "alpha" && read(M + "/2026/notes.txt") == "beta" &&
+              s0.st_ino == s1.st_ino && s1.st_ino != s2.st_ino && read(H + "/Archive/2026/Documents/Letters/a.odt") == "alpha" &&
+              read(M + "/2025/d.odt") == "DELTA!", run.messages.empty() ? "" : run.messages[0]);
+
+        const auto t0 = now_s();
+        const auto proofs = bk::prove(cat, door, run.batch, media, pl.checks, t0);
+        std::size_t ok = 0;
+        std::string bad;
+        for (const auto& p : proofs) { if (p.ok) ++ok; else bad += p.id + ":" + p.why + " "; }
+        const auto ca = cat.copies_of("a"), cc = cat.copies_of("c");
+        check("prove: read back from the disk -- a, b, and c (already there) proved; d (other bytes) and f (changed "
+              "since archived) NOT",
+              proofs.size() == 5 && ok == 3 && cat.copies().size() == 3 && cat.copies_of("d").empty() &&
+              cat.copies_of("f").empty() && bad.find("d:") != std::string::npos && bad.find("f:") != std::string::npos, bad);
+        check("prove: the proof row -- media, where on it, SHA-256, size, when; the copy's batch; already-there = batch 0",
+              ca.size() == 1 && ca[0].media == "SSD" && ca[0].path == M + "/2026/Documents/Letters/a.odt" &&
+              ca[0].sha256 == sh::of_text("alpha") && ca[0].size == 5 && ca[0].proved == t0 && ca[0].batch == run.batch &&
+              cc.size() == 1 && cc[0].batch == 0);
+        check("status: \"on SSD <day>\"; none -> \"not on media yet\"",
+              bk::status_line(ca) == "on SSD " + core::archive::day_of(t0) && bk::status_line({}) == "not on media yet");
+
+        auto again = bk::plan(H, media, cat.archived(), cat.copies());
+        std::size_t cp2 = 0;
+        for (const auto& a : again.plan.actions) cp2 += a.verb == dr::Verb::Copy;
+        check("again: the 3 proved are left out; d and f are there now -> read back only, never copied over",
+              again.proved == 3 && cp2 == 0 && again.checks.size() == 2 && again.skipped.size() == 1);
+
+        const auto trash_before = tree_facts(H + "/.local/share/Trash");
+        const auto u = door.undo();
+        const auto dropped = bk::after_undo(cat, run.batch);
+        const std::string mt = dr::media_trash_dir(dr::media_roots()[0]);
+        check("undo: the copies leave the media into ITS trash (not home's); their proofs go; c's (already there) stays",
+              u.ok && !fs::exists(M + "/2026/Documents/Letters/a.odt") && !fs::exists(M + "/2026/notes.txt") &&
+              fs::exists(mt + "/files") && tree_facts(H + "/.local/share/Trash") == trash_before &&
+              dropped == 2 && cat.copies().size() == 1 && cat.copies_of("c").size() == 1 &&
+              read(M + "/2025/c.odt") == "gamma" && read(M + "/2025/d.odt") == "DELTA!" &&
+              read(H + "/Archive/2026/notes.txt") == "beta", u.messages.empty() ? mt : u.messages[0]);
+
+        // A real other disk: /dev/shm (tmpfs), other_disk ON -- as the app runs.
+        struct stat shm{}, tmp{};
+        const std::string S = "/dev/shm/tidy_selftest_bk_" + std::to_string(::getpid());
+        if (::stat("/dev/shm", &shm) == 0 && ::stat(H.c_str(), &tmp) == 0 && shm.st_dev != tmp.st_dev &&
+            ::access("/dev/shm", W_OK) == 0) {
+            fs::remove_all(S);
+            fs::create_directories(S);
+            const st::Media shm_media{"shm", S};
+            bk::register_media({shm_media});
+            auto p2 = bk::plan(H, shm_media, cat.archived(), cat.copies());
+            p2.plan.previewed = true;
+            const auto r2 = door.run(p2.plan);
+            const auto pr2 = bk::prove(cat, door, r2.batch, shm_media, p2.checks, now_s());
+            std::size_t ok2 = 0;
+            for (const auto& p : pr2) ok2 += p.ok;
+            check("a real other disk (/dev/shm, other_disk on): problem none; 5 copied, 4 proved (f changed), on \"shm\"",
+                  bk::problem(shm_media, H).empty() && r2.ok && ok2 == 4 && cat.copies_of("a").size() == 1 &&
+                  cat.copies_of("c").size() == 2, r2.messages.empty() ? std::to_string(ok2) : r2.messages[0]);
+            fs::remove_all(S);
+        } else {
+            check("a real other disk: /dev/shm not a separate disk here -- skipped", true);
+        }
+        dr::set_media_roots({});
         fs::remove_all(root);
     }
 

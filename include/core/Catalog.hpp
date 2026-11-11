@@ -54,8 +54,21 @@ struct Archived {
     std::uint64_t size = 0;
     std::int64_t  when = 0;            // archived (unix seconds)
     std::uint64_t batch = 0;
-    std::string   media;               // s013b: the media label it was proved on ("" = none yet)
-    std::int64_t  proved = 0;          // s013b: when the read-back matched (0 = not yet)
+    std::string   media;               // unused: s013b keeps proofs in `copies` (a file may be on two disks)
+    std::int64_t  proved = 0;          // unused (as above)
+};
+
+// s013b: an archived file's copy on a backup disk, PROVED -- read back from
+// the disk after the copy and its SHA-256 + size matched the archive's
+// fingerprint. One row per (file id, media label); only matches are kept.
+// `batch` = the door batch that copied it (undo drops the row); 0 = it was
+// already there and was only read back (nothing to undo).
+struct Copy {
+    std::string   id, media, path;     // the file's id; the media's label; where it is on the disk
+    std::string   sha256;
+    std::uint64_t size = 0;
+    std::int64_t  proved = 0;          // when the read-back matched
+    std::uint64_t batch = 0;
 };
 
 class Catalog {
@@ -100,6 +113,12 @@ public:
     std::vector<Archived> archived() const;                  // by path
     std::optional<Archived> archived_by_id(const std::string& id) const;
     std::size_t drop_archived_batch(std::uint64_t batch);    // rows the batch made; how many went
+
+    // Media copies (s013b).
+    bool put_copy(const Copy& c);                            // insert or replace, by (id, media)
+    std::vector<Copy> copies() const;                        // by media, path
+    std::vector<Copy> copies_of(const std::string& id) const;
+    std::size_t drop_copies_batch(std::uint64_t batch);
 
 private:
     std::vector<Entry> query(const char* sql, const std::vector<std::string>& args) const;

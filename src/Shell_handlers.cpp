@@ -1,6 +1,8 @@
 #include "Shell.hpp"
 #include "core/Archive.hpp"
+#include "ArchivePage.hpp"
 #include "DuePage.hpp"
+#include "core/Backup.hpp"
 #include "ProjectsPage.hpp"
 #include "PurposesPage.hpp"
 #include "HomePage.hpp"
@@ -60,6 +62,8 @@ void Shell::on_settings() {  // handler: the Settings window
             const std::string err = core::own::write(m_data_dir, core::settings::kFile, core::settings::format(s));
             if (!err.empty()) return err;
             m_settings = s;
+            core::backup::register_media(m_settings.media);   // s013b
+            if (m_archive) m_archive->refresh_if_shown();
             arm_rescan();
             if (m_clo_states && m_clo_states->get_visible_child_name() == "results") fill_closet();
     if (m_projects) m_projects->refresh_if_shown();
@@ -92,9 +96,11 @@ void Shell::on_activity_undo() {  // handler: Activity's act button
     if (cat.open(m_data_dir, true)) {
         synced = core::tagging::after_undo(cat, *m_door, b, static_cast<std::int64_t>(std::time(nullptr)));
         synced += core::archive::after_undo(cat, b);   // s013a: an archive undone leaves no fingerprint behind
+        synced += core::backup::after_undo(cat, b);    // s013b: copies undone -> their proofs go
     }
     refresh_activity();
     if (m_due) m_due->refresh_if_shown();
+    if (m_archive) m_archive->refresh_if_shown();
     if (m_clo_states && m_clo_states->get_visible_child_name() == "results") fill_closet();
     if (m_home_page) m_home_page->refresh_if_shown();
     m_act_status->set_text(r.ok ? "Undone: " + label + " (" + std::to_string(r.done) + " steps)"

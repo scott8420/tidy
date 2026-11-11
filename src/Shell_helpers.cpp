@@ -65,7 +65,9 @@ std::string step_text(const latch::door::Record& r, const std::string& home) {
         s = r.untag ? "untag " + key : key + " = " + (r.after.size() > 40 ? r.after.substr(0, 8) + "..." : r.after);
         s += "  " + rel(r.from);
     } else {
-        s = std::string(dr::verb_name(r.verb)) + "  " + rel(r.from) + (r.to.empty() ? "" : " -> " + rel(r.to));
+        // s013b: a copy's `from` is its staging name; the file it copied is `src`.
+        const std::string& from = r.verb == dr::Verb::Copy && !r.src.empty() ? r.src : r.from;
+        s = std::string(dr::verb_name(r.verb)) + "  " + rel(from) + (r.to.empty() ? "" : " -> " + rel(r.to));
     }
     switch (r.state) {
         case dr::State::Undone: s += "   (undone)"; break;

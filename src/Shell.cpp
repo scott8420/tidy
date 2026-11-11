@@ -1,3 +1,4 @@
+#include "core/Backup.hpp"
 #include "Shell.hpp"
 #include "AboutWindow.hpp"      // complete types for the unique_ptr dtors
 #include "ShortcutsDialog.hpp"
@@ -59,6 +60,7 @@ void Shell::build_ui() {
     m_door = std::make_unique<latch::door::Door>(m_home, m_data_dir);
     m_door->load();
     m_settings = core::settings::parse(core::own::read(m_data_dir, core::settings::kFile));   // absent: the defaults
+    core::backup::register_media(m_settings.media);   // s013b: the door may copy onto these (latch 0.4)
 
     build_shell();     // zone
     build_pages();     // zone (+ the look's sidebar over them)

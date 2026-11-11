@@ -33,7 +33,11 @@ constexpr const char* kSchema =
     "  id TEXT PRIMARY KEY, path TEXT NOT NULL, origin TEXT NOT NULL DEFAULT '',"
     "  sha256 TEXT NOT NULL, size INTEGER NOT NULL DEFAULT 0, archived INTEGER NOT NULL DEFAULT 0,"
     "  batch INTEGER NOT NULL DEFAULT 0, media TEXT NOT NULL DEFAULT '', proved INTEGER NOT NULL DEFAULT 0);"
-    "PRAGMA user_version = 4;";
+    "CREATE TABLE IF NOT EXISTS copies ("          /* s013b */
+    "  id TEXT NOT NULL, media TEXT NOT NULL, path TEXT NOT NULL, sha256 TEXT NOT NULL,"
+    "  size INTEGER NOT NULL DEFAULT 0, proved INTEGER NOT NULL DEFAULT 0, batch INTEGER NOT NULL DEFAULT 0,"
+    "  PRIMARY KEY (id, media));"
+    "PRAGMA user_version = 5;";
 
 constexpr const char* kCols = "id, path, dev, ino, size, btime, mtime, ctime, atime, retention, purpose, role, seen, gone";
 
@@ -378,6 +382,72 @@ std::size_t Catalog::drop_archived_batch(std::uint64_t batch) {
     if (!m_db || !m_rw || !batch) return 0;
     sqlite3_stmt* st = nullptr;
     if (sqlite3_prepare_v2(m_db, "DELETE FROM archived WHERE batch = ?", -1, &st, nullptr) != SQLITE_OK) return 0;
+    sqlite3_bind_int64(st, 1, s64(batch));
+    const bool ok = sqlite3_step(st) == SQLITE_DONE;
+    sqlite3_finalize(st);
+    return ok ? static_cast<std::size_t>(sqlite3_changes(m_db)) : 0;
+}
+
+// ── Media copies (s013b) ─────────────────────────────────────────────────────
+namespace {
+constexpr const char* kCopyCols = "id, media, path, sha256, size, proved, batch";
+Copy copy_row(sqlite3_stmt* st) {
+    Copy c;
+    c.id = text(st, 0);
+    c.media = text(st, 1);
+    c.path = text(st, 2);
+    c.sha256 = text(st, 3);
+    c.size = u64(sqlite3_column_int64(st, 4));
+    c.proved = sqlite3_column_int64(st, 5);
+    c.batch = u64(sqlite3_column_int64(st, 6));
+    return c;
+}
+}  // namespace
+
+bool Catalog::put_copy(const Copy& c) {
+    if (!m_db || !m_rw || c.id.empty() || c.media.empty()) return false;
+    const std::string sql = std::string("INSERT OR REPLACE INTO copies (") + kCopyCols + ") VALUES (?,?,?,?,?,?,?)";
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(m_db, sql.c_str(), -1, &st, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_text(st, 1, c.id.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(st, 2, c.media.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(st, 3, c.path.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(st, 4, c.sha256.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(st, 5, s64(c.size));
+    sqlite3_bind_int64(st, 6, c.proved);
+    sqlite3_bind_int64(st, 7, s64(c.batch));
+    const bool ok = sqlite3_step(st) == SQLITE_DONE;
+    sqlite3_finalize(st);
+    return ok;
+}
+
+std::vector<Copy> Catalog::copies() const {
+    std::vector<Copy> out;
+    if (!m_db) return out;
+    const std::string sql = std::string("SELECT ") + kCopyCols + " FROM copies ORDER BY media, path";
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(m_db, sql.c_str(), -1, &st, nullptr) != SQLITE_OK) return out;
+    while (sqlite3_step(st) == SQLITE_ROW) out.push_back(copy_row(st));
+    sqlite3_finalize(st);
+    return out;
+}
+
+std::vector<Copy> Catalog::copies_of(const std::string& id) const {
+    std::vector<Copy> out;
+    if (!m_db) return out;
+    const std::string sql = std::string("SELECT ") + kCopyCols + " FROM copies WHERE id = ? ORDER BY media";
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(m_db, sql.c_str(), -1, &st, nullptr) != SQLITE_OK) return out;
+    sqlite3_bind_text(st, 1, id.c_str(), -1, SQLITE_TRANSIENT);
+    while (sqlite3_step(st) == SQLITE_ROW) out.push_back(copy_row(st));
+    sqlite3_finalize(st);
+    return out;
+}
+
+std::size_t Catalog::drop_copies_batch(std::uint64_t batch) {
+    if (!m_db || !m_rw || !batch) return 0;
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(m_db, "DELETE FROM copies WHERE batch = ?", -1, &st, nullptr) != SQLITE_OK) return 0;
     sqlite3_bind_int64(st, 1, s64(batch));
     const bool ok = sqlite3_step(st) == SQLITE_DONE;
     sqlite3_finalize(st);

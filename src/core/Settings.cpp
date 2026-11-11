@@ -1,6 +1,7 @@
 #include "core/Settings.hpp"
 
 #include <algorithm>
+#include <filesystem>
 #include <fnmatch.h>
 #include <sstream>
 
@@ -14,6 +15,21 @@ std::string trim(const std::string& s) {
     return s.substr(a, b - a + 1);
 }
 }  // namespace
+
+bool media_of(const std::string& line, Media& out) {
+    const auto bar = line.find('|');
+    std::string label = bar == std::string::npos ? "" : trim(line.substr(0, bar));
+    std::string path = trim(bar == std::string::npos ? line : line.substr(bar + 1));
+    if (path.empty() || path[0] != '/') return false;
+    path = std::filesystem::path(path).lexically_normal().string();   // latch wants a clean folder
+    while (path.size() > 1 && path.back() == '/') path.pop_back();
+    if (label.empty()) label = path.substr(path.find_last_of('/') + 1);
+    if (label.empty()) return false;
+    out = {label, path};
+    return true;
+}
+
+std::string media_line(const Media& m) { return m.label + " | " + m.path; }
 
 Settings parse(const std::string& text) {
     Settings s;
@@ -51,6 +67,11 @@ Settings parse(const std::string& text) {
         } else if (k == "home") {
             s.home_set = true;
             if (!v.empty() && std::find(s.home.begin(), s.home.end(), v) == s.home.end()) s.home.push_back(v);
+        } else if (k == "media") {
+            Media m;
+            if (media_of(v, m) && std::none_of(s.media.begin(), s.media.end(),
+                                               [&](const Media& x) { return x.label == m.label; }))
+                s.media.push_back(m);
         } else if (k == "junk" && !v.empty() &&
                    std::find(s.junk.begin(), s.junk.end(), v) == s.junk.end()) {
             s.junk.push_back(v);
@@ -69,6 +90,7 @@ std::string format(const Settings& s) {
     o << "archive_days=" << std::clamp(s.archive_days, kArchiveMin, kArchiveMax) << "\n";
     o << "rescan_minutes=" << std::clamp(s.rescan_minutes, kRescanMin, kRescanMax) << "\n";
     for (const auto& j : s.junk) o << "junk=" << j << "\n";
+    for (const auto& m : s.media) o << "media=" << m.label << "|" << m.path << "\n";
     if (s.home_set) {
         if (s.home.empty()) o << "home=\n";   // the table emptied on purpose
         for (const auto& h : s.home) o << "home=" << h << "\n";
