@@ -3,6 +3,7 @@
 #include "ShortcutsDialog.hpp"
 #include "SettingsWindow.hpp"
 #include "IdListsWindow.hpp"
+#include "BackgroundWindow.hpp"
 #include "ProjectsPage.hpp"
 #include "core/Own.hpp"
 #include "Log.hpp"

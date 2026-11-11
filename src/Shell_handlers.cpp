@@ -6,6 +6,8 @@
 #include "ShortcutsDialog.hpp"
 #include "SettingsWindow.hpp"
 #include "IdListsWindow.hpp"
+#include "BackgroundWindow.hpp"
+#include "core/Background.hpp"
 #include "core/FileLists.hpp"
 #include "core/Scan.hpp"
 
@@ -207,6 +209,20 @@ void Shell::offer_lists() {  // handler
     if (auto lg = log::get(log::Area::Shell)) lg->info("id lists: {} ({} ms)", line.empty() ? "up to date" : line, ms);
     m_offer_text->set_text(line);
     m_offer->set_reveal_child(!line.empty() && line != m_offer_dismissed);
+}
+
+}  // namespace tidy
+
+namespace tidy {
+
+// s012b: the background scan -- a systemd user timer; its own window.
+void Shell::on_background() {  // handler
+    if (!m_background_win)
+        m_background_win = std::make_unique<BackgroundWindow>(
+            *this, *m_door, m_home, m_data_dir,
+            core::background::unit_dir(m_home, std::getenv("XDG_CONFIG_HOME"), m_fixture), m_fixture,
+            [this](const core::settings::Settings& s) { m_settings = s; refresh_activity(); });
+    m_background_win->open(m_settings);
 }
 
 }  // namespace tidy

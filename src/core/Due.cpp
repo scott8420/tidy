@@ -92,7 +92,8 @@ std::string format(const Attention& a) {
     std::ostringstream o;
     o << "# Tidy attention -- written by tidy --scan; read by the tile. Read-only look.\n"
       << "when=" << a.when << "\nms=" << a.ms << "\nremove=" << a.remove << "\narchive=" << a.archive
-      << "\nsettle=" << a.settle << "\ncloset=" << a.closet << "\nlists=" << a.lists << "\ntotal=" << a.total() << "\n";
+      << "\nsettle=" << a.settle << "\ncloset=" << a.closet << "\nlists=" << a.lists << "\ntotal=" << a.total()
+      << "\nnotified=" << a.notified << "\n";
     return o.str();
 }
 
@@ -114,6 +115,7 @@ Attention parse(const std::string& text) {
         else if (k == "settle") a.settle = u;
         else if (k == "closet") a.closet = u;
         else if (k == "lists") a.lists = u;
+        else if (k == "notified") a.notified = u;
     }
     return a;
 }
@@ -180,11 +182,35 @@ Where where(const char* tidy_home, const char* home, const char* xdg_data, const
     return w;
 }
 
-int scan_main(std::int64_t now) {
+Notice notice(const Attention& a, std::size_t last, int notify_at) {
+    Notice n;
+    const auto at = static_cast<std::size_t>(std::max(notify_at, 1));
+    const auto t = a.total();
+    if (t < at) return n;                     // below N: nothing, and the memory resets
+    n.notified = last;
+    if (t <= last) return n;                  // told already, and no more than then
+    n.send = true;
+    n.notified = t;
+    n.summary = "Tidy: " + std::to_string(t) + " need" + (t == 1 ? "s" : "") + " attention";
+    const auto l = line(a);
+    const auto colon = l.find(": ");
+    n.body = colon == std::string::npos ? l : l.substr(colon + 2);
+    return n;
+}
+
+int scan_main(std::int64_t now, bool notify, Notice* out) {
     const auto w = where(std::getenv("TIDY_HOME"), std::getenv("HOME"), std::getenv("XDG_DATA_HOME"),
                          std::getenv("XDG_CONFIG_HOME"));
     if (w.home.empty() || w.home[0] != '/') { std::cerr << "tidy --scan: no home\n"; return 2; }
-    const auto a = look(w.home, w.data_dir, w.user_dirs, now);
+    auto a = look(w.home, w.data_dir, w.user_dirs, now);
+    const auto prev = parse(own::read(w.data_dir, kFile));
+    a.notified = prev.notified;
+    if (notify) {
+        const auto st = settings::parse(own::read(w.data_dir, settings::kFile));
+        auto n = notice(a, prev.notified, st.notify_at);
+        a.notified = n.notified;
+        if (out) *out = std::move(n);
+    }
     const auto err = own::write(w.data_dir, kFile, format(a));
     std::cout << line(a) << " (" << a.ms << " ms" << (w.fixture ? ", FIXTURE " + w.home : "") << ")\n";
     if (!err.empty()) { std::cerr << "tidy --scan: not saved: " << err << "\n"; return 1; }

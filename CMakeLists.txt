@@ -97,6 +97,7 @@ add_library(tidy_core STATIC
     src/core/FileLists.cpp   # CVS-style .tidy-files per folder: write, re-find lost ids (s010f2)
     src/core/Rescan.cpp      # what a look tells the catalog: moved by id, gone, copies (s010f1)
     src/core/Due.cpp         # the trigger: what is due; the headless look; attention.ini (s012a)
+    src/core/Background.cpp  # the systemd user timer: units as door plans; systemctl lines (s012b)
     src/core/Homing.cpp      # files home: by type (subfolder required) or into a project; "name (2)" (s011)
 )
 target_include_directories(tidy_core PUBLIC include)
@@ -150,6 +151,7 @@ add_executable(tidy
     src/PurposesPage.cpp
     src/HomePage.cpp
     src/DuePage.cpp
+    src/BackgroundWindow.cpp
     src/ShortcutsDialog.cpp
     src/Registry.cpp
     src/Log.cpp

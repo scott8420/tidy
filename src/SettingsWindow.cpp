@@ -161,6 +161,7 @@ SettingsWindow::SettingsWindow(Gtk::Window& parent, SaveFn on_save) : m_save(std
 SettingsWindow::~SettingsWindow() = default;
 
 void SettingsWindow::show(const st::Settings& current) {
+    m_current = current;   // s012b: what this window does not show (bg minutes, notify at) is kept
     m_days->set_value(current.aging_days);
     m_rescan->set_value(current.rescan_minutes);
     m_held->set_value(current.held_years);
@@ -176,7 +177,7 @@ void SettingsWindow::show(const st::Settings& current) {
 }
 
 void SettingsWindow::on_save_clicked() {
-    st::Settings s;
+    st::Settings s = m_current;
     s.aging_days = m_days->get_value_as_int();
     s.rescan_minutes = m_rescan->get_value_as_int();
     s.held_years = m_held->get_value_as_int();
@@ -205,6 +206,8 @@ void SettingsWindow::on_save_clicked() {
         table.push_back(r);
     }
     // Still the standard table -> leave it unset, so a later standard table reaches you.
+    s.home_set = false;
+    s.home.clear();
     if (table != core::homing::defaults()) {
         s.home_set = true;
         s.home = core::homing::lines_of(table);

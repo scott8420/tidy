@@ -28,8 +28,8 @@ namespace tidy::core::filelists {
 inline constexpr const char* kFile = ".tidy-files";
 inline constexpr const char* kHeader = "# Tidy file ids";   // format()'s first line starts with it
 
-// s010f3: register Tidy's own dot files with latch (.tidy-files under
-// kHeader, .tidy-project under "id=") -- once at startup, before any
+// s010f3: register Tidy's own files with latch (.tidy-files under
+// kHeader, .tidy-project under "id="; s012b: tidy-scan.timer / .service) -- once at startup, before any
 // replace_own. None registered -> latch refuses every replace.
 void register_own();
 

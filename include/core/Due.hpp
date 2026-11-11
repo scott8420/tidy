@@ -47,6 +47,7 @@ struct Attention {
     std::size_t lists = 0;                             // id lists out of date (+ ids to give back)
     std::int64_t when = 0;                             // the scan's time
     std::int64_t ms = 0;                               // how long it took
+    std::size_t notified = 0;                          // s012b: the total last notified (0 = none since below N)
     std::size_t total() const { return remove + archive + settle + closet + lists; }
     bool operator==(const Attention&) const = default;
 };
@@ -65,7 +66,19 @@ Attention look(const std::string& home, const std::string& data_dir, const std::
 struct Where { std::string home, data_dir, user_dirs; bool fixture = false; };
 Where where(const char* tidy_home, const char* home, const char* xdg_data, const char* xdg_config);
 
-// tidy --scan: look, save attention.ini (core::own), print the line. 0 = ok.
-int scan_main(std::int64_t now);
+// s012b: whether this look notifies. Once the total reaches N it notifies,
+// then again only when the total grows past the last one notified; below N
+// the memory resets (a later climb past N notifies again). Pure.
+struct Notice {
+    bool send = false;
+    std::size_t notified = 0;          // what attention.ini keeps
+    std::string summary, body;         // "Tidy: 14 need attention" / "3 to remove, ..."
+};
+Notice notice(const Attention& now, std::size_t last_notified, int notify_at);
+
+// tidy --scan [--notify]: look, save attention.ini (core::own), print the
+// line. With `notify`, `out` says whether to notify (main sends it -- the
+// core links no GIO). 0 = ok.
+int scan_main(std::int64_t now, bool notify = false, Notice* out = nullptr);
 
 }  // namespace tidy::core::due

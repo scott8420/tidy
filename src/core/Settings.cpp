@@ -32,6 +32,14 @@ Settings parse(const std::string& text) {
             try {
                 s.rescan_minutes = std::clamp(std::stoi(v), kRescanMin, kRescanMax);
             } catch (...) {}
+        } else if (k == "bg_minutes") {
+            try {
+                s.bg_minutes = std::clamp(std::stoi(v), kBgMin, kBgMax);
+            } catch (...) {}
+        } else if (k == "notify_at") {
+            try {
+                s.notify_at = std::clamp(std::stoi(v), kNotifyMin, kNotifyMax);
+            } catch (...) {}
         } else if (k == "held_years") {
             try {
                 s.held_years = std::clamp(std::stoi(v), kHeldMin, kHeldMax);
@@ -55,6 +63,8 @@ std::string format(const Settings& s) {
     std::ostringstream o;
     o << "# Tidy settings -- written by Tidy (Settings). One junk pattern per line.\n";
     o << "aging_days=" << std::clamp(s.aging_days, kAgingMin, kAgingMax) << "\n";
+    o << "bg_minutes=" << std::clamp(s.bg_minutes, kBgMin, kBgMax) << "\n";
+    o << "notify_at=" << std::clamp(s.notify_at, kNotifyMin, kNotifyMax) << "\n";
     o << "held_years=" << std::clamp(s.held_years, kHeldMin, kHeldMax) << "\n";
     o << "archive_days=" << std::clamp(s.archive_days, kArchiveMin, kArchiveMax) << "\n";
     o << "rescan_minutes=" << std::clamp(s.rescan_minutes, kRescanMin, kRescanMax) << "\n";

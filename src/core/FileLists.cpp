@@ -1,5 +1,6 @@
 #include "core/FileLists.hpp"
 #include "core/Projects.hpp"
+#include "core/Background.hpp"
 
 #include <algorithm>
 #include <filesystem>
@@ -29,7 +30,9 @@ bool plain(const std::string& name) { return !name.empty() && name.find_first_of
 }  // namespace
 
 void register_own() {
-    latch::door::set_own_files({{kFile, kHeader}, {projects::kIdFile, "id="}});
+    // s012b: the background scan's units too -- a new interval rewrites the timer in place.
+    latch::door::set_own_files({{kFile, kHeader}, {projects::kIdFile, "id="},
+                                {background::kTimer, background::kHeader}, {background::kService, background::kHeader}});
 }
 
 std::vector<std::string> roots(const std::string& home) {

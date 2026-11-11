@@ -27,8 +27,15 @@ inline constexpr int kRescanDefault = 10, kRescanMin = 0, kRescanMax = 1440;
 inline constexpr int kHeldDefault = 7, kHeldMin = 1, kHeldMax = 100;
 inline constexpr int kArchiveDefault = 365, kArchiveMin = 30, kArchiveMax = 3650;
 
+// s012b background: how often the timer runs `tidy --scan --notify`, and how
+// many files needing attention bring a notification.
+inline constexpr int kBgDefault = 60, kBgMin = 15, kBgMax = 1440;
+inline constexpr int kNotifyDefault = 10, kNotifyMin = 1, kNotifyMax = 100000;
+
 struct Settings {
     int aging_days = kAgingDefault;
+    int bg_minutes = kBgDefault;
+    int notify_at = kNotifyDefault;
     int held_years = kHeldDefault;
     int archive_days = kArchiveDefault;
     int rescan_minutes = kRescanDefault;

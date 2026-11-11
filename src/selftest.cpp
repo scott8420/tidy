@@ -84,6 +84,7 @@
 #include "core/Homing.hpp"
 #include "core/Purposes.hpp"
 #include "core/Due.hpp"
+#include "core/Background.hpp"
 
 #include <latch/Door.hpp>
 #include <latch/Protect.hpp>
@@ -1897,9 +1898,9 @@ int main(int argc, char** argv) {
               !door.replace_refusal(TL, work.replaces[0].text).empty());
         fl::register_own();
         const auto& own = latch::door::own_files();
-        check("lists (s010f3): register_own -> .tidy-files + .tidy-project, their headers",
-              own.size() == 2 && own[0].name == ".tidy-files" && own[0].header == fl::kHeader &&
-              own[1].name == ".tidy-project" && own[1].header == "id=");
+        check("lists (s010f3): register_own -> .tidy-files + .tidy-project (+ s012b the two units), their headers",
+              own.size() == 4 && own[0].name == ".tidy-files" && own[0].header == fl::kHeader &&
+              own[1].name == ".tidy-project" && own[1].header == "id=" && own[2].name == "tidy-scan.timer");
         struct stat s0{}, s1{};
         ::lstat(TL.c_str(), &s0);
         const auto batches = door.batches().size();
@@ -2095,6 +2096,105 @@ int main(int argc, char** argv) {
               du::line(look));
         check("look: READ-ONLY -- the home's files untouched, no records folder made",
               tree_facts(H) == before && !fs::exists(w.data_dir));
+        fs::remove_all(root);
+    }
+
+    // ── s012b: the background scan -- the units, on / off / retime, the notice ──
+    {
+        std::cout << "[background]\n";
+        namespace bg = core::background;
+        namespace du = core::due;
+        namespace dr = latch::door;
+        const auto read = [](const std::string& f) { std::ifstream in(f); std::stringstream o; o << in.rdbuf(); return o.str(); };
+
+        // The notice: at N once, again only when it grows; below N resets.
+        du::Attention a;
+        a.closet = 9;
+        auto n = du::notice(a, 0, 10);
+        check("notice: below N -> nothing, memory reset", !n.send && n.notified == 0);
+        a.remove = 3;                                   // 12
+        n = du::notice(a, 0, 10);
+        check("notice: reaches N -> sent, remembered", n.send && n.notified == 12 &&
+              n.summary == "Tidy: 12 need attention" && n.body == "3 to remove, 9 in the Closet", n.summary + " / " + n.body);
+        check("notice: the same again -> quiet; fewer (still >= N) -> quiet, memory kept",
+              !du::notice(a, 12, 10).send && du::notice(a, 12, 10).notified == 12 &&
+              !du::notice(a, 15, 10).send && du::notice(a, 15, 10).notified == 15);
+        a.archive = 2;                                  // 14
+        check("notice: grows -> sent again", du::notice(a, 12, 10).send && du::notice(a, 12, 10).notified == 14);
+        a = du::Attention{};
+        a.closet = 4;
+        check("notice: dropped below N -> memory 0 (a later climb notifies)", du::notice(a, 14, 10).notified == 0);
+        du::Attention r{1, 2, 3, 4, 5, 6, 7, 8};
+        check("attention: notified round trips", du::parse(du::format(r)) == r && du::parse(du::format(r)).notified == 8);
+        check("settings (s012b): bg_minutes 60 / notify_at 10 -- round trip, clamped",
+              core::settings::Settings{}.bg_minutes == 60 && core::settings::Settings{}.notify_at == 10 &&
+              core::settings::parse("bg_minutes=1\nnotify_at=0\n").bg_minutes == 15 &&
+              core::settings::parse("bg_minutes=1\nnotify_at=0\n").notify_at == 1 &&
+              core::settings::parse(core::settings::format(core::settings::parse("bg_minutes=90\nnotify_at=25\n"))).bg_minutes == 90);
+
+        // The unit texts.
+        const auto sv = bg::service_text("/usr/local/bin/tidy", "");
+        const auto fx = bg::service_text("/h/my build/tidy", "/tmp/fx");
+        check("units: the service runs tidy --scan --notify, quoted; a fixture sets TIDY_HOME",
+              sv.rfind(bg::kHeader, 0) == 0 && sv.find("ExecStart=\"/usr/local/bin/tidy\" --scan --notify\n") != std::string::npos &&
+              sv.find("TIDY_HOME") == std::string::npos && sv.find("Type=oneshot") != std::string::npos &&
+              fx.find("ExecStart=\"/h/my build/tidy\" --scan --notify") != std::string::npos &&
+              fx.find("Environment=\"TIDY_HOME=/tmp/fx\"") != std::string::npos);
+        check("units: the timer -- every N minutes, its minutes read back; not ours -> 0",
+              bg::minutes_of(bg::timer_text(45)) == 45 && bg::timer_text(45).find("WantedBy=timers.target") != std::string::npos &&
+              bg::minutes_of("[Timer]\nOnUnitActiveSec=5min\n") == 0);
+        check("units: where -- XDG_CONFIG_HOME, else home/.config; a fixture always inside it",
+              bg::unit_dir("/home/s", "/cfg", false) == "/cfg/systemd/user" &&
+              bg::unit_dir("/home/s", nullptr, false) == "/home/s/.config/systemd/user" &&
+              bg::unit_dir("/tmp/fx", "/cfg", true) == "/tmp/fx/.config/systemd/user");
+
+        // On a fixture: turn on through the door, retime in place, turn off, undo.
+        const fs::path root = fs::temp_directory_path() / ("tidy_selftest_bg_" + std::to_string(::getpid()));
+        fs::remove_all(root);
+        const std::string H = (root / "home").string(), D = (root / "data").string();
+        fs::create_directories(H + "/.config");
+        const auto U = bg::unit_dir(H, nullptr, true);
+        dr::Door door(H, D);
+        door.load();
+        core::filelists::register_own();
+        auto w = bg::turn_on(H, U, "/usr/local/bin/tidy", "", 60);
+        check("turn on: MakeDir systemd, systemd/user, Write service (names the binary), Write timer; reload + enable --now",
+              w.plan.actions.size() == 4 && w.first.empty() && w.plan.actions[2].reason.find("/usr/local/bin/tidy") != std::string::npos && w.plan.actions[0].verb == dr::Verb::MakeDir &&
+              w.plan.actions[1].to == U && w.plan.actions[2].to == U + "/tidy-scan.service" &&
+              w.plan.actions[3].to == U + "/tidy-scan.timer" && w.replaces.empty() && w.commands.size() == 2 &&
+              bg::shown_command(w.commands[1]) == "systemctl --user enable --now tidy-scan.timer",
+              std::to_string(w.plan.actions.size()));
+        check("turn on: READ-ONLY until run; Off", !fs::exists(U) && !bg::state_of(U).on());
+        w.plan.previewed = true;
+        auto rr = door.run(w.plan);
+        auto s = bg::state_of(U);
+        check("turn on: run -> both units, ours, 60 minutes", rr.ok && s.on() && s.minutes == 60,
+              rr.messages.empty() ? "" : rr.messages[0]);
+        w = bg::retime(U, 90);
+        check("retime: the timer rewritten in place (no undo), reload + restart",
+              w.plan.actions.empty() && w.replaces.size() == 1 && door.replace_refusal(w.replaces[0].path, w.replaces[0].text).empty() &&
+              door.replace_own(w.replaces[0].path, w.replaces[0].text).empty() && bg::state_of(U).minutes == 90 &&
+              bg::shown_command(w.commands[1]) == "systemctl --user restart tidy-scan.timer");
+        w = bg::turn_on(H, U, "/usr/local/bin/tidy", "", 30);
+        check("turn on again: no new folders, both rewritten in place", w.plan.actions.empty() && w.replaces.size() == 2);
+        w = bg::turn_off(U);
+        check("turn off: disable --now first, Trash both, reload", w.plan.actions.size() == 2 &&
+              w.plan.actions[0].verb == dr::Verb::Trash && w.first.size() == 1 &&
+              bg::shown_command(w.first[0]) == "systemctl --user disable --now tidy-scan.timer" &&
+              w.commands.size() == 1 && bg::shown_command(w.commands[0]) == "systemctl --user daemon-reload");
+        w.plan.previewed = true;
+        rr = door.run(w.plan);
+        s = bg::state_of(U);
+        check("turn off: run -> Off, the units in the Trash", rr.ok && !s.service && !s.timer);
+        const auto u = door.undo();
+        check("turn off undone -> the units back (the 90-minute timer)", u.ok && bg::state_of(U).on() && bg::state_of(U).minutes == 90);
+        // A user's own tidy-scan.timer -> not ours: replace refused, untouched.
+        put_file(U + "/tidy-scan.timer", "[Timer]\nOnCalendar=daily\n");
+        s = bg::state_of(U);
+        w = bg::turn_on(H, U, "/usr/local/bin/tidy", "", 60);
+        check("a timer that is not Tidy's: not on, the rewrite refused, left untouched",
+              !s.on() && !s.ours && !door.replace_refusal(U + "/tidy-scan.timer", bg::timer_text(60)).empty() &&
+              read(U + "/tidy-scan.timer") == "[Timer]\nOnCalendar=daily\n");
         fs::remove_all(root);
     }
 

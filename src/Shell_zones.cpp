@@ -452,6 +452,7 @@ Glib::RefPtr<Gio::Menu> Shell::build_menu() {  // zone: hamburger model
     auto prefs = Gio::Menu::create();
     prefs->append("Settings\u2026", "win.settings");
     prefs->append("Id lists\u2026", "win.id-lists");
+    prefs->append("Background scan\u2026", "win.background");
     menu->append_section(prefs);
     auto diag = Gio::Menu::create();
     diag->append("Keyboard shortcuts", "win.shortcuts");

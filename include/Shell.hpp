@@ -65,6 +65,7 @@ namespace tidy {
 class AboutWindow;
 class ProjectsPage;
 class IdListsWindow;
+class BackgroundWindow;
 class PurposesPage;
 class HomePage;
 class DuePage;
@@ -98,6 +99,7 @@ private:
     void arm_rescan();
                                                    // handler: the loose background rescan (s010f1)
     void on_id_lists();                            // handler: the Id lists window (s010f2)
+    void on_background();                          // handler: the Background scan window (s012b)
     void offer_lists();                            // handler: s010f3 -- count stale id lists -> the offer bar
     void on_shortcuts();                           // category: handler: the keyboard reference
     void on_dump_registry();                       // category: handler: print the live widget tree
@@ -165,6 +167,7 @@ private:
     std::unique_ptr<AboutWindow>     m_about;
     std::unique_ptr<SettingsWindow>  m_settings_win;
     std::unique_ptr<IdListsWindow>   m_idlists_win;   // s010f2
+    std::unique_ptr<BackgroundWindow> m_background_win;   // s012b
     core::settings::Settings         m_settings;   // read at build_ui; written only by core::own
     std::unique_ptr<ShortcutsDialog> m_shortcuts;
     sigc::connection                 m_rescan;     // s010f1: every rescan_minutes; 0 = none
