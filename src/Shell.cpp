@@ -8,6 +8,7 @@
 #include "IdListsWindow.hpp"
 #include "AdoptWindow.hpp"
 #include "ConformWindow.hpp"
+#include "LayoutWindow.hpp"
 #include "ShapeWindow.hpp"
 #include "ShapeWindow.hpp"
 #include "BackgroundWindow.hpp"

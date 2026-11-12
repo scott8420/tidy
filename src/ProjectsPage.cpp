@@ -737,6 +737,16 @@ void ProjectsPage::render() {
             std::size_t doable = 0;
             if (missing)
                 for (const auto& w : refusals(m_door, pj::fix(p, d))) doable += w.empty();
+            if (p.by_place && t && m_on_layout) {   // s024a: a book -- its files into the layout
+                auto lay = Gtk::make_managed<Gtk::Button>("Layout...");
+                lay->set_name("projects.layout." + p.rel);
+                lay->set_tooltip_text("Put this book's files in the " + t->name + " layout -- each proposed, the rest asked; "
+                                      "the missing stage folders made. One preview, one undo");
+                const auto tt = *t;
+                lay->signal_clicked().connect([this, p, tt] { m_on_layout(p.path, tt); });
+                b->append(*lay);
+                doable = 0;   // Layout makes the missing folders too
+            }
             if (doable) {
                 auto fix = Gtk::make_managed<Gtk::Button>("Fix...");
                 fix->set_name("projects.fix." + p.rel);

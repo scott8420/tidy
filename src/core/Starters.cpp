@@ -111,14 +111,17 @@ std::vector<Starter> make() {
             {"A[0-9][0-9][0-9][0-9].png", "Body/OCR/Scans/Archive"},
             {"A[0-9][0-9][0-9][0-9].tif", "Body/OCR/Scans/Archive"},
             {"Archive*.zip", "Body/OCR/Scans"},
+            // s024a: a name that says cover / jacket is the Cover's, before the type routes
+            {"*cover*.pdf", "Cover/Print"}, {"*jacket*.pdf", "Cover/Print"},
+            {"*cover*.png", "Cover/Layout/Workups"}, {"*cover*.jpg", "Cover/Layout/Workups"},
+            {"*jacket*.png", "Cover/Layout/Workups"}, {"*jacket*.jpg", "Cover/Layout/Workups"},
+            {"*cover*.svg", "Cover/Layout"}, {"*jacket*.svg", "Cover/Layout"},
         };
         routes(t, {"optik"}, "Body/OCR/Scans");
         routes(t, {"composix"}, "Body/Layout");
         routes(t, {"odt", "bak"}, "Body/Layout/ODT");
         routes(t, {"quire", "pdf"}, "Body/Print");
         routes(t, {"epub"}, "Body/Finals");
-        t.routes.push_back({"cover*.png", "Cover/Layout/Workups"});
-        t.routes.push_back({"cover*.jpg", "Cover/Layout/Workups"});
         routes(t, {"xcf"}, "Cover/Layout/Workups");
         routes(t, {"svg"}, "Cover/Layout");
         routes(t, {"jpg", "jpeg"}, "Body/Layout/Images");

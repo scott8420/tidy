@@ -1,5 +1,6 @@
 #pragma once
 #include "widgets/Widgets.hpp"
+#include "core/Templates.hpp"
 #include "core/Look.hpp"
 #include "core/Birth.hpp"
 #include "core/Settings.hpp"
@@ -71,6 +72,7 @@ class ProjectsPage;
 class IdListsWindow;
 class AdoptWindow;
 class ConformWindow;
+class LayoutWindow;
 class ShapeWindow;
 class TemplatesPage;
 class BackgroundWindow;
@@ -117,6 +119,7 @@ private:
     void on_id_lists();                            // handler: the Id lists window (s010f2)
     void on_adopt();
     void on_conform(const std::string& folder = "");   // s023h: the Conform folders window
+    void on_layout(const std::string& book, const core::templates::Template& t);   // s024a: one book into the layout
     void on_shape(const std::string& folder = "");     // s023i: a template made from a scan
     void on_adopt_folder(const std::string& rel, bool catch_all);   // s023f: from the Map
     void after_activity_undo(const std::string& label, const latch::door::Result& r, std::size_t synced);   // s023a                               // handler: the Adopt folders window (s023)
@@ -196,6 +199,7 @@ private:
     std::unique_ptr<IdListsWindow>   m_idlists_win;   // s010f2
     std::unique_ptr<AdoptWindow>     m_adopt_win;     // s023
     std::unique_ptr<ConformWindow>   m_conform_win;   // s023h
+    std::unique_ptr<LayoutWindow>    m_layout_win;    // s024a
     std::unique_ptr<ShapeWindow>     m_shape_win;     // s023i
     std::unique_ptr<BackgroundWindow> m_background_win;   // s012b
     core::settings::Settings         m_settings;   // read at build_ui; written only by core::own

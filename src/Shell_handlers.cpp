@@ -16,6 +16,7 @@
 #include "IdListsWindow.hpp"
 #include "AdoptWindow.hpp"
 #include "ConformWindow.hpp"
+#include "LayoutWindow.hpp"
 #include "ShapeWindow.hpp"
 #include "TemplatesPage.hpp"
 #include "Busy.hpp"
@@ -247,6 +248,16 @@ void Shell::on_conform(const std::string& folder) {  // handler
     if (!m_conform_win)
         m_conform_win = std::make_unique<ConformWindow>(*this, *m_door, m_home, m_data_dir, [this] { refresh_activity(); });
     m_conform_win->open(folder);
+}
+
+// s024a: one old book into the layout -- moves through the door.
+void Shell::on_layout(const std::string& book, const core::templates::Template& t) {  // handler
+    if (!m_layout_win)
+        m_layout_win = std::make_unique<LayoutWindow>(*this, *m_door, m_home, m_data_dir, [this] {
+            refresh_activity();
+            if (m_projects) m_projects->refresh_if_shown();
+        });
+    m_layout_win->open(book, t);
 }
 
 // s023i: a template made from a scan -- Save and conform goes on to Conform's preview.

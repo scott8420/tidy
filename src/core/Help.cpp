@@ -129,7 +129,10 @@ const std::vector<Topic>& topics() {
          {"Projects -> Look: what is where it belongs, and what is loose.", "Place a loose project where its kind lives.",
           "New project: pick a template, a name -> preview -> Do it.",
           "A new book: New project -> bookbinding -> the author (Keene, Carolyn) and the title -> preview -> Do it. "
-          "Body and Cover come with every stage folder, empty until you fill them."},
+          "Body and Cover come with every stage folder, empty until you fill them.",
+          "An old book: Projects -> its row -> Layout... -> each file's folder proposed (scans to Body/OCR/Scans/Archive, "
+          "a name with cover or jacket to the Cover) -- change any; what no route fits is asked first and stays until "
+          "you pick -> Do it. Missing stage folders are made, folders left empty go to the Trash; one undo in Activity."},
          "projects"},
         {"templates", "Projects", "Templates",
          {"A template is the shape of a project: its folders, the whole tree (six deep at most). Lift one from a "

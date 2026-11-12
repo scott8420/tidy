@@ -1,4 +1,6 @@
 #include "core/Templates.hpp"
+
+#include <latch/Package.hpp>
 #include "core/Own.hpp"
 
 #include <algorithm>
@@ -305,6 +307,7 @@ std::vector<std::string> folders_of(const std::string& dir, int max_depth) {
             if (fn.empty() || fn[0] == '.') continue;
             const auto st = it->symlink_status(ec);
             if (ec || !fs::is_directory(st)) continue;   // files and symlinks skipped
+            if (latch::pkg::is_package_name(fn)) continue;   // s024a: a bundle (.optik, .composix) is a file here
             const std::string rel = prefix.empty() ? fn : prefix + "/" + fn;
             out.push_back(rel);
             if (depth < max_depth) self(it->path(), rel, depth + 1, self);

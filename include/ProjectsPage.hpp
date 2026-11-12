@@ -47,6 +47,8 @@ public:
     void new_from(const std::string& template_name);
     // s021: the Code projects view (git state, sizes, archive, clean).
     void show_code();
+    // s024a: a book's "Layout..." -> the window that puts it in the layout (Shell owns it).
+    void set_on_layout(std::function<void(const std::string& dir, const core::templates::Template& t)> f) { m_on_layout = std::move(f); }
 
 private:
     void build_start();
@@ -90,7 +92,8 @@ private:
     Gtk::Entry*    m_new_name = nullptr;
     Gtk::Label*    m_new_group_label = nullptr;   // s024: a by-place template's middle level (the author)
     Gtk::Entry*    m_new_group = nullptr;
-    std::function<void()> m_new_refresh;          // s024: the where line + the group row, again
+    std::function<void()> m_new_refresh;
+    std::function<void(const std::string&, const core::templates::Template&)> m_on_layout;   // s024a          // s024: the where line + the group row, again
     Gtk::Label*    m_new_where = nullptr;
     Gtk::Label*    m_new_status = nullptr;
     std::vector<core::templates::Template> m_new_templates;

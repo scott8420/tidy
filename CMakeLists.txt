@@ -86,6 +86,7 @@ add_library(tidy_core STATIC
     src/core/Adopt.cpp       # s023: adopt -- picked folders cataloged in place, routes learned; catch-alls swept
     src/core/Map.cpp         # s023f: the home map -- cataloged / loose / untracked per folder; the treemap layout
     src/core/Conform.cpp     # s023h: conform project folders to a template -- the rules once, every folder, one preview
+    src/core/Layout.cpp      # s024a: one old book into the layout -- proposed, asked, emptied folders trashed
     src/core/Shape.cpp       # s023i: a scan -> every file type (numbered runs apart) + folder; picks -> a template
     src/core/Shortcuts.cpp   # one shortcut list, two consumers (Cairn)
     src/core/Facts.cpp       # statx times + user.tidy.* tags, read (s004)
@@ -163,6 +164,7 @@ add_executable(tidy
     src/AdoptWindow.cpp      # s023: adopt folders -- in place or catch-all
     src/MapPage.cpp          # s023f: the home map -- a treemap of cataloged / loose / untracked
     src/ConformWindow.cpp    # s023h: conform many project folders to a template
+    src/LayoutWindow.cpp     # s024a: one old book into the layout
     src/ShapeWindow.cpp      # s023i: a template made from a scan -- types and folders found, each type given a folder
     src/Busy.cpp             # s023a: long work off the window's thread, a progress bar over it
     src/TemplatesPage.cpp

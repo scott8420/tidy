@@ -134,6 +134,7 @@ void Shell::build_page(const std::string& id) {  // zone: a page's hero
     if (id == "projects") {                                // s008: found, placed, fixed -- through the door
         const auto* pp = core::pages::find(id);
         m_projects = Gtk::make_managed<ProjectsPage>(*m_door, m_home, m_data_dir, m_fixture, [this] { refresh_activity(); });
+        m_projects->set_on_layout([this](const std::string& dir, const core::templates::Template& t) { on_layout(dir, t); });   // s024a
         m_stack.add(*m_projects, id, pp ? pp->title : "Projects");
         return;
     }

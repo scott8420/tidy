@@ -72,6 +72,7 @@
 #include "core/Adopt.hpp"
 #include "core/Map.hpp"
 #include "core/Conform.hpp"
+#include "core/Layout.hpp"
 #include "core/Shape.hpp"
 #include "core/Routes.hpp"
 #include "core/Shortcuts.hpp"
@@ -4373,6 +4374,111 @@ int main(int argc, char** argv) {
               !core::archive::refusal(H, old + "/Hidden.odt").empty());
         fs::remove_all(root);
         pj::set_shelves({});
+    }
+
+
+    // ── s024a: one old book into the layout ──────────────────────────────────
+    {
+        std::cout << "[layout]\n";
+        namespace tp = core::templates;
+        namespace ly = core::layout;
+        namespace dr = latch::door;
+        const auto& bt = core::starters::find("bookbinding")->t;
+        const fs::path root = fs::temp_directory_path() / ("tidy_selftest_layout_" + std::to_string(::getpid()));
+        fs::remove_all(root);
+        fs::create_directories(root / "home");
+        fs::create_directories(root / "data");
+        const std::string H = fs::canonical(root / "home").string(), D = fs::canonical(root / "data").string();
+        core::projects::apply_places(D);
+        const std::string B = H + "/Documents/Bookbinding/Keene, Carolyn/The Hidden Staircase";
+        for (int i = 1; i <= 6; ++i) put_file(B + "/A000" + std::to_string(i) + ".png", "scan");
+        put_file(B + "/Archive/A0007.png", "scan");
+        put_file(B + "/Archive/A0008.png", "scan");
+        put_file(B + "/Hidden.odt", "odt");
+        put_file(B + "/Hidden.odt.bak", "bak");
+        put_file(B + "/Hidden.composix/document.json", "{}");
+        put_file(B + "/Hidden.optik/book.json", "{}");
+        put_file(B + "/Print/Hidden-print.pdf", "pdf");
+        put_file(B + "/Hidden-dust-jacket.pdf", "pdf");
+        put_file(B + "/Covers/Cover_1960.png", "png");
+        put_file(B + "/Covers/Old/cover-draft.xcf", "xcf");
+        put_file(B + "/Notes/.keep", "");
+        put_file(B + "/Notes/plate.jpg", "jpg");
+        put_file(B + "/front.png", "png");
+        put_file(B + "/Hidden.epub", "epub");
+        fs::create_directories(B + "/Images");   // empty before -- not ours to trash
+        const auto before = tree_facts(H);
+
+        auto l = ly::look(bt, B);
+        const auto row = [&](const std::string& rel) -> ly::Row* {
+            for (auto& r : l.rows) if (r.rel == rel) return &r;
+            return nullptr;
+        };
+        check("layout: a lumped book -- each file a place by its route; bundles whole; 14 stage folders missing",
+              l.missing.size() == 14 && row("A0001.png") && row("A0001.png")->folder == "Body/OCR/Scans/Archive" &&
+              row("Archive/A0007.png") && row("Hidden.composix") && row("Hidden.composix")->folder == "Body/Layout" &&
+              row("Hidden.optik") && row("Hidden.optik")->folder == "Body/OCR/Scans" && !row("Hidden.composix/document.json") &&
+              row("Hidden.odt.bak")->folder == "Body/Layout/ODT" && row("Print/Hidden-print.pdf")->folder == "Body/Print" &&
+              row("Hidden.epub")->folder == "Body/Finals" && row("Notes/plate.jpg")->folder == "Body/Layout/Images",
+              std::to_string(l.rows.size()));
+        check("layout: cover vs body by name -- a dust jacket pdf and Cover_1960.png go to the Cover",
+              row("Hidden-dust-jacket.pdf")->folder == "Cover/Print" && row("Covers/Cover_1960.png")->folder == "Cover/Layout/Workups" &&
+              row("Covers/Old/cover-draft.xcf")->folder == "Cover/Layout/Workups");
+        check("layout: a .png no route fits is ASKED, left where it is until picked",
+              l.asked() == 1 && row("front.png") && row("front.png")->asked && row("front.png")->folder == ly::kLeave);
+        check("layout: look is READ-ONLY", tree_facts(H) == before);
+
+        row("front.png")->folder = "Cover/Print";   // Scott's pick
+        auto pl = ly::plan(H, bt, l);
+        std::set<std::string> em(pl.emptied.begin(), pl.emptied.end());
+        check("layout: the plan -- 14 new folders, every row moved, emptied Archive / Print / Covers to the Trash (topmost)",
+              pl.made == 14 && pl.moves == l.rows.size() && em.size() == 3 && em.count("Archive") && em.count("Print") &&
+              em.count("Covers") && !em.count("Covers/Old") && !em.count("Notes") && !em.count("Images"),
+              std::to_string(pl.made) + " / " + std::to_string(pl.moves) + " / " + std::to_string(em.size()));
+        check("layout: plan order -- folders, then moves, then the Trash",
+              pl.plan.actions.front().verb == dr::Verb::MakeDir && pl.plan.actions.back().verb == dr::Verb::Trash &&
+              pl.plan.actions.front().to == B + "/Body");
+        check("layout: plan is READ-ONLY", tree_facts(H) == before);
+
+        latch::door::set_app_name("Tidy");
+        dr::Door door(H, D);
+        door.load();
+        pl.plan.previewed = true;
+        const auto r = door.run(pl.plan);
+        check("layout: run -> on disk in the layout; the old folders gone, Notes kept (a hidden file), Images kept",
+              r.ok && fs::exists(B + "/Body/OCR/Scans/Archive/A0001.png") && fs::exists(B + "/Body/OCR/Scans/Archive/A0008.png") &&
+              fs::exists(B + "/Body/Layout/Hidden.composix/document.json") && fs::exists(B + "/Body/OCR/Scans/Hidden.optik/book.json") &&
+              fs::exists(B + "/Body/Layout/ODT/Hidden.odt") && fs::exists(B + "/Body/Print/Hidden-print.pdf") &&
+              fs::exists(B + "/Cover/Print/Hidden-dust-jacket.pdf") && fs::exists(B + "/Cover/Print/front.png") &&
+              fs::exists(B + "/Body/Finals/Hidden.epub") && fs::exists(B + "/Cover/Print") &&
+              !fs::exists(B + "/Archive") && !fs::exists(B + "/Print") && !fs::exists(B + "/Covers") &&
+              fs::exists(B + "/Notes/.keep") && fs::is_directory(B + "/Images"),
+              r.messages.empty() ? "" : r.messages.front());
+        const auto again = ly::look(bt, B);
+        check("layout: drift on the laid-out book -- the bundles are not folders, nothing missing",
+              [&] {   // + Images (empty before, not ours) and + Notes (it kept its hidden file) -- nothing else
+                  const auto d = tp::drift(bt, tp::folders_of(B, tp::depth_of(bt)));
+                  return d.size() == 2 && d[0].path == "Images" && d[1].path == "Notes" &&
+                         d[0].kind == tp::Drift::Kind::Extra && d[1].kind == tp::Drift::Kind::Extra;
+              }());
+        check("layout: look again -- nothing to move, nothing missing", again.rows.empty() && again.missing.empty() &&
+              ly::plan(H, bt, again).plan.actions.empty(), std::to_string(again.rows.size()));
+        const auto u = door.undo();
+        // Undo: the same paths, each the same inode and size (a move changes ctime; the Trash is the door's).
+        const auto same = [&](const std::map<std::string, std::string>& m) {
+            std::map<std::string, std::string> out;
+            for (const auto& [k, v] : m) {
+                if (k.find("/.local/share/Trash") != std::string::npos || k == H + "/.local" || k == H + "/.local/share") continue;
+                if (fs::is_directory(fs::symlink_status(k))) { out[k] = "dir"; continue; }
+                const auto a = v.find('/'), b = v.find('/', a + 1);
+                out[k] = v.substr(0, b);
+            }
+            return out;
+        };
+        check("layout: ONE undo -> the book exactly as it was (every file, same inode, same size)",
+              u.ok && same(tree_facts(H)) == same(before) && !fs::exists(B + "/Body"));
+        fs::remove_all(root);
+        core::projects::set_shelves({});
     }
 
     std::cout << "-----------------------------------------------\n";
