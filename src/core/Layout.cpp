@@ -223,4 +223,87 @@ Made make_books(const std::string& home, const tp::Template& t, const std::strin
     return out;
 }
 
+// ── s024c: bookbinding authors ────────────────────────────────────────────
+std::string author_name(const std::string& n) {
+    std::string s = n;
+    while (!s.empty() && s.back() == ' ') s.pop_back();
+    if (s.find(',') != std::string::npos) return s;
+    const auto sp = s.rfind(' ');
+    if (sp == std::string::npos || sp == 0) return s;
+    return s.substr(sp + 1) + ", " + s.substr(0, sp);
+}
+
+std::string author_refusal(const std::string& home, const tp::Template& t, const Author& a) {
+    if (a.name.empty()) return "no author";
+    if (auto w = tp::part_refusal(a.name); !w.empty()) return "author: " + w;
+    const std::string rel = rel_to(home, a.dir);
+    if (rel.empty()) return "not a folder in your home";
+    for (const auto& part : fs::path(rel))
+        if (!part.empty() && part.string()[0] == '.') return "a hidden folder";
+    if (rel == archive::kFolder || rel.rfind(std::string(archive::kFolder) + "/", 0) == 0) return "~/Archive is Tidy's archive";
+    if (protection::under(rel)) return "Hands off (Settings), Samson's, or never-touch";
+    if (rel == t.category || rel.rfind(t.category + "/", 0) == 0) return "on the shelf already";
+    if ((t.category + "/").rfind(rel + "/", 0) == 0) return "the shelf is inside it";
+    if (std::string at; projects::inside_whole(rel, &at)) return "a project, or inside one";
+    std::error_code ec;
+    if (!fs::is_directory(fs::symlink_status(a.dir, ec))) return "not a folder";
+    if (fs::exists(fs::symlink_status(a.dir + "/.git", ec))) return "a git repo";
+    return "";
+}
+
+Authors plan_authors(const std::string& home, const tp::Template& t, const std::vector<Author>& authors, bool lay_out) {
+    Authors out;
+    std::set<std::string> made;
+    std::vector<dr::Action> dirs, books, laid, last;
+    for (const auto& a : authors) {
+        const std::string name = fs::path(a.dir).filename().string();
+        if (auto why = author_refusal(home, t, a); !why.empty()) { out.refused.push_back(name + " -- " + why); continue; }
+        std::vector<Book> bs;
+        for (const auto& d : candidates(a.dir, true)) bs.push_back({d, guess_title(fs::path(d).filename().string())});
+        auto m = make_books(home, t, a.name, bs);
+        for (const auto& r : m.refused) out.refused.push_back(name + "/" + r);
+        std::set<std::string> gone;
+        for (auto& x : m.plan.actions) {
+            if (x.verb == dr::Verb::MakeDir) {
+                if (made.insert(x.to).second) dirs.push_back(x);
+                continue;
+            }
+            gone.insert(x.from);
+            if (lay_out) {   // the book laid out where it is, THEN moved whole (the door judges each step on the disk as it is)
+                auto lp = plan(home, t, look(t, x.from));
+                for (auto& y : lp.plan.actions) laid.push_back(std::move(y));
+                out.laid_out += lp.moves;
+            }
+            books.push_back(std::move(x));
+        }
+        out.books += m.books;
+        if (m.books == 0) continue;
+        ++out.authors;
+        // What stays in the old author folder: anything not hidden and not moved -> the Closet (a catch-all).
+        bool loose = false, hidden = false;
+        std::error_code ec;
+        for (fs::directory_iterator it(a.dir, ec), end; !ec && it != end; it.increment(ec)) {
+            const std::string n = it->path().filename().string();
+            if (n.empty() || n[0] == '.') { hidden = true; continue; }
+            if (!gone.count(it->path().string())) loose = true;
+        }
+        const std::string rel = rel_to(home, a.dir);
+        if (loose) out.closet.push_back(rel);
+        else if (!hidden) {
+            dr::Action tr;
+            tr.verb = dr::Verb::Trash;
+            tr.from = a.dir;
+            tr.reason = "the author's old folder, left empty";
+            last.push_back(tr);
+            out.trashed.push_back(rel);
+        }
+    }
+    for (auto* v : {&dirs, &laid, &books, &last})
+        for (auto& x : *v) out.plan.actions.push_back(std::move(x));
+    out.plan.label = "Bookbinding authors: " + std::to_string(out.authors) + (out.authors == 1 ? " author, " : " authors, ") +
+                     std::to_string(out.books) + (out.books == 1 ? " book" : " books") +
+                     (out.laid_out ? ", " + std::to_string(out.laid_out) + " files laid out" : std::string());
+    return out;
+}
+
 }  // namespace tidy::core::layout

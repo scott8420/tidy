@@ -4547,6 +4547,107 @@ int main(int argc, char** argv) {
         core::projects::set_shelves({});
     }
 
+
+    // ── s024c: bookbinding authors -- an author's folder, its books, the Closet for the rest ──
+    {
+        std::cout << "[authors]\n";
+        namespace ly = core::layout;
+        namespace dr = latch::door;
+        const auto& bt = core::starters::find("bookbinding")->t;
+        check("authors: names -- Last, First kept; First Last flipped; one word kept",
+              ly::author_name("Keene, Carolyn") == "Keene, Carolyn" && ly::author_name("Carolyn Keene") == "Keene, Carolyn" &&
+              ly::author_name("Ursula K. Le Guin") == "Guin, Ursula K. Le" && ly::author_name("Homer") == "Homer");
+        const fs::path root = fs::temp_directory_path() / ("tidy_selftest_authors_" + std::to_string(::getpid()));
+        fs::remove_all(root);
+        fs::create_directories(root / "home");
+        fs::create_directories(root / "data");
+        const std::string H = fs::canonical(root / "home").string(), D = fs::canonical(root / "data").string();
+        core::projects::apply_places(D);
+        const std::string K = H + "/Documents/EBooks/Carolyn Keene", A = H + "/Documents/EBooks/Dixon, Franklin W";
+        put_file(K + "/01 The Secret of the Old Clock/A0001.png", "s");
+        put_file(K + "/01 The Secret of the Old Clock/Clock.odt", "o");
+        put_file(K + "/02 The Hidden Staircase/front.png", "f");
+        put_file(K + "/bibliography.ods", "loose");
+        put_file(A + "/The Tower Treasure/Tower.epub", "e");
+        const auto before = tree_facts(H);
+        auto pa = ly::plan_authors(H, bt, {{K, ly::author_name("Carolyn Keene")}, {A, "Dixon, Franklin W"}}, true);
+        check("authors: 2 authors, 3 books; Keene's bibliography -> the Closet; Dixon's folder empty -> the Trash",
+              pa.authors == 2 && pa.books == 3 && pa.closet.size() == 1 && pa.closet[0] == "Documents/EBooks/Carolyn Keene" &&
+              pa.trashed.size() == 1 && pa.trashed[0] == "Documents/EBooks/Dixon, Franklin W" && pa.refused.empty(),
+              std::to_string(pa.authors) + "/" + std::to_string(pa.books));
+        check("authors: laid out too -- the scan, the odt, the epub (front.png asked: stays at the book's top)",
+              pa.laid_out == 3, std::to_string(pa.laid_out));
+        bool order = true, seen_book = false;
+        for (const auto& a : pa.plan.actions) {   // shelf dirs, each book laid out where it is, then moved whole, then the Trash
+            const bool book_move = a.verb == dr::Verb::Move && a.to.find("/Documents/Bookbinding/") != std::string::npos;
+            if (book_move) seen_book = true;
+            else if (seen_book && a.verb != dr::Verb::Trash) order = false;   // nothing but the Trash after the books move
+        }
+        check("authors: the plan's order -- laid out in place, then the books move whole, then the Trash",
+              order && seen_book && pa.plan.actions.back().verb == dr::Verb::Trash);
+        check("authors: READ-ONLY until run", tree_facts(H) == before);
+        check("authors: refused -- on the shelf already, no name",
+              !ly::author_refusal(H, bt, {H + "/Documents/Bookbinding/X", "X"}).empty() && !ly::author_refusal(H, bt, {K, ""}).empty());
+        latch::door::set_app_name("Tidy");
+        dr::Door door(H, D);
+        door.load();
+        pa.plan.previewed = true;
+        const auto r = door.run(pa.plan);
+        const std::string S = H + "/Documents/Bookbinding";
+        check("authors: run -> books on the shelf by Keene, Carolyn and Dixon, Franklin W, laid out; the bibliography stays",
+              r.ok && fs::exists(S + "/Keene, Carolyn/The Secret of the Old Clock/Body/OCR/Scans/Archive/A0001.png") &&
+              fs::exists(S + "/Keene, Carolyn/The Secret of the Old Clock/Body/Layout/ODT/Clock.odt") &&
+              fs::exists(S + "/Keene, Carolyn/The Hidden Staircase/front.png") &&
+              fs::exists(S + "/Dixon, Franklin W/The Tower Treasure/Body/Finals/Tower.epub") &&
+              fs::exists(K + "/bibliography.ods") && !fs::exists(A) && core::projects::find(H).size() == 3,
+              r.messages.empty() ? "" : r.messages.front());
+        const auto u = door.undo();
+        check("authors: ONE undo -> both author folders back as they were, the shelf gone",
+              u.ok && fs::exists(K + "/01 The Secret of the Old Clock/A0001.png") && fs::exists(A + "/The Tower Treasure/Tower.epub") &&
+              !fs::exists(S));
+        fs::remove_all(root);
+        core::projects::set_shelves({});
+    }
+
+
+    // ── s024d: the template as a tree -- rename, move a route, the particular first, a dropped file ──
+    {
+        std::cout << "[template tree]\n";
+        namespace tp = core::templates;
+        check("tree: specificity -- Folder/glob 0, a name glob 1, a bare type 2",
+              tp::specificity("Archive/*.png") == 0 && tp::specificity("*cover*.png") == 1 &&
+              tp::specificity("A[0-9][0-9][0-9][0-9].png") == 1 && tp::specificity("Archive*.zip") == 1 &&
+              tp::specificity("*.png") == 2);
+        check("tree: a dropped file -> its pattern (a numbered scan its run, else its type)",
+              tp::pattern_for_file("A0001.png") == "A[0-9][0-9][0-9][0-9].png" && tp::pattern_for_file("Cover.PNG") == "*.png" &&
+              tp::pattern_for_file("IMG_0042.jpg") == "*.jpg" && tp::pattern_for_file("README") == "README" &&
+              tp::pattern_for_file("Book.optik") == "*.optik");
+        tp::Builder b(tp::Draft{tp::shell("book", "Books"), {}, ""});
+        b.add_folder("Cover", tp::Role::Input);
+        b.add_folder("Cover/Workups", tp::Role::History);
+        b.add_folder("Images", tp::Role::Input);
+        const bool a1 = b.add_route("*.png", "Images").empty();
+        const bool a2 = b.add_route("*cover*.png", "Cover/Workups").empty();
+        const bool a3 = b.add_route("Cover/*.svg", "Cover").empty();
+        check("tree: routes kept particular first, whatever order they came in",
+              a1 && a2 && a3 && b.tpl().routes.size() == 3 && b.tpl().routes[0].pattern == "Cover/*.svg" &&
+              b.tpl().routes[1].pattern == "*cover*.png" && b.tpl().routes[2].pattern == "*.png" &&
+              tp::route_for(b.tpl(), "cover-1960.png") == "Cover/Workups" && tp::route_for(b.tpl(), "plate.png") == "Images");
+        const bool rn = b.rename_folder("Cover", "Jacket").empty();
+        check("tree: rename a folder -- its child, its routes and a Folder/glob naming it follow",
+              rn && tp::find(b.tpl(), "Jacket") && tp::find(b.tpl(), "Jacket/Workups") && !tp::find(b.tpl(), "Cover") &&
+              b.tpl().routes[0].pattern == "Jacket/*.svg" && b.tpl().routes[0].folder == "Jacket" &&
+              b.tpl().routes[1].folder == "Jacket/Workups" && tp::problems(b.tpl()).empty());
+        check("tree: rename refused -- a slash, hidden, a name taken",
+              !b.rename_folder("Images", "a/b").empty() && !b.rename_folder("Images", ".x").empty() &&
+              !b.rename_folder("Images", "Jacket").empty());
+        const bool mv = b.move_route("*.png", "Jacket").empty();
+        check("tree: move a route to another folder (and to stays / top); one undo each",
+              mv && tp::route_for(b.tpl(), "plate.png") == "Jacket" && b.move_route("*.png", tp::kTop).empty() &&
+              tp::route_for_path(b.tpl(), "plate.png") == tp::kTop && b.undo() && tp::route_for(b.tpl(), "plate.png") == "Jacket" &&
+              !b.move_route("*.png", "Nowhere").empty() && !b.move_route("*.nope", "Jacket").empty());
+    }
+
     std::cout << "-----------------------------------------------\n";
     std::cout << g_pass << " pass / " << g_fail << " fail\n";
     return g_fail == 0 ? 0 : 1;

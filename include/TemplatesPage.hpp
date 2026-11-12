@@ -23,6 +23,7 @@
 //               found; Undo | Back | Drift check | Save
 // Undo of a template edit lives here (Scott, s006a), not in Activity.
 // ─────────────────────────────────────────────────────────────────────────────
+namespace Gtk { class Popover; }
 namespace Gtk { class Window; class Label; class ListBox; class Entry; class Button; class DropDown; class ScrolledWindow; class CheckButton; }
 
 namespace tidy {
@@ -30,6 +31,7 @@ namespace tidy {
 class TemplatesPage : public Gtk::Stack {
 public:
     TemplatesPage(Gtk::Window& parent, std::string home, std::string data_dir, bool fixture);
+    ~TemplatesPage() override;   // s024d: the tree's popover is unparented
     void set_on_conform(std::function<void()> f) { m_on_conform = std::move(f); }   // s023h
     void set_on_scan(std::function<void()> f) { m_on_scan = std::move(f); }         // s023i
     void refresh();   // s023i: a template saved elsewhere -- the list again (not while the builder is open)
@@ -85,13 +87,20 @@ private:
     Gtk::CheckButton* m_b_by_place = nullptr;    // s024: projects known by their place (no -project)
     Gtk::Entry*    m_b_group = nullptr;          // s024: the middle level's label (Author (Last, First))
     bool           m_b_quiet = false;            // s024: refresh sets the check without an edit
+    // s024d: the template as a tree (Scott: "a template needs to look just like a
+    // finder structure. Then in here goes this.") -- a row per folder, its
+    // "goes here" chips on it; right-click or "..." for New folder / Rename /
+    // This goes here... / Remove; chips drag between folders; a file dropped
+    // from Files adds its type there.
     Gtk::ListBox*  m_b_folders = nullptr;
-    Gtk::Entry*    m_b_new_folder = nullptr;
-    Gtk::DropDown* m_b_new_role = nullptr;
-    Gtk::ListBox*  m_b_routes = nullptr;
-    Gtk::Entry*    m_b_new_pattern = nullptr;
-    Gtk::DropDown* m_b_route_folder = nullptr;
-    std::vector<std::string> m_route_choices;
+    Gtk::Popover*  m_tree_pop = nullptr;          // one, on the list: rows are rebuilt on every edit
+    void fill_tree();
+    void tree_menu(Gtk::Widget& at, const std::string& folder);   // folder: a path, kTop or kStays
+    void chip_menu(Gtk::Widget& at, const std::string& pattern);
+    void tree_ask(Gtk::Widget& at, const std::string& prompt, const std::string& initial,
+                  std::function<std::string(const std::string&)> ok);
+    void pop_at(Gtk::Widget& at);
+    bool drop_on(const std::string& folder, const GValue* v);
     Gtk::Label*    m_b_drift_head = nullptr;
     Gtk::ListBox*  m_b_drift = nullptr;
     Gtk::Label*    m_b_status = nullptr;

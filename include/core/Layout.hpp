@@ -89,4 +89,33 @@ struct Made {
 Made make_books(const std::string& home, const templates::Template& t, const std::string& author,
                 const std::vector<Book>& books);
 
+// ── s024c: bookbinding authors (Scott: "just select the author and say
+// bookbinding projects"; "if it finds loose files it goes to the closet") ──
+// An author's folder: its name is the author, each folder in it a book. All
+// move whole onto the shelf; optionally each book is laid out there too (its
+// routes; what no route fits stays at the book's top for Layout...). What is
+// left in the old author folder (loose files, a bundle, a repo) stays -- the
+// folder becomes a catch-all so the Closet lists it; left empty, it goes to
+// the Trash.
+
+// "Keene, Carolyn" stays; "Carolyn Keene" -> "Keene, Carolyn"; one word stays.
+std::string author_name(const std::string& folder_name);
+
+struct Author {
+    std::string dir;       // absolute: the author's folder as it is now
+    std::string name;      // "Keene, Carolyn"
+};
+// "" = it may be done, else why not: not a folder, on the shelf already, a
+// book / -project or inside one, protected, hidden, ~/Archive.
+std::string author_refusal(const std::string& home, const templates::Template& t, const Author& a);
+
+struct Authors {
+    latch::door::Plan plan;
+    std::size_t authors = 0, books = 0, laid_out = 0;   // laid_out = layout moves
+    std::vector<std::string> refused;                    // "<folder> -- why"
+    std::vector<std::string> closet;                     // rel to home: old author folders with loose things left -> catch-alls
+    std::vector<std::string> trashed;                    // rel to home: old author folders left empty -> the Trash
+};
+Authors plan_authors(const std::string& home, const templates::Template& t, const std::vector<Author>& authors, bool lay_out);
+
 }  // namespace tidy::core::layout

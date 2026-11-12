@@ -19,6 +19,12 @@
 #include <gtkmm/listboxrow.h>
 #include <gtkmm/scrolledwindow.h>
 #include <gtkmm/stringlist.h>
+#include <gdkmm/contentprovider.h>
+#include <gtkmm/gestureclick.h>
+#include <gtkmm/droptarget.h>
+#include <gtkmm/dragsource.h>
+#include <gtkmm/popover.h>
+#include <gtkmm/flowbox.h>
 #include <gtkmm/window.h>
 #include <giomm/file.h>
 #include <glibmm/main.h>
@@ -251,64 +257,17 @@ void TemplatesPage::build_builder() {
         body->append(*r);
     }
 
-    body->append(*label("Folders -- the whole tree, " + std::to_string(tp::kDepth) + " deep at most", "heading", 0.0f));
+    // s024d: the tree -- folders and what goes in each, like Files.
+    body->append(*label("The tree -- each folder and what goes in it", "heading", 0.0f));
+    body->append(*label("Right-click a folder (or its \u22ef) for New folder, Rename, This goes here..., Remove. Drag a rule "
+                        "to another folder. Drop a file from Files on a folder: its type goes there. A file no rule fits "
+                        "is asked when you organize.", "dim", 0.0f));
     m_b_folders = listbox("templates.builder.folders");
     m_b_folders->add_css_class("boxed-list");
     body->append(*m_b_folders);
-    {
-        auto r = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::HORIZONTAL, 10);
-        m_b_new_folder = Gtk::make_managed<Gtk::Entry>();
-        m_b_new_folder->set_name("templates.builder.new_folder");
-        m_b_new_folder->set_placeholder_text("Folder, or Parent/Child");
-        m_b_new_folder->set_hexpand(true);
-        r->append(*m_b_new_folder);
-        m_b_new_role = role_dropdown(tp::Role::Input);
-        m_b_new_role->set_name("templates.builder.new_role");
-        r->append(*m_b_new_role);
-        auto add_btn = Gtk::make_managed<Gtk::Button>("Add folder");
-        add_btn->set_name("templates.builder.add_folder");
-        const auto add = [this] {
-            const auto err = m_b.add_folder(m_b_new_folder->get_text(), tp::roles()[m_b_new_role->get_selected()]);
-            if (err.empty()) m_b_new_folder->set_text("");
-            edit(err);
-        };
-        add_btn->signal_clicked().connect(add);
-        m_b_new_folder->signal_activate().connect(add);
-        r->append(*add_btn);
-        body->append(*r);
-    }
-
-    body->append(*label("Routes -- a file's type to its folder (first fit wins)", "heading", 0.0f));
-    m_b_routes = listbox("templates.builder.routes");
-    m_b_routes->add_css_class("boxed-list");
-    body->append(*m_b_routes);
-    {
-        auto r = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::HORIZONTAL, 10);
-        m_b_new_pattern = Gtk::make_managed<Gtk::Entry>();
-        m_b_new_pattern->set_name("templates.builder.new_pattern");
-        m_b_new_pattern->set_placeholder_text("*.curvz   or   Archive/*.png");
-        m_b_new_pattern->set_hexpand(true);
-        r->append(*m_b_new_pattern);
-        auto arrow = label("->", "dim");
-        arrow->set_wrap(false);
-        r->append(*arrow);
-        m_b_route_folder = Gtk::make_managed<Gtk::DropDown>(Gtk::StringList::create({}));
-        m_b_route_folder->set_name("templates.builder.route_folder");
-        r->append(*m_b_route_folder);
-        auto add_btn = Gtk::make_managed<Gtk::Button>("Add route");
-        add_btn->set_name("templates.builder.add_route");
-        const auto add = [this] {
-            const auto i = m_b_route_folder->get_selected();
-            const std::string folder = i < m_route_choices.size() ? m_route_choices[i] : "";
-            const auto err = m_b.add_route(m_b_new_pattern->get_text(), folder);
-            if (err.empty()) m_b_new_pattern->set_text("");
-            edit(err);
-        };
-        add_btn->signal_clicked().connect(add);
-        m_b_new_pattern->signal_activate().connect(add);
-        r->append(*add_btn);
-        body->append(*r);
-    }
+    m_tree_pop = Gtk::make_managed<Gtk::Popover>();
+    m_tree_pop->set_has_arrow(false);
+    m_tree_pop->set_parent(*m_b_folders);
 
     m_b_drift_head = label("", "heading", 0.0f);
     m_b_drift_head->set_name("templates.builder.drift_head");
@@ -469,9 +428,6 @@ void TemplatesPage::refresh_head() {
           (d.unconfirmed.size() == 1 ? "" : "s") + " still to keep or remove");
     m_b_summary->set_text(sum);
     m_b_undo->set_sensitive(m_b.can_undo());
-    if (std::string(m_b_group->get_text()) != m_b.tpl().group) {
-        if (auto e = m_b.set_group(m_b_group->get_text()); !e.empty()) { edit(e); return; }
-    }
     std::vector<std::string> names;
     for (const auto& s : m_saved) names.push_back(s.name);
     const auto why = m_b.save_refusal(names);
@@ -510,71 +466,7 @@ void TemplatesPage::refresh_builder() {
     m_b_group->set_text(t.group);
     m_b_group->set_sensitive(t.by_place);
 
-    m_keep_rows.clear();
-    clear(m_b_folders);
-    for (const auto& f : t.folders) {
-        const bool child = f.path.find('/') != std::string::npos;
-        auto row = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::HORIZONTAL, 10);
-        row->set_margin(6);
-        row->set_margin_start(child ? 40 : 8);
-        if (d.unconfirmed.count(f.path)) {
-            auto keep = Gtk::make_managed<Gtk::CheckButton>("Keep");
-            keep->set_name("templates.builder.keep." + f.path);
-            keep->set_tooltip_text("Lifted from the project: keep it in the template?");
-            const std::string p = f.path;
-            keep->signal_toggled().connect([this, keep, p] { if (keep->get_active() && keep->get_sensitive()) on_keep(p); });
-            row->append(*keep);
-        }
-        auto name = label(child ? f.path.substr(f.path.find('/') + 1) + "/" : f.path + "/", nullptr, 0.0f);
-        if (auto* k = dynamic_cast<Gtk::CheckButton*>(row->get_first_child())) m_keep_rows[f.path] = {k, name};
-        name->set_hexpand(true);
-        name->set_tooltip_text(f.path);
-        if (d.unconfirmed.count(f.path)) name->add_css_class("dim");
-        row->append(*name);
-        auto dd = role_dropdown(f.role);
-        dd->set_name("templates.builder.role." + f.path);
-        const std::string p = f.path;
-        dd->property_selected().signal_changed().connect([this, dd, p] {
-            const auto i = dd->get_selected();
-            if (i < tp::roles().size()) Glib::signal_idle().connect_once([this, p, i] { edit(m_b.set_role(p, tp::roles()[i])); });
-        });
-        row->append(*dd);
-        auto rm = Gtk::make_managed<Gtk::Button>("Remove");
-        rm->set_name("templates.builder.remove." + f.path);
-        rm->set_tooltip_text(child ? "Remove it from the template" : "Remove it, its children and its routes from the template");
-        rm->signal_clicked().connect([this, p] { Glib::signal_idle().connect_once([this, p] { edit(m_b.remove_folder(p)); }); });
-        row->append(*rm);
-        m_b_folders->append(*row);
-    }
-    m_b_folders->set_visible(!t.folders.empty());
-
-    clear(m_b_routes);
-    for (const auto& r : t.routes) {
-        auto row = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::HORIZONTAL, 10);
-        row->set_margin(6);
-        const std::string to = r.folder == core::templates::kStays ? std::string("stays where it is")
-                             : r.folder == core::templates::kTop  ? std::string("the project's top")
-                                                                  : r.folder + "/";
-        auto l = label(r.pattern + "  ->  " + to, nullptr, 0.0f);
-        l->set_hexpand(true);
-        row->append(*l);
-        auto rm = Gtk::make_managed<Gtk::Button>("Remove");
-        rm->set_name("templates.builder.remove_route." + r.pattern);
-        const std::string pat = r.pattern;
-        rm->signal_clicked().connect([this, pat] { Glib::signal_idle().connect_once([this, pat] { edit(m_b.remove_route(pat)); }); });
-        row->append(*rm);
-        m_b_routes->append(*row);
-    }
-    m_b_routes->set_visible(!t.routes.empty());
-    m_route_choices.clear();
-    auto choices = Gtk::StringList::create({});
-    for (const auto& f : t.folders) { m_route_choices.push_back(f.path); choices->append(f.path + "/"); }
-    // s023h (Conform): a file may stay where it is ("Archive/*.png"), or go to the project's top (*.optik).
-    m_route_choices.push_back(core::templates::kStays);
-    choices->append("(stays where it is)");
-    m_route_choices.push_back(core::templates::kTop);
-    choices->append("(the project's top)");
-    m_b_route_folder->set_model(choices);
+    fill_tree();   // s024d
 
     // The drift found -- against the draft as it is now.
     clear(m_b_drift);
@@ -607,6 +499,259 @@ void TemplatesPage::refresh_builder() {
         }
     }
 
+}
+
+TemplatesPage::~TemplatesPage() {
+    if (m_tree_pop) m_tree_pop->unparent();
+}
+
+// ── s024d: the tree ────────────────────────────────────────────────────────
+namespace {
+std::string readable(std::string s) {   // A[0-9][0-9][0-9][0-9].png -> A####.png
+    for (std::size_t at; (at = s.find("[0-9]")) != std::string::npos;) s.replace(at, 5, "#");
+    return s;
+}
+}  // namespace
+
+void TemplatesPage::pop_at(Gtk::Widget& at) {
+    double x = 0, y = 0;
+    if (!at.translate_coordinates(*m_b_folders, 0, 0, x, y)) { x = 0; y = 0; }
+    Gdk::Rectangle r{static_cast<int>(x), static_cast<int>(y), at.get_width(), at.get_height()};
+    m_tree_pop->set_pointing_to(r);
+    m_tree_pop->popup();
+}
+
+void TemplatesPage::tree_ask(Gtk::Widget& at, const std::string& prompt, const std::string& initial,
+                             std::function<std::string(const std::string&)> ok) {
+    auto box = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::VERTICAL, 6);
+    box->set_margin(8);
+    box->append(*label(prompt, nullptr, 0.0f));
+    auto e = Gtk::make_managed<Gtk::Entry>();
+    e->set_name("templates.tree.ask");
+    e->set_text(initial);
+    e->set_width_chars(28);
+    box->append(*e);
+    auto why = label("", "dim", 0.0f);
+    box->append(*why);
+    const auto go = [this, e, why, ok] {
+        const auto err = ok(e->get_text());
+        if (!err.empty()) { why->set_text(err); return; }
+        m_tree_pop->popdown();
+    };
+    e->signal_activate().connect(go);
+    auto b = Gtk::make_managed<Gtk::Button>("OK");
+    b->set_name("templates.tree.ok");
+    b->signal_clicked().connect(go);
+    box->append(*b);
+    m_tree_pop->set_child(*box);
+    pop_at(at);
+    e->grab_focus();
+}
+
+void TemplatesPage::tree_menu(Gtk::Widget& at, const std::string& folder) {
+    auto box = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::VERTICAL, 2);
+    box->set_margin(4);
+    const bool real = folder != tp::kTop && folder != tp::kStays;
+    Gtk::Widget* anchor = &at;
+    const auto item = [&](const std::string& text, const std::string& name, std::function<void()> f) {
+        auto b = Gtk::make_managed<Gtk::Button>(text);
+        b->set_name(name);
+        b->set_has_frame(false);
+        b->signal_clicked().connect([f = std::move(f)] { f(); });
+        box->append(*b);
+    };
+    const std::string where = folder == tp::kTop ? "the project's top" : folder == tp::kStays ? "stays where it is" : folder + "/";
+    if (folder != tp::kStays)
+        item("New folder" + std::string(real ? " inside..." : "..."), "templates.tree.new", [this, anchor, folder, real] {
+            tree_ask(*anchor, "New folder in " + (real ? folder + "/" : std::string("the top")), "", [this, folder, real](const std::string& n) {
+                const auto err = m_b.add_folder(real ? folder + "/" + n : n, tp::guess_role(n.empty() ? "x" : n));
+                if (err.empty()) Glib::signal_idle().connect_once([this] { edit(""); });
+                return err;
+            });
+        });
+    if (real)
+        item("Rename...", "templates.tree.rename", [this, anchor, folder] {
+            const auto slash = folder.rfind('/');
+            tree_ask(*anchor, "Rename " + folder + "/", slash == std::string::npos ? folder : folder.substr(slash + 1),
+                     [this, folder](const std::string& n) {
+                         const auto err = m_b.rename_folder(folder, n);
+                         if (err.empty()) Glib::signal_idle().connect_once([this] { edit(""); });
+                         return err;
+                     });
+        });
+    item("This goes here...", "templates.tree.goes", [this, anchor, folder, where] {
+        tree_ask(*anchor, "What goes in " + where + "?  (*.odt   *cover*.png   A0001.png)", "", [this, folder](const std::string& raw) {
+            std::string p = raw;
+            while (!p.empty() && p.back() == ' ') p.pop_back();
+            while (!p.empty() && p.front() == ' ') p.erase(0, 1);
+            // A sample name (no wildcard) reads as its pattern: "A0001.png" -> the run, "x.odt" -> *.odt.
+            if (!p.empty() && p.find_first_of("*?[/") == std::string::npos && p.find('.') != std::string::npos)
+                p = tp::pattern_for_file(p);
+            std::string err;
+            const auto& rs = m_b.tpl().routes;
+            if (std::any_of(rs.begin(), rs.end(), [&](const tp::Route& r) { return r.pattern == p; })) err = m_b.move_route(p, folder);
+            else err = m_b.add_route(p, folder);
+            if (err.empty()) Glib::signal_idle().connect_once([this] { edit(""); });
+            return err;
+        });
+    });
+    if (real)
+        item("Remove " + folder + "/", "templates.tree.remove", [this, folder] {
+            m_tree_pop->popdown();
+            Glib::signal_idle().connect_once([this, folder] { edit(m_b.remove_folder(folder)); });
+        });
+    m_tree_pop->set_child(*box);
+    pop_at(at);
+}
+
+void TemplatesPage::chip_menu(Gtk::Widget& at, const std::string& pattern) {
+    auto box = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::VERTICAL, 2);
+    box->set_margin(4);
+    box->append(*label(readable(pattern) + " -- drag it to another folder, or:", "dim", 0.0f));
+    auto rm = Gtk::make_managed<Gtk::Button>("Remove this rule");
+    rm->set_name("templates.tree.chip_remove");
+    rm->set_has_frame(false);
+    rm->signal_clicked().connect([this, pattern] {
+        m_tree_pop->popdown();
+        Glib::signal_idle().connect_once([this, pattern] { edit(m_b.remove_route(pattern)); });
+    });
+    box->append(*rm);
+    m_tree_pop->set_child(*box);
+    pop_at(at);
+}
+
+bool TemplatesPage::drop_on(const std::string& folder, const GValue* v) {
+    if (!v) return false;
+    std::vector<std::string> pats;
+    if (G_VALUE_HOLDS_STRING(v)) {
+        const char* s = g_value_get_string(v);
+        const std::string t = s ? s : "";
+        if (t.rfind("tidy-route:", 0) != 0) return false;
+        const std::string pat = t.substr(11);
+        Glib::signal_idle().connect_once([this, pat, folder] { edit(m_b.move_route(pat, folder)); });
+        return true;
+    }
+    if (G_VALUE_HOLDS(v, GDK_TYPE_FILE_LIST)) {
+        for (auto* l = static_cast<GSList*>(g_value_get_boxed(v)); l; l = l->next) {
+            char* base = g_file_get_basename(G_FILE(l->data));
+            if (base) { pats.push_back(tp::pattern_for_file(base)); g_free(base); }
+        }
+        if (pats.empty()) return false;
+        Glib::signal_idle().connect_once([this, pats, folder] {
+            std::string err;
+            for (const auto& p : pats) {
+                const auto& rs = m_b.tpl().routes;
+                const bool has = std::any_of(rs.begin(), rs.end(), [&](const tp::Route& r) { return r.pattern == p; });
+                const auto e = has ? m_b.move_route(p, folder) : m_b.add_route(p, folder);
+                if (!e.empty() && err.empty()) err = e;
+            }
+            edit(err);
+        });
+        return true;
+    }
+    return false;
+}
+
+void TemplatesPage::fill_tree() {
+    const auto& d = m_b.draft();
+    const auto& t = d.t;
+    m_keep_rows.clear();
+    if (m_tree_pop) m_tree_pop->popdown();
+    clear(m_b_folders);
+    // The rows: the project's top, each folder (tree order), then "stays where it is".
+    struct R { std::string key, name; int depth; };
+    std::vector<R> rows;
+    rows.push_back({tp::kTop, t.name.empty() ? std::string("(the project)") : t.name + "  (the project's top)", 0});
+    for (const auto& f : t.folders) {
+        const auto slash = f.path.rfind('/');
+        rows.push_back({f.path, slash == std::string::npos ? f.path : f.path.substr(slash + 1),
+                        1 + static_cast<int>(std::count(f.path.begin(), f.path.end(), '/'))});
+    }
+    rows.push_back({tp::kStays, "(stays where it is)", 0});
+    for (const auto& r : rows) {
+        const bool real = r.key != tp::kTop && r.key != tp::kStays;
+        auto row = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::HORIZONTAL, 8);
+        row->set_name("templates.tree.row." + r.key);
+        row->set_margin(4);
+        row->set_margin_start(8 + r.depth * 22);
+        if (real && d.unconfirmed.count(r.key)) {
+            auto keep = Gtk::make_managed<Gtk::CheckButton>("Keep");
+            keep->set_name("templates.builder.keep." + r.key);
+            keep->set_tooltip_text("Lifted from the project: keep it in the template?");
+            const std::string p = r.key;
+            keep->signal_toggled().connect([this, keep, p] { if (keep->get_active() && keep->get_sensitive()) on_keep(p); });
+            row->append(*keep);
+        }
+        auto icon = Gtk::make_managed<Gtk::Image>();
+        icon->set_from_icon_name(real ? "folder-symbolic" : r.key == tp::kTop ? "go-top-symbolic" : "action-unavailable-symbolic");
+        row->append(*icon);
+        auto name = label(real ? r.name + "/" : r.name, real ? nullptr : "dim", 0.0f);
+        name->set_wrap(false);
+        name->set_tooltip_text(real ? r.key : r.key == tp::kTop ? "Files that go to the project's top" : "Files that stay where they are found");
+        if (real && d.unconfirmed.count(r.key)) name->add_css_class("dim");
+        if (auto* k = dynamic_cast<Gtk::CheckButton*>(row->get_first_child()); k && real) m_keep_rows[r.key] = {k, name};
+        row->append(*name);
+        // Its rules, as chips.
+        auto chips = Gtk::make_managed<Gtk::FlowBox>();   // wraps: the row never pushes the page wider
+        chips->set_hexpand(true);
+        chips->set_selection_mode(Gtk::SelectionMode::NONE);
+        chips->set_max_children_per_line(12);
+        chips->set_column_spacing(4);
+        chips->set_row_spacing(2);
+        chips->set_valign(Gtk::Align::CENTER);
+        for (const auto& rt : t.routes) {
+            if (rt.folder != r.key) continue;
+            auto chip = Gtk::make_managed<Gtk::Button>("← " + readable(rt.pattern));
+            chip->set_name("templates.tree.chip." + rt.pattern);
+            chip->add_css_class("flat");
+            chip->set_tooltip_text(rt.pattern + " goes here -- drag it to another folder; click to remove");
+            const std::string pat = rt.pattern;
+            chip->signal_clicked().connect([this, chip, pat] { chip_menu(*chip, pat); });
+            auto drag = Gtk::DragSource::create();
+            drag->set_actions(Gdk::DragAction::MOVE);
+            drag->signal_prepare().connect([pat](double, double) {
+                Glib::Value<Glib::ustring> v;
+                v.init(v.value_type());
+                v.set("tidy-route:" + pat);
+                return Gdk::ContentProvider::create(v);
+            }, false);
+            chip->add_controller(drag);
+            chips->append(*chip);
+        }
+        row->append(*chips);
+        if (real) {
+            const auto* f = tp::find(t, r.key);
+            auto dd = role_dropdown(f ? f->role : tp::Role::Input);
+            dd->set_name("templates.builder.role." + r.key);
+            dd->set_tooltip_text("What happens at close: product kept, input as you say, history archived");
+            const std::string p = r.key;
+            dd->property_selected().signal_changed().connect([this, dd, p] {
+                const auto i = dd->get_selected();
+                if (i < tp::roles().size()) Glib::signal_idle().connect_once([this, p, i] { edit(m_b.set_role(p, tp::roles()[i])); });
+            });
+            row->append(*dd);
+        }
+        auto more = Gtk::make_managed<Gtk::Button>("⋯");
+        more->set_name("templates.tree.more." + r.key);
+        more->add_css_class("flat");
+        more->set_tooltip_text("New folder, Rename, This goes here..., Remove");
+        const std::string key = r.key;
+        more->signal_clicked().connect([this, more, key] { tree_menu(*more, key); });
+        row->append(*more);
+        // Right-click anywhere on the row: the same menu.
+        auto rc = Gtk::GestureClick::create();
+        rc->set_button(3);
+        rc->signal_pressed().connect([this, row, key](int, double, double) { tree_menu(*row, key); });
+        row->add_controller(rc);
+        // A drop: a rule dragged here, or files from Files (their types).
+        auto drop = Gtk::DropTarget::create(G_TYPE_INVALID, Gdk::DragAction::MOVE | Gdk::DragAction::COPY);
+        drop->set_gtypes({G_TYPE_STRING, GDK_TYPE_FILE_LIST});
+        drop->signal_drop().connect([this, key](const Glib::ValueBase& v, double, double) {
+            return drop_on(key, v.gobj());
+        }, false);
+        row->add_controller(drop);
+        m_b_folders->append(*row);
+    }
 }
 
 // ── Handlers ───────────────────────────────────────────────────────────────
@@ -670,6 +815,9 @@ void TemplatesPage::on_save() {
     }
     if (std::string(m_b_category->get_text()) != m_b.tpl().category) {
         if (auto e = m_b.set_category(m_b_category->get_text()); !e.empty()) { edit(e); return; }
+    }
+    if (std::string(m_b_group->get_text()) != m_b.tpl().group) {   // s024: a typed group not yet set with Enter counts
+        if (auto e = m_b.set_group(m_b_group->get_text()); !e.empty()) { edit(e); return; }
     }
     std::vector<std::string> names;
     for (const auto& s : m_saved) names.push_back(s.name);

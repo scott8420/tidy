@@ -18,6 +18,8 @@
 #include <gtkmm/label.h>
 #include <gtkmm/listbox.h>
 #include <gtkmm/listboxrow.h>
+#include <gtkmm/menubutton.h>
+#include <gtkmm/popover.h>
 #include <gtkmm/scrolledwindow.h>
 #include <gtkmm/stringlist.h>
 
@@ -154,25 +156,35 @@ void ProjectsPage::build_start() {
     orb->set_tooltip_text("Find the projects -- nothing is moved");
     orb->signal_clicked().connect([this] { on_look(); });
     start->append(*orb);
+    // s024c: the start page's acts in one row (four stacked made the window taller)
+    auto acts = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::HORIZONTAL, 10);
+    acts->set_halign(Gtk::Align::CENTER);
+    acts->set_margin_top(10);
     auto nw = Gtk::make_managed<Gtk::Button>("New project...");
     nw->set_name("projects.start.new");
     nw->set_halign(Gtk::Align::CENTER);
-    nw->set_margin_top(10);
     nw->set_tooltip_text("A template's tree under a name you give, with its id -- previewed first");
     nw->signal_clicked().connect([this] { show_new(); });
-    start->append(*nw);
+    acts->append(*nw);
     auto books = Gtk::make_managed<Gtk::Button>("Make books...");   // s024b
     books->set_name("projects.start.books");
     books->set_halign(Gtk::Align::CENTER);
     books->set_tooltip_text("Folders anywhere -> books on the shelf: ~/Documents/Bookbinding/<Author>/<Title>, moved whole");
     books->signal_clicked().connect([this] { if (m_on_books) m_on_books(); });
-    start->append(*books);
+    acts->append(*books);
+    auto authors = Gtk::make_managed<Gtk::Button>("Bookbinding authors...");   // s024c
+    authors->set_name("projects.start.authors");
+    authors->set_halign(Gtk::Align::CENTER);
+    authors->set_tooltip_text("An author's folder (or a folder of them): every book inside onto the shelf, laid out");
+    authors->signal_clicked().connect([this] { if (m_on_authors) m_on_authors(); });
+    acts->append(*authors);
     auto code = Gtk::make_managed<Gtk::Button>("Code projects...");
     code->set_name("projects.start.code");
     code->set_halign(Gtk::Align::CENTER);
     code->set_tooltip_text("Each code project: pushed?, sizes (build, .git), status -- archive the done ones, clean builds");
     code->signal_clicked().connect([this] { show_code(); });
-    start->append(*code);
+    acts->append(*code);
+    start->append(*acts);
     add(*start, "start");
 }
 
@@ -217,11 +229,26 @@ void ProjectsPage::build_results() {
     nw->set_name("projects.new");
     nw->signal_clicked().connect([this] { show_new(); });
     bar->append(*nw);
-    auto books = Gtk::make_managed<Gtk::Button>("Make books...");   // s024b
-    books->set_name("projects.books");
-    books->set_tooltip_text("Folders anywhere -> books on the shelf: ~/Documents/Bookbinding/<Author>/<Title>, moved whole");
-    books->signal_clicked().connect([this] { if (m_on_books) m_on_books(); });
-    bar->append(*books);
+    {   // s024b/c: the book acts behind one button -- the bar stays one line
+        auto books = Gtk::make_managed<Gtk::MenuButton>();
+        books->set_name("projects.books");
+        books->set_label("Books");
+        books->set_tooltip_text("Bookbinding: folders or authors' folders -> books on the shelf");
+        auto pop = Gtk::make_managed<Gtk::Popover>();
+        auto pbox = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::VERTICAL, 2);
+        const auto item = [&](const char* text, const char* name, std::function<void()> f) {
+            auto b = Gtk::make_managed<Gtk::Button>(text);
+            b->set_name(name);
+            b->set_has_frame(false);
+            b->signal_clicked().connect([pop, f = std::move(f)] { pop->popdown(); f(); });
+            pbox->append(*b);
+        };
+        item("Make books...", "projects.books.make", [this] { if (m_on_books) m_on_books(); });
+        item("Bookbinding authors...", "projects.books.authors", [this] { if (m_on_authors) m_on_authors(); });
+        pop->set_child(*pbox);
+        books->set_popover(*pop);
+        bar->append(*books);
+    }
     auto code = Gtk::make_managed<Gtk::Button>("Code projects...");
     code->set_name("projects.code");
     code->set_tooltip_text("Each code project: pushed?, sizes (build, .git), status -- archive the done ones, clean builds");

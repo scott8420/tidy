@@ -18,6 +18,7 @@
 #include "ConformWindow.hpp"
 #include "LayoutWindow.hpp"
 #include "BooksWindow.hpp"
+#include "AuthorsWindow.hpp"
 #include "ShapeWindow.hpp"
 #include "TemplatesPage.hpp"
 #include "Busy.hpp"
@@ -268,6 +269,29 @@ void Shell::on_layout_at(const std::string& book) {  // handler
     if (!core::projects::is_whole_at(rel, &shelf)) return;
     for (const auto& t : core::projects::known_templates(m_data_dir))
         if (t.name == shelf.tpl) { on_layout(book, t); return; }
+}
+
+// s024c: authors' folders -> their books on the shelf; loose leftovers -> the Closet (catch-alls in settings.ini).
+void Shell::on_authors(const std::string& folder) {  // handler
+    if (!m_authors_win)
+        m_authors_win = std::make_unique<AuthorsWindow>(*this, *m_door, m_home, m_data_dir,
+            [this](const std::vector<std::string>& rels) {
+                auto s = m_settings;
+                for (const auto& r : rels)
+                    if (std::find(s.catch_all.begin(), s.catch_all.end(), r) == s.catch_all.end()) s.catch_all.push_back(r);
+                const std::string err = core::own::write(m_data_dir, core::settings::kFile, core::settings::format(s));
+                if (!err.empty()) return err;
+                m_settings = s;
+                if (m_clo_states && m_clo_states->get_visible_child_name() == "results") fill_closet();
+                if (auto lg = log::get(log::Area::Shell)) lg->info("authors: {} catch-alls added for the Closet", rels.size());
+                return std::string();
+            },
+            [this] {
+                refresh_activity();
+                if (m_projects) m_projects->refresh_if_shown();
+            });
+    const bool each = !folder.empty() && folder.back() == '/';
+    m_authors_win->open(each ? folder.substr(0, folder.size() - 1) : folder, each);
 }
 
 // s024b: folders -> books on the shelf, moved whole.

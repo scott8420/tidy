@@ -363,6 +363,10 @@ void MapPage::menu_for(const Box& b, double x, double y) {
         item("Make it a book...", "map.menu.book", [this, rel] { m_book(m_home + "/" + rel); });
         item("Its sub-folders are books...", "map.menu.books", [this, rel] { m_book(m_home + "/" + rel + "/"); });
     }
+    if (!whole && m_authors) {   // s024c
+        item("Bookbinding author...", "map.menu.author", [this, rel] { m_authors(m_home + "/" + rel); });
+        item("Its sub-folders are authors...", "map.menu.authors", [this, rel] { m_authors(m_home + "/" + rel + "/"); });
+    }
     if (m_layout && core::projects::is_whole_at(rel) && !core::projects::is_project_name(std::filesystem::path(rel).filename().string()))
         item("Put in the layout...", "map.menu.layout", [this, rel] { m_layout(m_home + "/" + rel); });   // s024b
     if (!whole && m_scan)

@@ -250,6 +250,29 @@ std::string save(const std::string& data_dir, const Template& t) {
     return own::write(data_dir, rel_of(s.name), format(s));
 }
 
+int specificity(const std::string& p) {
+    if (p.find('/') != std::string::npos) return 0;
+    if (p.size() > 2 && p[0] == '*' && p[1] == '.' && p.find_first_of("*?[", 1) == std::string::npos) return 2;
+    return 1;
+}
+
+std::string pattern_for_file(const std::string& name) {
+    const auto dot = name.rfind('.');
+    if (dot == std::string::npos || dot == 0 || dot + 1 == name.size()) return name;
+    const std::string stem = name.substr(0, dot), ext = lower(name.substr(dot));
+    // A numbered scan: letters then 3+ digits, nothing else (A0001, IMG_0042 is not -- the '_').
+    std::size_t i = 0;
+    while (i < stem.size() && std::isalpha(static_cast<unsigned char>(stem[i]))) ++i;
+    const std::size_t digits = stem.size() - i;
+    if (i > 0 && digits >= 3 && std::all_of(stem.begin() + static_cast<long>(i), stem.end(),
+                                            [](char c) { return std::isdigit(static_cast<unsigned char>(c)); })) {
+        std::string p = stem.substr(0, i);
+        for (std::size_t k = 0; k < digits; ++k) p += "[0-9]";
+        return p + ext;
+    }
+    return "*" + ext;
+}
+
 std::string pattern_refusal(const std::string& pattern) {
     if (pattern.empty() || pattern.find("->") != std::string::npos) return "a file-name pattern, like *.curvz";
     const auto slash = pattern.rfind('/');
@@ -453,12 +476,11 @@ std::string Builder::add_route(const std::string& raw, const std::string& folder
     for (const auto& r : m_now.t.routes)
         if (lower(r.pattern) == lower(pattern)) return "\"" + pattern + "\" already goes to " + r.folder;
     Draft d = m_now;
-    // s023h: a "Folder/glob" route is more particular than a plain one -- it goes
-    // before the plain ones, so "Archive/*.png -> (stays)" wins over "*.png -> Images".
-    auto at = d.t.routes.end();
-    if (pattern.find('/') != std::string::npos)
-        at = std::find_if(d.t.routes.begin(), d.t.routes.end(),
-                          [](const Route& r) { return r.pattern.find('/') == std::string::npos; });
+    // s023h / s024d: the more particular first -- before the first route less particular
+    // than it ("Archive/*.png" before "*cover*.png" before "*.png").
+    const int sp = specificity(pattern);
+    const auto at = std::find_if(d.t.routes.begin(), d.t.routes.end(),
+                                 [&](const Route& r) { return specificity(r.pattern) > sp; });
     d.t.routes.insert(at, {pattern, folder});
     return apply(std::move(d));
 }
@@ -467,6 +489,46 @@ std::string Builder::remove_route(const std::string& pattern) {
     if (std::erase_if(d.t.routes, [&](const Route& r) { return r.pattern == pattern; }) == 0)
         return "no route \"" + pattern + "\"";
     return apply(std::move(d));
+}
+std::string Builder::rename_folder(const std::string& path, const std::string& raw) {
+    const std::string name = trim(raw);
+    if (!find(m_now.t, path)) return "no folder \"" + path + "\"";
+    if (auto w = part_refusal(name); !w.empty()) return w;
+    const auto par = parent_of(path);
+    const std::string to = par.empty() ? name : par + "/" + name;
+    if (to == path) return "";
+    if (find(m_now.t, to)) return "\"" + to + "\" is already there";
+    Draft d = m_now;
+    const auto re = [&](std::string& p) {
+        if (p == path) p = to;
+        else if (p.rfind(path + "/", 0) == 0) p = to + p.substr(path.size());
+    };
+    for (auto& f : d.t.folders) re(f.path);
+    for (auto& r : d.t.routes) {
+        re(r.folder);
+        // a "Folder/glob" pattern naming it follows too
+        const auto slash = r.pattern.rfind('/');
+        if (slash != std::string::npos) {
+            std::string dir = r.pattern.substr(0, slash);
+            re(dir);
+            r.pattern = dir + r.pattern.substr(slash);
+        }
+    }
+    std::set<std::string> un;
+    for (auto u : d.unconfirmed) { re(u); un.insert(u); }
+    d.unconfirmed = std::move(un);
+    return apply(std::move(d));
+}
+std::string Builder::move_route(const std::string& pattern, const std::string& folder) {
+    if (folder != kStays && folder != kTop && !find(m_now.t, folder)) return "no folder \"" + folder + "\"";
+    Draft d = m_now;
+    for (auto& r : d.t.routes)
+        if (r.pattern == pattern) {
+            if (r.folder == folder) return "";
+            r.folder = folder;
+            return apply(std::move(d));
+        }
+    return "no route \"" + pattern + "\"";
 }
 std::string Builder::adopt(const Drift& dr) {
     if (dr.kind == Drift::Kind::Extra) return add_folder(dr.path, guess_role(dr.path));

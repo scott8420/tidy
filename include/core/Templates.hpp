@@ -94,6 +94,14 @@ std::string route_for(const Template& t, const std::string& file_name);
 // fits -> its folder, kStays, kTop, or "" (no route). A "Folder/glob" route fits
 // a file anywhere under that folder; a plain glob fits the file's name.
 std::string route_for_path(const Template& t, const std::string& rel);
+// s024d: how particular a pattern is -- 0 "Folder/glob", 1 a name glob
+// ("*cover*.png", "A[0-9][0-9][0-9][0-9].png", "Archive*.zip"), 2 a bare
+// type ("*.png"). add_route keeps the routes in that order, so the
+// particular fits first whatever order they were added in.
+int specificity(const std::string& pattern);
+// s024d: a file dropped on a folder -> its route's pattern: a numbered scan
+// (A0001.png) -> "A[0-9][0-9][0-9][0-9].png"; else "*.<ext>"; no ext -> its name.
+std::string pattern_for_file(const std::string& file_name);
 // A route's pattern: "" = fine, else why not.
 std::string pattern_refusal(const std::string& pattern);
 const Folder* find(const Template& t, const std::string& path);
@@ -156,6 +164,10 @@ public:
     std::string confirm(const std::string& path);          // a lifted folder kept (its parent too)
     std::string add_route(const std::string& pattern, const std::string& folder);
     std::string remove_route(const std::string& pattern);
+    // s024d (the tree): a folder's last name changed -- its children and routes follow.
+    std::string rename_folder(const std::string& path, const std::string& new_name);
+    // s024d: a route dragged to another folder (kStays / kTop too).
+    std::string move_route(const std::string& pattern, const std::string& folder);
     std::string adopt(const Drift& d);                     // Extra -> added (input); Missing -> removed
     bool undo();
 

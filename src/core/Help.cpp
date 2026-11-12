@@ -135,11 +135,19 @@ const std::vector<Topic>& topics() {
           "you pick -> Do it. Missing stage folders are made, folders left empty go to the Trash; one undo in Activity.",
           "A book somewhere else (~/Documents/Nancy Drew/02 The Hidden Staircase): Projects -> Make books... (or the Map: "
           "right-click -> Make it a book... / Its sub-folders are books...) -> the author once, each title guessed (the "
-          "number goes) -> Do it: each folder moves WHOLE onto the shelf. Then Layout... on each."},
+          "number goes) -> Do it: each folder moves WHOLE onto the shelf. Then Layout... on each.",
+          "Whole authors at once: the Map -> right-click an author's folder -> Bookbinding author... (or a folder of "
+          "authors -> Its sub-folders are authors...), or Projects -> Books -> Bookbinding authors... Each folder in an "
+          "author's folder is a book; \"Carolyn Keene\" is offered as \"Keene, Carolyn\". Lay out each book too (on): "
+          "its files by the routes. Loose files left in the old author folder go to the Closet; an empty one, the Trash."},
          "projects"},
         {"templates", "Projects", "Templates",
          {"A template is the shape of a project: its folders, the whole tree (six deep at most). Lift one from a "
           "project you like; New project builds the same tree. Drift shows where a project has wandered from its template.",
+          "The builder shows the template as a tree, like Files: each folder with what goes in it (\u2190 *.odt). "
+          "Right-click a folder (or its \u22ef): New folder, Rename, This goes here... (a pattern, or a sample name: "
+          "A0001.png means the numbered run), Remove. Drag a rule to another folder. Drop a file from Files on a folder: "
+          "its type goes there. The particular rules always fit first (*cover*.png before *.png).",
           "\"Known by its place\" (the builder's check): its projects are the folders under ~/<category>/<group>/ -- "
           "no -project. The built-in bookbinding is one: Body (OCR, Layout, Print, Finals) and Cover (Layout, Print).",
           "Its routes say where files go: \"*.odt -> Originals\". Top to bottom, the first that fits decides. A route may "
