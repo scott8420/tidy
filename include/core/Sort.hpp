@@ -48,16 +48,26 @@ struct Row {
     bool             is_project = false;               // s020a: a <name>-project, placed by its category
     projects::Project project;
     routes::Proposal learned;                          // s022: the learned route it goes by (folder "" = none)
+    // s023g: an UNREAD download that stays -- where it would go if you move it on
+    // now (Sort's "Move on now"); "" = nowhere to go.
+    std::string now_folder, now_why;
 };
 
 // s020a -- Downloads (Scott): everything arrives Ephemeral; once READ (opened
 // since it arrived) it moves on: video -> ~/Entertainment/Movies, an episode
 // (S01E02, 1x02) -> ~/Entertainment/Series/<Show>/Season 01, a book (.epub
-// .mobi .azw3 .cbz .cbr .pdf) -> ~/Entertainment/Books, audio ->
+// .mobi .azw3 .cbz .cbr .pdf) -> ~/Entertainment/EBooks (s023g: the Entertainment table), audio ->
 // ~/Entertainment/Music; anything else home by type. Unread, it stays: Due
 // proposes the Trash after the aging days (Settings, 30).
 inline constexpr const char* kEntertainment = "Entertainment";
 std::string kind_of(const std::string& file_name);   // "Movies", "Books", "Music" or ""
+// s023g the Entertainment table (Settings): where a read download goes. The
+// standard one: video -> Entertainment/Movies (an episode -> Series/<Show>/Season
+// NN), books and comics -> Entertainment/EBooks, audio -> Entertainment/Music.
+const std::vector<homing::TypeRoute>& ent_defaults();
+std::vector<homing::TypeRoute> ent_table(const settings::Settings& s);
+// The table's folder for a file name, "" if no line fits.
+std::string ent_folder(const std::vector<homing::TypeRoute>& table, const std::string& file_name);
 // "Mobland_s01e02.mkv" -> show "Mobland", season 1. false: not an episode.
 bool episode(const std::string& name, std::string* show, int* season);
 // Opened since it arrived (atime past the later of mtime and btime by a minute).
@@ -76,6 +86,11 @@ std::vector<Row> rows(const std::string& home, const birth::Report& rep, const s
                       std::int64_t now, const std::vector<projects::Project>& found = {},
                       const std::vector<templates::Template>& ts = {},
                       const routes::Book* learned = nullptr);   // s022: a learned route before the dated default
+
+// s023g "Move on now": an unread download that stays, sent where it would go
+// once read (the Entertainment table, else by type) -- a file then carries Keep.
+// false: it has nowhere to go.
+bool move_on_now(Row& r);
 
 struct Planned {
     latch::door::Plan plan;

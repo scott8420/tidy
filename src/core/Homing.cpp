@@ -42,6 +42,8 @@ std::string folder_refusal(const std::string& rel, std::size_t max) {
         if (auto why = templates::part_refusal(p); !why.empty()) return why;
         if (projects::is_project_name(p)) return "\"" + p + "\" is a project -- pick it as a project instead";
     }
+    if (std::string at; projects::inside_whole(rel, &at))   // s024: a book on a shelf
+        return "\"" + at + "\" is a project -- pick it as a project instead";
     if (protection::under(rel)) return "\"" + rel + "\" is a place Tidy never touches";   // s019a: or inside one
     return "";
 }
@@ -111,7 +113,9 @@ bool offered_level(const std::string& id) {
 std::vector<birth::Born> offered(const birth::Report& r) {
     std::vector<birth::Born> out;
     for (const auto& b : r.items) {
-        if (b.file.dir || !offered_level(b.file.tags.retention)) continue;
+        if (b.file.dir) continue;
+        if (!offered_level(b.file.tags.retention) && !(b.place == "downloads" && b.file.tags.retention != "hands-off"))
+            continue;
         if (b.file.tags.role == "junk-drawer") continue;
         bool in_project = false;
         for (const auto& part : fs::path(b.file.path).parent_path())
@@ -124,6 +128,32 @@ std::vector<birth::Born> offered(const birth::Report& r) {
     return out;
 }
 
+void keep_sent(latch::door::Plan& plan, const std::vector<Pick>& picks) {
+    std::vector<latch::door::Action> tags;
+    for (const auto& p : picks) {
+        const auto t = facts::tags_of(p.from);
+        if (offered_level(t.retention)) continue;   // decided already: Keep, Held, Until done, Historical
+        if (t.retention == "hands-off") continue;
+        if (t.id.empty()) {
+            latch::door::Action a;
+            a.verb = latch::door::Verb::Tag;
+            a.from = p.from;
+            a.attr = facts::kId;
+            a.content = facts::new_id();
+            a.reason = "a stable id for the catalog";
+            tags.push_back(a);
+        }
+        latch::door::Action a;
+        a.verb = latch::door::Verb::Tag;
+        a.from = p.from;
+        a.attr = facts::kRetention;
+        a.content = retention::id_of(retention::Level::Keep);
+        a.reason = "you placed it: " + (t.retention.empty() ? std::string("no level") : t.retention) + " -> Keep";
+        tags.push_back(a);
+    }
+    plan.actions.insert(plan.actions.begin(), tags.begin(), tags.end());
+}
+
 std::vector<std::string> subfolders(const std::string& home, const std::string& dir) {
     std::vector<std::string> out;
     std::error_code ec;
@@ -133,7 +163,7 @@ std::vector<std::string> subfolders(const std::string& home, const std::string& 
         if (n.empty() || n[0] == '.' || it->is_symlink(e2) || !it->is_directory(e2) || projects::is_project_name(n))
             continue;
         const auto rel = fs::path(it->path()).lexically_relative(home).string();
-        if (latch::protect::here(rel)) continue;
+        if (latch::protect::here(rel) || projects::is_whole_at(rel)) continue;
         out.push_back(n);
     }
     std::sort(out.begin(), out.end());

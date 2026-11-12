@@ -15,8 +15,8 @@ namespace fs = std::filesystem;
 namespace {
 // s019: a tree that is somebody's whole -- a <name>-project, a git repo -- is
 // never entered by the loose walk (its files are home already).
-bool whole_tree(const fs::path& dir) {
-    if (projects::is_project_name(dir.filename().string())) return true;
+bool whole_tree(const std::string& rel, const fs::path& dir) {
+    if (projects::is_whole_at(rel)) return true;   // s024: a -project or a shelf's book
     std::error_code ec;
     return fs::exists(fs::symlink_status(dir / ".git", ec));
 }
@@ -37,7 +37,7 @@ void walk_dir(const std::string& home, const fs::path& dir, std::vector<facts::F
         const auto st = e.symlink_status(e2);
         if (e2 || fs::is_symlink(st)) continue;
         if (fs::is_directory(st) && !latch::pkg::is_package_name(name)) {
-            if (deep && !(loose && whole_tree(e.path()))) walk_dir(home, e.path(), out, true, loose);
+            if (deep && !(loose && whole_tree(rel, e.path()))) walk_dir(home, e.path(), out, true, loose);
             continue;
         }
         if (!fs::is_regular_file(st) && !fs::is_directory(st)) continue;
@@ -74,7 +74,7 @@ std::vector<facts::Facts> top(const std::string& home, const std::string& dir) {
 std::vector<facts::Facts> walk_loose(const std::string& home, const std::vector<std::string>& roots) {
     std::vector<facts::Facts> out;
     for (const auto& r : roots)
-        if (root_ok(home, r) && !whole_tree(r)) walk_dir(home, r, out, true, true);
+        if (root_ok(home, r) && !whole_tree(r.substr(home.size() + 1), r)) walk_dir(home, r, out, true, true);
     return out;
 }
 

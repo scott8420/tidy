@@ -382,6 +382,7 @@ void HomePage::on_set(std::size_t choice) {
         return;
     }
     auto planned = ho::plan(m_home, picks);
+    ho::keep_sent(planned.plan, picks);   // s023g: a download you place becomes Keep
     if (untyped) planned.plan.label += " (" + std::to_string(untyped) + " without a type left out)";
 
     m_archiving = false;
@@ -410,6 +411,7 @@ void HomePage::propose(const std::vector<std::size_t>& sel) {
         return;
     }
     auto planned = ho::plan(m_home, picks);
+    ho::keep_sent(planned.plan, picks);   // s023g
     planned.plan.label = "Files home: " + std::to_string(picks.size()) + (picks.size() == 1 ? " file" : " files") +
                          " to their learned homes";
     if (none) planned.plan.label += " (" + std::to_string(none) + " without one left out)";

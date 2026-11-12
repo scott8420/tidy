@@ -2,6 +2,7 @@
 #include "Log.hpp"
 #include "core/Pages.hpp"
 #include "core/Starters.hpp"
+#include "core/Projects.hpp"
 
 #include <algorithm>
 
@@ -143,6 +144,12 @@ void TemplatesPage::build_start() {
     lift->set_tooltip_text("Read a project's folders, two deep, as a proposal -- nothing in it is touched");
     lift->signal_clicked().connect([this] { on_lift(); });
     row->append(*lift);
+    auto fscan = Gtk::make_managed<Gtk::Button>("From a scan...");   // s023i
+    fscan->set_name("templates.start.scan");
+    fscan->set_valign(Gtk::Align::CENTER);
+    fscan->set_tooltip_text("Scan a project folder or a folder of many: every file type and folder found -- give each type a folder");
+    fscan->signal_clicked().connect([this] { if (m_on_scan) m_on_scan(); });
+    row->append(*fscan);
     auto orb = Gtk::make_managed<Gtk::Button>("New");
     orb->set_name("templates.start.new");
     orb->add_css_class("orb");
@@ -173,6 +180,17 @@ void TemplatesPage::build_list() {
     lift->set_name("templates.list.lift");
     lift->signal_clicked().connect([this] { on_lift(); });
     bar->append(*lift);
+    auto fscan = Gtk::make_managed<Gtk::Button>("From a scan...");   // s023i
+    fscan->set_name("templates.list.scan");
+    fscan->set_tooltip_text("Scan a project folder or a folder of many: every file type and folder found -- give each type a folder");
+    fscan->signal_clicked().connect([this] { if (m_on_scan) m_on_scan(); });
+    bar->append(*fscan);
+    // s023h: the rules once, applied to every project folder -- one preview, one Do it.
+    auto conform = Gtk::make_managed<Gtk::Button>("Conform folders...");
+    conform->set_name("templates.list.conform");
+    conform->set_tooltip_text("Put the files of many project folders where a template's routes say -- previewed first");
+    conform->signal_clicked().connect([this] { if (m_on_conform) m_on_conform(); });
+    bar->append(*conform);
     auto nw = Gtk::make_managed<Gtk::Button>("New template");
     nw->set_name("templates.list.new");
     nw->add_css_class("act");
@@ -209,7 +227,31 @@ void TemplatesPage::build_builder() {
           "The home folder its projects live in (Writing, Develop). Enter sets it.",
           [this] { if (std::string(m_b_category->get_text()) != m_b.tpl().category) edit(m_b.set_category(m_b_category->get_text())); });
 
-    body->append(*label("Folders -- the upper two levels; below them a project is free", "heading", 0.0f));
+    {   // s024: by place -- ~/<category>/<group>/<Name>, no -project (Bookbinding)
+        auto r = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::HORIZONTAL, 10);
+        auto l = label("", nullptr, 0.0f);
+        l->set_size_request(90, -1);
+        r->append(*l);
+        m_b_by_place = Gtk::make_managed<Gtk::CheckButton>("Known by its place (no -project)");
+        m_b_by_place->set_name("templates.builder.by_place");
+        m_b_by_place->set_tooltip_text("Each folder at ~/<category>/<group>/<Name> IS a project -- kept whole, no -project suffix");
+        m_b_by_place->signal_toggled().connect([this] {
+            if (!m_b_quiet) edit(m_b.set_by_place(m_b_by_place->get_active()));
+        });
+        r->append(*m_b_by_place);
+        m_b_group = Gtk::make_managed<Gtk::Entry>();
+        m_b_group->set_name("templates.builder.group");
+        m_b_group->set_placeholder_text("Group level, e.g. Author (Last, First) -- empty = none");
+        m_b_group->set_tooltip_text("A folder level between the category and each project (the author). Enter sets it.");
+        m_b_group->set_hexpand(true);
+        m_b_group->signal_activate().connect([this] {
+            if (std::string(m_b_group->get_text()) != m_b.tpl().group) edit(m_b.set_group(m_b_group->get_text()));
+        });
+        r->append(*m_b_group);
+        body->append(*r);
+    }
+
+    body->append(*label("Folders -- the whole tree, " + std::to_string(tp::kDepth) + " deep at most", "heading", 0.0f));
     m_b_folders = listbox("templates.builder.folders");
     m_b_folders->add_css_class("boxed-list");
     body->append(*m_b_folders);
@@ -244,7 +286,7 @@ void TemplatesPage::build_builder() {
         auto r = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::HORIZONTAL, 10);
         m_b_new_pattern = Gtk::make_managed<Gtk::Entry>();
         m_b_new_pattern->set_name("templates.builder.new_pattern");
-        m_b_new_pattern->set_placeholder_text("*.curvz");
+        m_b_new_pattern->set_placeholder_text("*.curvz   or   Archive/*.png");
         m_b_new_pattern->set_hexpand(true);
         r->append(*m_b_new_pattern);
         auto arrow = label("->", "dim");
@@ -358,6 +400,11 @@ void TemplatesPage::show_starters() {
     set_visible_child("starters");
 }
 
+void TemplatesPage::refresh() {
+    const auto c = get_visible_child_name();
+    if (c == "start" || c == "list") show_home();
+}
+
 void TemplatesPage::show_home() {
     m_saved = tp::list(m_data_dir);
     if (m_saved.empty()) { set_visible_child("start"); return; }
@@ -422,6 +469,9 @@ void TemplatesPage::refresh_head() {
           (d.unconfirmed.size() == 1 ? "" : "s") + " still to keep or remove");
     m_b_summary->set_text(sum);
     m_b_undo->set_sensitive(m_b.can_undo());
+    if (std::string(m_b_group->get_text()) != m_b.tpl().group) {
+        if (auto e = m_b.set_group(m_b_group->get_text()); !e.empty()) { edit(e); return; }
+    }
     std::vector<std::string> names;
     for (const auto& s : m_saved) names.push_back(s.name);
     const auto why = m_b.save_refusal(names);
@@ -454,6 +504,11 @@ void TemplatesPage::refresh_builder() {
     const auto& t = d.t;
     m_b_name->set_text(t.name);
     m_b_category->set_text(t.category);
+    m_b_quiet = true;
+    m_b_by_place->set_active(t.by_place);
+    m_b_quiet = false;
+    m_b_group->set_text(t.group);
+    m_b_group->set_sensitive(t.by_place);
 
     m_keep_rows.clear();
     clear(m_b_folders);
@@ -497,7 +552,10 @@ void TemplatesPage::refresh_builder() {
     for (const auto& r : t.routes) {
         auto row = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::HORIZONTAL, 10);
         row->set_margin(6);
-        auto l = label(r.pattern + "  ->  " + r.folder + "/", nullptr, 0.0f);
+        const std::string to = r.folder == core::templates::kStays ? std::string("stays where it is")
+                             : r.folder == core::templates::kTop  ? std::string("the project's top")
+                                                                  : r.folder + "/";
+        auto l = label(r.pattern + "  ->  " + to, nullptr, 0.0f);
         l->set_hexpand(true);
         row->append(*l);
         auto rm = Gtk::make_managed<Gtk::Button>("Remove");
@@ -511,6 +569,11 @@ void TemplatesPage::refresh_builder() {
     m_route_choices.clear();
     auto choices = Gtk::StringList::create({});
     for (const auto& f : t.folders) { m_route_choices.push_back(f.path); choices->append(f.path + "/"); }
+    // s023h (Conform): a file may stay where it is ("Archive/*.png"), or go to the project's top (*.optik).
+    m_route_choices.push_back(core::templates::kStays);
+    choices->append("(stays where it is)");
+    m_route_choices.push_back(core::templates::kTop);
+    choices->append("(the project's top)");
     m_b_route_folder->set_model(choices);
 
     // The drift found -- against the draft as it is now.
@@ -519,7 +582,7 @@ void TemplatesPage::refresh_builder() {
         m_b_drift_head->set_visible(false);
         m_b_drift->set_visible(false);
     } else {
-        m_drift = tp::drift(t, tp::folders_of(m_drift_dir));
+        m_drift = tp::drift(t, tp::folders_of(m_drift_dir, tp::depth_of(t)));
         m_b_drift_head->set_visible(true);
         m_b_drift_head->set_text("Drift -- " + shown(m_drift_dir) + ": " +
             (m_drift.empty() ? std::string("matches the template, two deep") :
@@ -612,6 +675,7 @@ void TemplatesPage::on_save() {
     for (const auto& s : m_saved) names.push_back(s.name);
     if (auto why = m_b.save_refusal(names); !why.empty()) { m_b_status->set_text(why); refresh_builder(); return; }
     const auto err = tp::save(m_data_dir, m_b.tpl());
+    if (err.empty()) core::projects::apply_places(m_data_dir);   // s024: a by-place template's shelf, now
     if (!err.empty()) { m_b_status->set_text("Not saved: " + err); return; }
     if (auto lg = log::get(log::Area::Io)) lg->info("saved {} ({} folders, {} routes)", m_b.tpl().name,
                                                   m_b.tpl().folders.size(), m_b.tpl().routes.size());

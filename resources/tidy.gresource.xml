@@ -17,11 +17,13 @@
     <file preprocess="xml-stripblanks" alias="tidy-hero-due.svg">icons/scalable/apps/tidy-hero-due.svg</file>
     <file preprocess="xml-stripblanks" alias="tidy-hero-home.svg">icons/scalable/apps/tidy-hero-home.svg</file>
     <file preprocess="xml-stripblanks" alias="tidy-hero-sort.svg">icons/scalable/apps/tidy-hero-sort.svg</file>
+    <file preprocess="xml-stripblanks" alias="tidy-hero-map.svg">icons/scalable/apps/tidy-hero-map.svg</file>
     <file preprocess="xml-stripblanks" alias="tidy-hero-projects.svg">icons/scalable/apps/tidy-hero-projects.svg</file>
     <file preprocess="xml-stripblanks" alias="tidy-hero-purposes.svg">icons/scalable/apps/tidy-hero-purposes.svg</file>
     <file preprocess="xml-stripblanks" alias="tidy-hero-templates.svg">icons/scalable/apps/tidy-hero-templates.svg</file>
     <file preprocess="xml-stripblanks" alias="tidy-home-symbolic.svg">icons/scalable/apps/tidy-home-symbolic.svg</file>
     <file preprocess="xml-stripblanks" alias="tidy-sort-symbolic.svg">icons/scalable/apps/tidy-sort-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="tidy-map-symbolic.svg">icons/scalable/apps/tidy-map-symbolic.svg</file>
     <file preprocess="xml-stripblanks" alias="tidy-logo-symbolic.svg">icons/scalable/apps/tidy-logo-symbolic.svg</file>
     <file preprocess="xml-stripblanks" alias="tidy-projects-symbolic.svg">icons/scalable/apps/tidy-projects-symbolic.svg</file>
     <file preprocess="xml-stripblanks" alias="tidy-purposes-symbolic.svg">icons/scalable/apps/tidy-purposes-symbolic.svg</file>

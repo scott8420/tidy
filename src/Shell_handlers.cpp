@@ -15,6 +15,9 @@
 #include "SettingsWindow.hpp"
 #include "IdListsWindow.hpp"
 #include "AdoptWindow.hpp"
+#include "ConformWindow.hpp"
+#include "ShapeWindow.hpp"
+#include "TemplatesPage.hpp"
 #include "Busy.hpp"
 
 #include <memory>
@@ -237,6 +240,33 @@ void Shell::on_adopt() {  // handler
             },
             [this] { refresh_activity(); });
     m_adopt_win->open(m_settings);
+}
+
+// s023h: conform many project folders to a template -- moves through the door.
+void Shell::on_conform(const std::string& folder) {  // handler
+    if (!m_conform_win)
+        m_conform_win = std::make_unique<ConformWindow>(*this, *m_door, m_home, m_data_dir, [this] { refresh_activity(); });
+    m_conform_win->open(folder);
+}
+
+// s023i: a template made from a scan -- Save and conform goes on to Conform's preview.
+void Shell::on_shape(const std::string& folder) {  // handler
+    if (!m_shape_win)
+        m_shape_win = std::make_unique<ShapeWindow>(*this, m_home, m_data_dir,
+            [this](const std::string& name, const std::string& dir, bool each, bool conform) {
+                if (m_templates_page) m_templates_page->refresh();
+                if (!conform) return;
+                if (!m_conform_win)
+                    m_conform_win = std::make_unique<ConformWindow>(*this, *m_door, m_home, m_data_dir, [this] { refresh_activity(); });
+                m_conform_win->open_with(dir, name, each);
+            });
+    m_shape_win->open(folder);
+}
+
+// s023f: the Map's right-click -> the Adopt window, with that folder added.
+void Shell::on_adopt_folder(const std::string& rel, bool catch_all) {  // handler
+    on_adopt();
+    if (m_adopt_win) m_adopt_win->add(rel, catch_all);
 }
 
 }  // namespace tidy

@@ -30,6 +30,7 @@ public:
     ~AdoptWindow() override;
 
     void open(const core::settings::Settings& current);   // present; the folders as saved
+    void add(const std::string& rel, bool catch_all);      // s023f: a folder picked elsewhere (the Map), then Look
 
 private:
     struct Pick {
@@ -56,6 +57,7 @@ private:
     core::settings::Settings m_current;
     std::vector<Pick> m_picks;
     bool m_busy = false;                     // s023a: a look or a run is in its Busy window
+    bool m_again = false;                    // s023f: a look asked for while one ran
     std::optional<Result> m_result;          // shown, not yet run
     std::optional<latch::door::Plan> m_plan;
 

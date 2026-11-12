@@ -40,7 +40,43 @@ struct Project {
     bool code = false;                      // .git or CMakeLists.txt at its top
     bool left = false;                      // uncategorized, and the user said leave it
     std::string id;                         // from .tidy-project; "" = none yet (s010d)
+    bool by_place = false;                  // s024: known by its place (a shelf), no -project
+    std::string group;                      // s024: the shelf's middle folder ("Keene, Carolyn"); ""
 };
+
+// ── s024: shelves -- projects known BY THEIR PLACE ──────────────────────────
+// A shelf = a by-place template's category + how deep its projects sit under
+// it (templates::place_depth). ~/Documents/Bookbinding/<Last, First>/<Title>
+// IS a bookbinding project: kept whole, never sorted file by file, never
+// looked inside for loose files -- the same as a -project, without the name.
+struct Shelf {
+    std::string category;                   // "Documents/Bookbinding"
+    int depth = 0;                          // 2 = <group>/<Name>
+    std::string tpl;                        // the template's name
+};
+std::vector<Shelf> shelves_of(const std::vector<templates::Template>& ts);
+// Set once at startup and after a template is saved (the app; the selftest).
+// Every walk asks is_whole_at / inside_whole.
+void set_shelves(std::vector<Shelf> s);
+std::vector<Shelf> shelves();
+// The saved templates' shelves + the built-in bookbinding's (always: a book
+// is never split, saved template or not), and the package extras: Tidy's own
+// bundles latch does not list (.composix, .quire) + <data>/bundles.json.
+// READ-ONLY (a directory listing + reads).
+void apply_places(const std::string& data_dir);
+// The saved templates + the built-in bookbinding when none of that name is
+// saved (READ-ONLY). What a book is checked against before you save your own.
+std::vector<templates::Template> known_templates(const std::string& data_dir);
+inline const std::vector<std::string>& own_bundles() {
+    static const std::vector<std::string> v = {".composix", ".quire"};
+    return v;
+}
+// Is the folder at `rel` (relative to home) a project: a -project name, or a
+// shelf's place? `shelf_out` (optional) gets the shelf when by place.
+bool is_whole_at(const std::string& rel, Shelf* shelf_out = nullptr);
+// Is `rel` a project or strictly inside one (any ancestor is)? The project's
+// rel in `at` (optional).
+bool inside_whole(const std::string& rel, std::string* at = nullptr);
 
 // The id in <dir>/.tidy-project ("" if none or not a uuid). READ-ONLY.
 std::string read_id(const std::string& dir);
@@ -52,8 +88,10 @@ bool is_uuid(const std::string& s);
 // added if not typed. A door plan -- MakeDir each missing category level,
 // the project, each template folder (parents first), then Write the dot file.
 // Empty plan + `why` if not: bad name, no category, it exists already.
+// s024: a by-place template -> <home>/<category>/[<group>/]<name>, no suffix;
+// `group` required when the template names one ("Keene, Carolyn").
 latch::door::Plan create(const templates::Template& t, const std::string& name, const std::string& home,
-                         const std::string& id, std::string* why);
+                         const std::string& id, std::string* why, const std::string& group = "");
 std::string folder_for(const std::string& name);
 
 // s010e. Ids for projects found without one: a Write of .tidy-project each,

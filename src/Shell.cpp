@@ -7,6 +7,9 @@
 #include "SettingsWindow.hpp"
 #include "IdListsWindow.hpp"
 #include "AdoptWindow.hpp"
+#include "ConformWindow.hpp"
+#include "ShapeWindow.hpp"
+#include "ShapeWindow.hpp"
 #include "BackgroundWindow.hpp"
 #include "ProjectsPage.hpp"
 #include "core/Own.hpp"
@@ -65,6 +68,7 @@ void Shell::build_ui() {
     m_settings = core::settings::parse(core::own::read(m_data_dir, core::settings::kFile));   // absent: the defaults
     core::backup::register_media(m_settings.media);   // s013b: the door may copy onto these (latch 0.4)
     core::protection::apply(m_home, core::protection::config_home(m_home), m_settings);   // s019a
+    core::projects::apply_places(m_data_dir);   // s024: shelves (books by their place) + .composix/.quire bundles
 
     build_shell();     // zone
     build_pages();     // zone (+ the look's sidebar over them)

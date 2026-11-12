@@ -88,6 +88,9 @@ private:
     Gtk::Button*  m_prev_run = nullptr;
     Gtk::DropDown* m_new_tpl = nullptr;      // New project (s010d)
     Gtk::Entry*    m_new_name = nullptr;
+    Gtk::Label*    m_new_group_label = nullptr;   // s024: a by-place template's middle level (the author)
+    Gtk::Entry*    m_new_group = nullptr;
+    std::function<void()> m_new_refresh;          // s024: the where line + the group row, again
     Gtk::Label*    m_new_where = nullptr;
     Gtk::Label*    m_new_status = nullptr;
     std::vector<core::templates::Template> m_new_templates;

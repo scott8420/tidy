@@ -59,6 +59,7 @@ std::vector<NavEntry> tidy_nav() {
         item("due",       "tidy-due-symbolic",         "Due",         "rose"),
         section("ORGANIZE"),
         item("sort",      "tidy-sort-symbolic",        "Sort",        "lime"),
+        item("map",       "tidy-map-symbolic",         "Map",         "orange"),   // s023f
         item("projects",  "tidy-projects-symbolic",    "Projects",    "amber"),
         item("templates", "tidy-templates-symbolic",   "Templates",   "violet"),
         item("purposes",  "tidy-purposes-symbolic",    "Purposes",    "teal"),

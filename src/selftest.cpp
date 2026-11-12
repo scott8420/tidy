@@ -70,6 +70,9 @@
 #include "core/Sort.hpp"
 #include "Busy.hpp"
 #include "core/Adopt.hpp"
+#include "core/Map.hpp"
+#include "core/Conform.hpp"
+#include "core/Shape.hpp"
 #include "core/Routes.hpp"
 #include "core/Shortcuts.hpp"
 #include "core/Catalog.hpp"
@@ -99,6 +102,7 @@
 #include <latch/Vcs.hpp>
 
 #include <latch/Door.hpp>
+#include <latch/Package.hpp>
 #include <fcntl.h>
 #include <latch/Protect.hpp>
 
@@ -1595,6 +1599,251 @@ int main(int argc, char** argv) {
               tidy::busy::door_fraction(50, 4) == 1.0 && tidy::busy::door_fraction(0, 0) == 1.0);
     }
 
+    // ── s023f: the home map -- what is cataloged, loose, untracked; the treemap ──
+    {
+        std::cout << "[map]\n";
+        namespace mp = core::map;
+        const fs::path root = fs::temp_directory_path() / ("tidy_selftest_map_" + std::to_string(::getpid()));
+        fs::remove_all(root);
+        const fs::path home = root / "home";
+        for (const char* f : {"Desktop/loose.txt", "Pictures/x.png", "Pictures/Covers/a.png", "Pictures/Covers/b.png",
+                              "Writing/Book-project/ch1.odt", "Writing/Book-project/ch2.odt", "notes-repo/a.md",
+                              "notes-repo/.git/HEAD", "Archive/2025/old.txt", "Taxes/w2.pdf", ".hidden/x",
+                              "Documents/Misc/deep/b.txt", "Documents/top.txt", "todo.txt"})
+            put_file(home / f, f);
+        xset(home / "Pictures/Covers/b.png", core::facts::kId, "77777777-7777-4777-8777-777777777777");
+        const std::string H = fs::canonical(home).string();
+        latch::protect::set_owned({"Taxes"});
+        const auto before = tree_facts(H);
+        const auto t = mp::build(H, "", {});
+        check("map: READ-ONLY", tree_facts(H) == before);
+        using K = mp::Kind;
+        check("map: loose (Desktop, a top folder's top, Documents' top, home's top) / untracked / cataloged",
+              t.c[K::Loose] == 4 && t.c[K::Untracked] == 2 && t.c[K::Cataloged] == 1, mp::line(t.c));
+        check("map: a -project and a repo kept whole (no .git); ~/Archive archived",
+              t.c[K::Whole] == 3 && t.c[K::Archived] == 1 && mp::find(t, "notes-repo") &&
+              mp::find(t, "notes-repo")->what.find("repo") != std::string::npos);
+        const auto* tx = mp::find(t, "Taxes");
+        check("map: Hands off not looked inside (a box of weight 1); hidden skipped",
+              tx && tx->shut && tx->c.total() == 0 && tx->weight() == 1 && !mp::find(t, ".hidden") &&
+              t.c.total() == 11, std::to_string(t.c.total()));
+        check("map: find a folder; its files here vs below",
+              mp::find(t, "Pictures/Covers") && mp::find(t, "Pictures/Covers")->c.total() == 2 &&
+              mp::find(t, "Pictures")->here.total() == 1 && !mp::find(t, "Nope"));
+        check("map: the biggest folder first", t.kids.size() >= 2 && t.kids[0].weight() >= t.kids[1].weight());
+        const auto t2 = mp::build(H, "", {"Documents/Misc"});
+        check("map: a catch-all's files are loose, at any depth",
+              mp::find(t2, "Documents/Misc")->c[K::Loose] == 1 && mp::find(t2, "Documents/Misc")->what == "a catch-all");
+        check("map: the line", mp::line(mp::find(t, "Pictures/Covers")->c) == "2 files: 1 cataloged, 1 untracked",
+              mp::line(mp::find(t, "Pictures/Covers")->c));
+        {
+            const std::vector<double> sz = {6, 6, 4, 3, 2, 2, 1};
+            const auto rs = mp::squarify(sz, {0, 0, 6, 4});
+            bool ok = rs.size() == sz.size();
+            double sum = 0;
+            for (std::size_t i = 0; ok && i < rs.size(); ++i) {
+                const auto& r = rs[i];
+                ok = r.x >= -1e-9 && r.y >= -1e-9 && r.x + r.w <= 6 + 1e-9 && r.y + r.h <= 4 + 1e-9 &&
+                     std::abs(r.w * r.h - sz[i]) < 1e-6;
+                sum += r.w * r.h;
+                for (std::size_t j = 0; ok && j < i; ++j) {
+                    const auto& q = rs[j];
+                    const double ox = std::min(r.x + r.w, q.x + q.w) - std::max(r.x, q.x);
+                    const double oy = std::min(r.y + r.h, q.y + q.h) - std::max(r.y, q.y);
+                    ok = !(ox > 1e-6 && oy > 1e-6);
+                }
+            }
+            check("squarify: each box its share of the area, inside it, none overlapping", ok && std::abs(sum - 24) < 1e-6);
+            const auto one = mp::squarify({5}, {10, 20, 30, 40});
+            check("squarify: one fills it; none or zero -> empty boxes",
+                  one[0].x == 10 && one[0].y == 20 && one[0].w == 30 && one[0].h == 40 &&
+                  mp::squarify({}, {0, 0, 1, 1}).empty() && mp::squarify({0}, {0, 0, 1, 1})[0].w == 0);
+        }
+        latch::protect::set_owned({});
+        std::error_code ec;
+        fs::remove_all(root, ec);
+    }
+
+    // ── s023h: Conform -- a template's routes put every book folder in order ──
+    {
+        std::cout << "[conform]\n";
+        namespace cf = core::conform;
+        namespace tp = core::templates;
+        const fs::path root = fs::temp_directory_path() / ("tidy_selftest_conform_" + std::to_string(::getpid()));
+        fs::remove_all(root);
+        const fs::path home = root / "home";
+        const std::string B = "Documents/EBooks/";
+        for (const char* f : {"01 Clock/Archive.zip", "01 Clock/cover.png", "01 Clock/Images/BookPlate.jpg",
+                              "01 Clock/Clock.odt", "01 Clock/Clock.odt.bak", "01 Clock/Clock.pdf",
+                              "01 Clock/Clock_dustjacket.svg", "01 Clock/Clock.epub", "01 Clock/Clock.optik",
+                              "01 Clock/Clock-print.pdf", "01 Clock/Workups/Images/old/plate.jpg",
+                              "01 Clock/Bind-project/notes.txt", "01 Clock/.hidden.png",
+                              "04 Lilac/Archive/A0001.png", "04 Lilac/Archive/A0002.png", "04 Lilac/Archive/A0003.png",
+                              "04 Lilac/Lilac.odt", "Nancy Drew Bibliography.ods"})
+            put_file(home / (B + f), f);
+        const std::string H = fs::canonical(home).string();
+        tp::Template t;
+        t.name = "book-project";
+        t.category = "Entertainment/EBooks";
+        t.folders = {{"Archive", tp::Role::History}, {"Originals", tp::Role::Input}, {"Print", tp::Role::Product},
+                     {"Workups", tp::Role::Input}, {"Workups/Images", tp::Role::Input}};
+        t.routes = {{"Archive/*.png", tp::kStays}, {"*.optik", tp::kTop}, {"*.odt", "Originals"}, {"*.bak", "Originals"},
+                    {"*.epub", "Originals"}, {"*-print.pdf", "Print"}, {"*.xcf", "Workups"}, {"*.svg", "Workups"},
+                    {"*.jpg", "Workups/Images"}, {"*.png", "Workups/Images"}};
+        check("template: (stays), (top) and Folder/glob routes are fine; a bad one is not",
+              tp::problems(t).empty() && !tp::pattern_refusal("Archive/").empty() && !tp::pattern_refusal("a -> b").empty(),
+              tp::problems(t).empty() ? "" : tp::problems(t).front());
+        check("template: round trip with the new routes", tp::parse(tp::format(t)) == t);
+        check("route_for_path: Archive/*.png stays; any other .png -> Workups/Images; .optik -> top",
+              tp::route_for_path(t, "Archive/A0001.png") == tp::kStays && tp::route_for_path(t, "Archive/deep/x.png") == tp::kStays &&
+              tp::route_for_path(t, "cover.png") == "Workups/Images" && tp::route_for_path(t, "x.optik") == tp::kTop &&
+              tp::route_for_path(t, "x.zip").empty());
+        check("route_for (Files home into a project) skips the Conform-only routes",
+              tp::route_for(t, "x.optik").empty() && tp::route_for(t, "A0001.png") == "Workups/Images");
+        const auto fs_ = cf::folders(H + "/" + B, true);
+        check("folders: each sub-folder of EBooks (not the loose .ods)", fs_.size() == 2, std::to_string(fs_.size()));
+        check("refusal: home, ~/Archive, outside -> refused; a book folder fine",
+              !cf::refusal(H, H).empty() && !cf::refusal(H, "/etc").empty() && cf::refusal(H, fs_[0]).empty());
+        const auto before = tree_facts(H);
+        std::vector<cf::Project> ps;
+        for (const auto& d : fs_) ps.push_back(cf::look(t, d));
+        check("look: READ-ONLY", tree_facts(H) == before);
+        const auto& c = ps[0];
+        const auto moved = [&](const std::string& rel, const std::string& folder) {
+            for (const auto& m : c.moves) if (m.from == fs_[0] + "/" + rel) return m.folder == folder;
+            return false;
+        };
+        check("look: the clutter routed -- cover.png + Images/BookPlate.jpg -> Workups/Images; .odt/.bak/.epub -> "
+              "Originals; -print.pdf -> Print; .svg -> Workups",
+              moved("cover.png", "Workups/Images") && moved("Images/BookPlate.jpg", "Workups/Images") &&
+              moved("Clock.odt", "Originals") && moved("Clock.odt.bak", "Originals") && moved("Clock.epub", "Originals") &&
+              moved("Clock-print.pdf", "Print") && moved("Clock_dustjacket.svg", "Workups") && c.moves.size() == 7,
+              std::to_string(c.moves.size()));
+        check("look: the .optik at the top and Workups/Images/old/plate.jpg in place (never flattened); "
+              "Archive.zip + Clock.pdf listed; a nested -project whole; hidden skipped",
+              c.in_place == 2 && c.unmatched == std::vector<std::string>{"Archive.zip", "Clock.pdf"} && c.whole == 1,
+              std::to_string(c.in_place) + "/" + std::to_string(c.whole));
+        check("look: Lilac's Archive scans stay (3); its .odt -> Originals",
+              ps[1].stays == 3 && ps[1].moves.size() == 1 && ps[1].moves[0].folder == "Originals");
+        auto pl = cf::plan(H, ps, true);
+        {
+            std::size_t mk = 0, mv = 0;
+            for (const auto& a : pl.plan.actions) { mk += a.verb == latch::door::Verb::MakeDir; mv += a.verb == latch::door::Verb::Move; }
+            const auto& last = pl.plan.actions.back();
+            check("plan: the new folders (Originals, Print in Clock -- its Workups/Images is there already; Originals in "
+                  "Lilac), 8 file moves + the 2 renames LAST",
+                  mk == 3 && mv == 10 && last.verb == latch::door::Verb::Move && last.to == fs_[1] + "-project" &&
+                  pl.plan.actions[pl.plan.actions.size() - 2].to == fs_[0] + "-project",
+                  std::to_string(mk) + " dirs, " + std::to_string(mv) + " moves");
+        }
+        latch::door::Door door(H, H + "/.tidy-data-conform");
+        door.load();
+        pl.plan.previewed = true;
+        const auto r = door.run(pl.plan);
+        check("run: every step", r.ok && r.failed == 0, r.messages.empty() ? "" : r.messages.front());
+        const std::string C = H + "/" + B + "01 Clock-project/";
+        check("run: on disk -- Workups/Images/cover.png, Originals/Clock.odt, Print/Clock-print.pdf, the .optik at the top, "
+              "the scans still in Lilac's Archive, the bibliography untouched",
+              fs::exists(C + "Workups/Images/cover.png") && fs::exists(C + "Workups/Images/BookPlate.jpg") &&
+              fs::exists(C + "Originals/Clock.odt") && fs::exists(C + "Print/Clock-print.pdf") && fs::exists(C + "Clock.optik") &&
+              fs::exists(C + "Clock.pdf") && fs::exists(H + "/" + B + "04 Lilac-project/Archive/A0002.png") &&
+              fs::exists(H + "/" + B + "Nancy Drew Bibliography.ods"));
+        const auto u = door.undo();
+        check("undo: one step -- back as it was", u.ok && fs::exists(home / (B + "01 Clock/cover.png")) &&
+              fs::exists(home / (B + "01 Clock/Images/BookPlate.jpg")) && !fs::exists(home / (B + "01 Clock-project")) &&
+              !fs::exists(home / (B + "01 Clock/Originals")), u.messages.empty() ? "" : u.messages.front());
+        std::error_code ec;
+        fs::remove_all(root, ec);
+    }
+
+    // ── s023i: a template made from a scan -- types (numbered runs apart) + folders -> routes ──
+    {
+        std::cout << "[shape]\n";
+        namespace sh = core::shape;
+        namespace cf = core::conform;
+        namespace tp = core::templates;
+        const fs::path root = fs::temp_directory_path() / ("tidy_selftest_shape_" + std::to_string(::getpid()));
+        fs::remove_all(root);
+        const fs::path home = root / "home";
+        const std::string B = "Documents/EBooks/";
+        // Two books: scans loose at the top of one, in Archive/ in the other; covers; an .optik; a nested -project.
+        std::vector<std::string> fl = {"01 Clock/Clock.odt", "01 Clock/Clock.optik", "01 Clock/cover.png",
+                                       "01 Clock/Images/plate.png", "01 Clock/Clock-print.pdf", "01 Clock/Bind-project/x.txt",
+                                       "01 Clock/README", "01 Clock/.hidden.png",
+                                       "02 Lilac/Lilac.odt", "02 Lilac/Archive/old/deep.txt", "02 Lilac/cover.png"};
+        for (int i = 1; i <= 6; ++i) {
+            char n[16];
+            std::snprintf(n, sizeof n, "A%04d.png", i);
+            fl.push_back(std::string("01 Clock/") + n);
+            fl.push_back(std::string("02 Lilac/Archive/") + n);
+        }
+        fl.push_back("02 Lilac/Chapter1.odt");   // a numbered name, but only one: not a run
+        for (const auto& f : fl) put_file(home / (B + f), f);
+        const std::string H = fs::canonical(home).string();
+
+        check("numbered: A0001 -> (A, 4); Clock -> none; 01 -> (\"\", 2)",
+              sh::numbered("A0001") == std::pair<std::string, int>{"A", 4} && sh::numbered("Clock").second == 0 &&
+              sh::numbered("01") == std::pair<std::string, int>{"", 2});
+        const auto dirs = cf::folders(H + "/" + B, true);
+        const auto before = tree_facts(H);
+        const auto sc = sh::scan(dirs);
+        check("scan: READ-ONLY", tree_facts(H) == before);
+        const auto row = [&](const std::string& key) -> const sh::Row* {
+            for (const auto& r : sc.rows) if (r.key() == key) return &r;
+            return nullptr;
+        };
+        const auto* run = row(".png#A#4");
+        const auto* png = row(".png");
+        check("scan: the scans are a numbered run of their own (12, in 2 of 2, A0001.png .. A0006.png), the other .png apart (3)",
+              run && run->count == 12 && run->projects == 2 && run->first == "A0001.png" && run->last == "A0006.png" &&
+              png && png->count == 3, run ? std::to_string(run->count) : "no run");
+        check("scan: the run's pattern is exact digits; a run row comes before its type's others",
+              run && run->pattern() == "A[0-9][0-9][0-9][0-9].png" && sc.rows.front().key() == ".png#A#4");
+        check("scan: .odt 3 (Chapter1 not a run), .optik 1, no extension 1 (not routable); hidden + nested -project skipped",
+              row(".odt") && row(".odt")->count == 3 && row(".optik") && row(".optik")->count == 1 && row("") &&
+              !row("")->routable() && sc.whole == 1 && sc.files == 22, std::to_string(sc.files));
+        bool images = false, archive = false, deep = false, two = false;
+        for (const auto& f : sc.folders) {
+            images |= f.path == "Images" && f.files == 1 && f.projects == 1;
+            archive |= f.path == "Archive" && f.files == 6;
+            deep |= f.path == "Archive/old";
+            two |= std::count(f.path.begin(), f.path.end(), '/') > 1;
+        }
+        check("scan: the folders found, two deep (Images, Archive, Archive/old), files directly in each", images && archive && deep && !two);
+        check("scan: where the run is now -- Archive/ 6, the top 6 (a tie: half at the top -> mostly the top)", run && run->where.size() == 2 && run->mostly().empty());
+        check("name_from: EBooks -> ebooks-project", sh::name_from("EBooks") == "ebooks-project" &&
+              sh::name_from("book-project") == "book-project");
+
+        std::map<std::string, sh::Pick> picks;
+        picks[".png#A#4"] = {"Archive", false};
+        picks[".png"] = {"Workups/Images", false};
+        picks[".odt"] = {"Originals", false};
+        picks[".optik"] = {"", true};
+        picks[".pdf"] = {"", false};   // left alone
+        const auto t = sh::make("book-project", "Entertainment/EBooks", {"Archive", "Originals", "Workups/Images"}, sc.rows, picks);
+        check("make: no problems; Workups added as the parent; Archive a history folder",
+              tp::problems(t).empty() && tp::find(t, "Workups") && tp::find(t, "Archive")->role == tp::Role::History,
+              tp::problems(t).empty() ? "" : tp::problems(t).front());
+        check("make: routes -- the source first (-> top), the run, then the rest; the left-alone .pdf none",
+              t.routes.size() == 4 && t.routes[0] == tp::Route{"*.optik", tp::kTop} &&
+              t.routes[1] == tp::Route{"A[0-9][0-9][0-9][0-9].png", "Archive"} &&
+              t.routes[2].pattern == "*.png" && t.routes[3].pattern == "*.odt");
+        check("make: round trip through the template file", tp::parse(tp::format(t)) == t);
+        check("route_for_path: a scan -> Archive, a cover -> Workups/Images, 'A0001 copy.png' is not a scan",
+              tp::route_for_path(t, "A0003.png") == "Archive" && tp::route_for_path(t, "cover.png") == "Workups/Images" &&
+              tp::route_for_path(t, "A0001 copy.png") == "Workups/Images");
+        std::vector<cf::Project> ps;
+        for (const auto& d : dirs) ps.push_back(cf::look(t, d));
+        std::size_t to_archive = 0;
+        for (const auto& m : ps[0].moves) to_archive += m.folder == "Archive";
+        check("conform with it: Clock's loose scans -> Archive (6), Lilac's in place (6), the .optik in place, the .pdf listed",
+              to_archive == 6 && ps[1].in_place >= 6 &&
+              std::find(ps[0].unmatched.begin(), ps[0].unmatched.end(), "Clock-print.pdf") != ps[0].unmatched.end(),
+              std::to_string(to_archive) + "/" + std::to_string(ps[1].in_place));
+        std::error_code ec;
+        fs::remove_all(root, ec);
+    }
+
     // ── s020a: Downloads on to Entertainment; folders whole; projects placed ──
     {
         std::cout << "[sort-a]\n";
@@ -1668,9 +1917,9 @@ int main(int argc, char** argv) {
         check("downloads: a read episode -> Entertainment/Series/Mobland/Season 01, Keep",
               to("Downloads/Mobland_s01e02.mkv", "Entertainment/Series/Mobland/Season 01") &&
               row("Downloads/Mobland_s01e02.mkv")->level == rt::Level::Keep && row("Downloads/Mobland_s01e02.mkv")->tag);
-        check("downloads: a read movie -> Entertainment/Movies; a read .epub and .pdf -> Entertainment/Books",
-              to("Downloads/Dune.2021.1080p.mkv", "Entertainment/Movies") && to("Downloads/book.epub", "Entertainment/Books") &&
-              to("Downloads/scan.pdf", "Entertainment/Books"));
+        check("downloads: a read movie -> Entertainment/Movies; a read .epub and .pdf -> Entertainment/EBooks (s023g)",
+              to("Downloads/Dune.2021.1080p.mkv", "Entertainment/Movies") && to("Downloads/book.epub", "Entertainment/EBooks") &&
+              to("Downloads/scan.pdf", "Entertainment/EBooks"));
         check("downloads: read, not entertainment -> home by type (Documents/Downloads <month>)",
               row("Downloads/readme.txt") && row("Downloads/readme.txt")->go == so::Go::Home &&
               row("Downloads/readme.txt")->folder.rfind("Documents/Downloads ", 0) == 0);
@@ -1681,8 +1930,34 @@ int main(int argc, char** argv) {
               to("Downloads/Show.S02E01.1080p", "Entertainment/Series/Show/Season 02") &&
               row("Downloads/Show.S02E01.1080p")->folder_whole &&
               !row("Downloads/Show.S02E01.1080p/Show.S02E01.1080p.mkv") && !row("Downloads/Show.S02E01.1080p/Show.S02E01.srt"));
-        check("folder: an unread download folder stays, untouched", !row("Downloads/Unread.Folder") &&
+        check("folder: an unread download folder stays, untouched -- listed (s023g), with where Move on now sends it",
+              row("Downloads/Unread.Folder") && row("Downloads/Unread.Folder")->go == so::Go::Stays &&
+              row("Downloads/Unread.Folder")->folder_whole && row("Downloads/Unread.Folder")->now_folder == "Entertainment/Movies" &&
               !row("Downloads/Unread.Folder/x.mkv"));
+        {   // s023g: Move on now -- a file becomes Keep, home by the table; a folder moves whole, untagged
+            auto f = *row("Downloads/Unwatched.mkv");
+            auto d = *row("Downloads/Unread.Folder");
+            const bool okf = so::move_on_now(f), okd = so::move_on_now(d);
+            check("move on now: the unread movie -> Entertainment/Movies, Keep; the unread folder whole",
+                  okf && f.go == so::Go::Home && f.folder == "Entertainment/Movies" && f.level == rt::Level::Keep && f.tag &&
+                  okd && d.go == so::Go::Home && d.folder == "Entertainment/Movies" && !d.tag);
+            so::Row none;
+            check("move on now: nowhere to go -> no", !so::move_on_now(none));
+        }
+        {   // s023g: the Entertainment table -- standard, yours, round trip
+            const auto std_t = so::ent_table(core::settings::Settings{});
+            check("ent table: standard -- .cbz / .epub -> Entertainment/EBooks, .mkv -> Movies, .txt none",
+                  so::ent_folder(std_t, "Batman 01.CBZ") == "Entertainment/EBooks" &&
+                  so::ent_folder(std_t, "a.epub") == "Entertainment/EBooks" &&
+                  so::ent_folder(std_t, "a.mkv") == "Entertainment/Movies" && so::ent_folder(std_t, "a.txt").empty());
+            core::settings::Settings st2;
+            st2.ent_set = true;
+            st2.ent = {"*.cbz -> Entertainment/Comics", "*.epub -> Entertainment/EBooks"};
+            const auto back = core::settings::parse(core::settings::format(st2));
+            const auto mine = so::ent_table(back);
+            check("ent table: yours, saved and read back -- .cbz -> Comics; .mkv not listed -> none",
+                  back == st2 && so::ent_folder(mine, "x.cbz") == "Entertainment/Comics" && so::ent_folder(mine, "x.mkv").empty());
+        }
         check("folder: a Desktop folder moves whole by most of its files (Trip -> Pictures/Desktop <month>)",
               row("Desktop/Trip") && row("Desktop/Trip")->go == so::Go::Home &&
               row("Desktop/Trip")->folder.rfind("Pictures/Desktop ", 0) == 0 && !row("Desktop/Trip/a.jpg"),
@@ -1703,7 +1978,7 @@ int main(int argc, char** argv) {
               fs::exists(home / "Entertainment/Series/Mobland/Season 01/Mobland_s01e02.mkv") &&
               fs::exists(home / "Entertainment/Series/Show/Season 02/Show.S02E01.1080p/Show.S02E01.srt") &&
               fs::exists(home / "Entertainment/Movies/Dune.2021.1080p.mkv") &&
-              fs::exists(home / "Entertainment/Books/book.epub") && fs::exists(home / "Writing/Essay-project/draft.odt") &&
+              fs::exists(home / "Entertainment/EBooks/book.epub") && fs::exists(home / "Writing/Essay-project/draft.odt") &&
               !fs::exists(home / "Desktop/Trip") && fs::exists(home / "Downloads/Unwatched.mkv") &&
               fs::exists(home / "Downloads/Unread.Folder/x.mkv"));
         check("run: the moved episode is Keep; the unread one Ephemeral",
@@ -2044,10 +2319,11 @@ int main(int argc, char** argv) {
         check("templates: the common shell -- backups (history), docs, fixes, scripts",
               sh.folders.size() == 4 && tp::find(sh, "backups")->role == R::History && tp::find(sh, "fixes") &&
               tp::problems(sh).empty(), std::to_string(tp::problems(sh).size()));
-        check("templates: names -- a-z 0-9 '-' only; a folder never hidden, '..', or three deep",
+        check("templates: names -- a-z 0-9 '-' only; a folder never hidden, '..', or seven deep (s024: six allowed)",
               tp::name_refusal("writing-project").empty() && !tp::name_refusal("Writing").empty() &&
               !tp::name_refusal("").empty() && !tp::name_refusal("-x").empty() &&
-              tp::path_refusal("Graphics/Covers").empty() && !tp::path_refusal("a/b/c").empty() &&
+              tp::path_refusal("Graphics/Covers").empty() && tp::path_refusal("Body/OCR/Scans/Archive").empty() &&
+              tp::path_refusal("a/b/c/d/e/f").empty() && !tp::path_refusal("a/b/c/d/e/f/g").empty() &&
               !tp::path_refusal(".git").empty() && !tp::path_refusal("a/..").empty() && !tp::path_refusal("").empty());
 
         tp::Template t = sh;
@@ -2068,8 +2344,8 @@ int main(int argc, char** argv) {
             bad.category = ".hidden";
             check("templates: problems -- an orphan child, a route to nowhere, a hidden category",
                   tp::problems(bad).size() == 3, std::to_string(tp::problems(bad).size()));
-            check("templates: parse drops a three-deep folder and a bad role",
-                  tp::parse("name=x\ncategory=X\nfolder=input a/b/c\nfolder=nope a\nfolder=input a\n").folders.size() == 1);
+            check("templates: parse drops a seven-deep folder and a bad role",
+                  tp::parse("name=x\ncategory=X\nfolder=input a/b/c/d/e/f/g\nfolder=nope a\nfolder=input a\n").folders.size() == 1);
         }
 
         // The builder: every edit undoable.
@@ -2183,7 +2459,7 @@ int main(int argc, char** argv) {
             if (auto ps = tp::problems(s.t); !ps.empty()) { clean = false; why = s.t.name + ": " + ps.front(); }
             if (tp::parse(tp::format(s.t)) != s.t) { round = false; why = s.t.name + " round trip"; }
         }
-        check("starters: ten, the base first, every name its own", all.size() == 10 && names.size() == 10 &&
+        check("starters: eleven, the base first, every name its own (s024: + bookbinding)", all.size() == 11 && names.size() == 11 &&
               all.front().t.name == "creative-project" && all.front().t.category == "Creative");
         check("starters: every one passes the template's problems()", clean, why);
         check("starters: every one reads back the same (format -> parse)", round, why);
@@ -2196,7 +2472,7 @@ int main(int argc, char** argv) {
         bool shares = true;
         for (const auto& s : all)
             for (const auto& f : b.folders) {
-                if (s.t.name == "code-project") continue;
+                if (s.t.name == "code-project" || s.t.name == "bookbinding") continue;   // not creative kinds
                 const auto* g = tp::find(s.t, f.path);
                 if (!g || g->role != f.role) { shares = false; why = s.t.name + " lacks " + f.path; }
             }
@@ -2223,8 +2499,10 @@ int main(int argc, char** argv) {
               rt("writing-project", "ch1.odt") == "Work" && rt("cad-project", "bracket.step") == "Assets/Parts");
         bool no_pdf = true;
         for (const auto& s : all)
-            if (!tp::route_for(s.t, "book.pdf").empty() || !tp::route_for(s.t, "book.epub").empty()) no_pdf = false;
-        check("starters: pdf / epub route nowhere -- the row asks", no_pdf);
+            if (s.t.name != "bookbinding" &&   // s024: a book's pdf is its print, its epub its final
+                (!tp::route_for(s.t, "book.pdf").empty() || !tp::route_for(s.t, "book.epub").empty()))
+                no_pdf = false;
+        check("starters: pdf / epub route nowhere (bookbinding aside) -- the row asks", no_pdf);
         {
             const auto& c = st::find("code-project")->t;
             check("starters: code-project -- our gtk workspace: backups(+Old) history, docs, fixes, scripts; ~/Develop/gtk",
@@ -3187,10 +3465,28 @@ int main(int argc, char** argv) {
         std::set<std::string> names;
         for (const auto& b : off) names.insert(fs::path(b.file.path).parent_path().filename().string() + "/" +
                                                fs::path(b.file.path).filename().string());
-        check("offered: decided files in the landing places -- not undecided, ephemeral, hands-off, the Junk Drawer, "
-              "untagged, or inside a project",
-              names == std::set<std::string>{"Downloads/cover.png", "Downloads/scan.pdf", "Downloads/cover.curvz", "Desktop/cover.png"},
+        check("offered: decided files in the landing places -- and s023g every file in Downloads, decided or not; "
+              "never hands-off, the Junk Drawer, or inside a project",
+              names == std::set<std::string>{"Downloads/cover.png", "Downloads/scan.pdf", "Downloads/cover.curvz",
+                                             "Downloads/waiting.png", "Downloads/gone-soon.png", "Downloads/plain.png",
+                                             "Desktop/cover.png"},
               std::to_string(names.size()));
+        {   // s023g: placing one makes it Keep (an id too); a decided one keeps its level
+            ho::Planned kp;
+            const std::vector<ho::Pick> picks = {{H + "/Downloads/plain.png", "Pictures/Covers", "test"},
+                                                 {H + "/Downloads/gone-soon.png", "Pictures/Covers", "test"},
+                                                 {H + "/Downloads/scan.pdf", "Documents/Scans", "test"}};
+            ho::keep_sent(kp.plan, picks);
+            std::size_t keeps = 0, ids = 0;
+            bool scan = false;
+            for (const auto& a : kp.plan.actions) {
+                keeps += a.attr == core::facts::kRetention && a.content == "keep";
+                ids += a.attr == core::facts::kId;
+                scan = scan || a.from == H + "/Downloads/scan.pdf";
+            }
+            check("keep_sent: an untagged and an Ephemeral download -> Keep (+ ids); Held left alone",
+                  keeps == 2 && ids == 2 && !scan, std::to_string(keeps) + "/" + std::to_string(ids));
+        }
 
         const std::vector<ho::Pick> picks = {
             {H + "/Downloads/cover.png", "Pictures/Covers", "by type: *.png -> Pictures"},
@@ -3969,6 +4265,114 @@ int main(int argc, char** argv) {
             each &= found;
         }
         check("help: Retention levels -- one line per level, by its title", each);
+    }
+
+
+    // ── s024: the bookbinding layout -- a deep template, books by their place ──
+    {
+        std::cout << "[bookbinding]\n";
+        namespace tp = core::templates;
+        namespace pj = core::projects;
+        namespace dr = latch::door;
+        const auto* bs = core::starters::find("bookbinding");
+        check("bookbinding: a starter -- ~/Documents/Bookbinding/<Author (Last, First)>/<Title>, by place",
+              bs && bs->t.by_place && bs->t.group == "Author (Last, First)" && bs->t.category == "Documents/Bookbinding" &&
+              tp::place_depth(bs->t) == 2);
+        const auto& bt = bs->t;
+        check("bookbinding: the whole Hollow Oak tree, 14 folders, 4 deep (Body/OCR/Scans/Archive)",
+              bt.folders.size() == 14 && tp::find(bt, "Body/OCR/Scans/Archive") && tp::find(bt, "Cover/Print") &&
+              tp::find(bt, "Body/Layout/Workups") && tp::depth_of(bt) == 4 && tp::problems(bt).empty(),
+              tp::problems(bt).empty() ? "" : tp::problems(bt).front());
+        check("bookbinding: place + group read back (format -> parse)", tp::parse(tp::format(bt)) == bt, tp::format(bt));
+        auto rt = [&](const char* f) { return tp::route_for(bt, f); };
+        check("bookbinding: routes by stage -- scans, bundles, odt, print, final, cover",
+              rt("A0001.png") == "Body/OCR/Scans/Archive" && rt("Archive.zip") == "Body/OCR/Scans" &&
+              rt("The Message in the Hollow Oak.optik") == "Body/OCR/Scans" && rt("X.composix") == "Body/Layout" &&
+              rt("X.odt") == "Body/Layout/ODT" && rt("X.quire") == "Body/Print" && rt("X.pdf") == "Body/Print" &&
+              rt("X.epub") == "Body/Finals" && rt("Cover_1960.png") == "Cover/Layout/Workups" &&
+              rt("The_Message.svg") == "Cover/Layout" && rt("BookPlate.jpg") == "Body/Layout/Images");
+        check("bookbinding: a .png neither a scan nor cover* has no route (the row asks); A0001 copy.png is no scan",
+              rt("The_Message_in_the_Hollow_Oak.png").empty() && rt("A0001 copy.png").empty());
+        {
+            tp::Template t = tp::shell("x", "X");
+            t.group = "Author";
+            tp::Builder b(tp::Draft{tp::shell("x", "X"), {}, ""});
+            const bool grp_refused = !b.set_group("Author").empty();
+            const bool on = b.set_by_place(true).empty() && b.set_group("Author").empty() && tp::place_depth(b.tpl()) == 2;
+            const bool off = b.set_by_place(false).empty() && b.tpl().group.empty() && b.undo() && b.tpl().group == "Author";
+            check("bookbinding: a group only by place (problems + builder); off clears it, undo brings it back",
+                  !tp::problems(t).empty() && grp_refused && on && off);
+        }
+
+        const fs::path root = fs::temp_directory_path() / ("tidy_selftest_book_" + std::to_string(::getpid()));
+        fs::remove_all(root);
+        fs::create_directories(root / "home");
+        fs::create_directories(root / "data");
+        const std::string H = fs::canonical(root / "home").string(), D = fs::canonical(root / "data").string();
+        pj::apply_places(D);   // no saved templates: the built-in bookbinding's shelf, our bundles
+        const auto sh = pj::shelves();
+        check("bookbinding: the shelf is there with no template saved; .composix / .quire are packages",
+              sh.size() == 1 && sh[0].category == "Documents/Bookbinding" && sh[0].depth == 2 &&
+              latch::pkg::is_package_name("A.composix") && latch::pkg::is_package_name("A.QUIRE"));
+        pj::Shelf got;
+        check("bookbinding: is_whole_at -- the title is a project; the author, the shelf, a part are not",
+              pj::is_whole_at("Documents/Bookbinding/Keene, Carolyn/Hollow Oak", &got) && got.tpl == "bookbinding" &&
+              !pj::is_whole_at("Documents/Bookbinding/Keene, Carolyn") && !pj::is_whole_at("Documents/Bookbinding") &&
+              !pj::is_whole_at("Documents/Bookbinding/Keene, Carolyn/Hollow Oak/Body") &&
+              !pj::is_whole_at("Documents/Bookbinding/.hidden/Hollow Oak") && pj::is_whole_at("Writing/Jasper-project"));
+        std::string at;
+        check("bookbinding: inside_whole -- a file's folder deep in a book names the book",
+              pj::inside_whole("Documents/Bookbinding/Keene, Carolyn/Hollow Oak/Body/OCR", &at) &&
+              at == "Documents/Bookbinding/Keene, Carolyn/Hollow Oak" && !pj::inside_whole("Documents/Bookbinding/Keene, Carolyn"));
+
+        std::string why;
+        const std::string id = core::facts::new_id();
+        check("bookbinding: New book needs its author", pj::create(bt, "Hollow Oak", H, id, &why).actions.empty() &&
+              why.find("Author") != std::string::npos, why);
+        auto plan = pj::create(bt, "The Message in the Hollow Oak", H, id, &why, "Keene, Carolyn");
+        const std::string book = H + "/Documents/Bookbinding/Keene, Carolyn/The Message in the Hollow Oak";
+        check("bookbinding: a plan -- Documents, Bookbinding, the author, the book (no -project), 14 folders, the id",
+              plan.actions.size() == 19 && plan.actions[0].to == H + "/Documents" &&
+              plan.actions[1].to == H + "/Documents/Bookbinding" && plan.actions[2].to == H + "/Documents/Bookbinding/Keene, Carolyn" &&
+              plan.actions[3].to == book && plan.actions.back().to == book + "/.tidy-project", why);
+        latch::door::set_app_name("Tidy");
+        dr::Door door(H, D);
+        door.load();
+        plan.previewed = true;
+        const auto r = door.run(plan);
+        const auto found = pj::find(H);
+        const pj::Project* bp = nullptr;
+        for (const auto& p : found) if (p.rel.find("Hollow Oak") != std::string::npos) bp = &p;
+        check("bookbinding: run -> the tree on disk; find() knows it by its place, its author, its id",
+              r.ok && fs::is_directory(book + "/Body/OCR/Scans/Archive") && fs::is_directory(book + "/Cover/Print") && bp &&
+              bp->by_place && bp->name == "The Message in the Hollow Oak" && bp->group == "Keene, Carolyn" &&
+              bp->category == "Documents/Bookbinding" && bp->id == id && found.size() == 1);
+        check("bookbinding: drift reads as deep as the template -- none on a new book",
+              tp::drift(bt, tp::folders_of(book, tp::depth_of(bt))).empty());
+        check("bookbinding: a second book with the same title by the same author -- refused (exists)",
+              pj::create(bt, "The Message in the Hollow Oak", H, core::facts::new_id(), &why, "Keene, Carolyn").actions.empty() &&
+              why.find("exists") != std::string::npos, why);
+
+        // An old book, lumped: loose files at its top, a bundle. Kept whole everywhere.
+        const std::string old = H + "/Documents/Bookbinding/Keene, Carolyn/The Hidden Staircase";
+        fs::create_directories(old + "/Hidden.composix/assets");
+        put_file(old + "/A0001.png", "scan");
+        put_file(old + "/Hidden.odt", "odt");
+        put_file(old + "/Hidden.composix/document.json", "{}");
+        put_file(H + "/Documents/Bookbinding/notes.txt", "loose at the shelf's top");
+        const auto loose = core::scan::walk_loose(H, {H + "/Documents"});
+        bool in_book = false, shelf_note = false;
+        for (const auto& f : loose) {
+            in_book |= f.path.find("/Keene, Carolyn/") != std::string::npos;
+            shelf_note |= f.path == H + "/Documents/Bookbinding/notes.txt";
+        }
+        check("bookbinding: the loose walk never goes inside a book (its top files, its bundle)", !in_book && shelf_note);
+        check("bookbinding: an old book without -project is found too", pj::find(H).size() == 2);
+        check("bookbinding: Adopt refuses a book; Archive refuses a file inside one",
+              !core::adopt::refusal(H, "", "Documents/Bookbinding/Keene, Carolyn/The Hidden Staircase", false).empty() &&
+              !core::archive::refusal(H, old + "/Hidden.odt").empty());
+        fs::remove_all(root);
+        pj::set_shelves({});
     }
 
     std::cout << "-----------------------------------------------\n";

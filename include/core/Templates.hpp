@@ -27,7 +27,7 @@ namespace tidy::core::templates {
 
 inline constexpr const char* kDir = "templates";       // under the data folder
 inline constexpr const char* kExt = ".template";
-inline constexpr int kDepth = 2;                        // "upper levels only (about two deep)"
+inline constexpr int kDepth = 6;                        // s024: the whole tree (Bookbinding: Body/OCR/Scans/Archive)
 
 enum class Role { Product, Input, History };
 const char* id_of(Role r);                // "product" | "input" | "history" -- on disk, never changes
@@ -41,9 +41,14 @@ struct Folder {
     Role role = Role::Input;
     bool operator==(const Folder&) const = default;
 };
+// s023h (Conform): a route's folder may also be kStays (the file stays where it
+// is) or kTop (the project's top); its pattern may name a folder first
+// ("Archive/*.png": a .png anywhere under Archive/) -- else it is a file name.
+inline constexpr const char* kStays = "(stays)";
+inline constexpr const char* kTop = "(top)";
 struct Route {
-    std::string pattern;                  // file-name glob, case-insensitive
-    std::string folder;                   // a folder of the template
+    std::string pattern;                  // file-name glob, case-insensitive; or "Folder/glob"
+    std::string folder;                   // a folder of the template, kStays or kTop
     bool operator==(const Route&) const = default;
 };
 struct Template {
@@ -51,6 +56,11 @@ struct Template {
     std::string category;                 // Writing -- the home folder its projects live in
     std::vector<Folder> folders;          // kept sorted by path (parents before children)
     std::vector<Route> routes;            // first fit wins
+    // s024 (Scott): a project known BY ITS PLACE -- no -project suffix. Its
+    // projects are the folders ~/<category>/<group>/<Name> (group "" ->
+    // ~/<category>/<Name>). Bookbinding: Documents/Bookbinding/<Last, First>/<Title>.
+    bool by_place = false;
+    std::string group;                    // the middle level's label: "Author (Last, First)"; "" = none
     bool operator==(const Template&) const = default;
 };
 
@@ -62,6 +72,8 @@ Template shell(const std::string& name = "", const std::string& category = "");
 std::string name_refusal(const std::string& name);       // [a-z0-9-], 1..64, starts with a letter or digit
 std::string part_refusal(const std::string& part);       // one folder name: not hidden, no '/', not '..'
 std::string path_refusal(const std::string& path);       // 1..kDepth parts
+// s024: how deep under ~/<category> a by-place project sits (1, or 2 with a group); 0 = not by place.
+int place_depth(const Template& t);
 // A category: one or two folders under home ("Writing", "Develop/gtk" -- s010c).
 std::string category_refusal(const std::string& category);
 // Everything wrong with a template, each a sentence ("" list = fine).
@@ -78,12 +90,22 @@ std::string save(const std::string& data_dir, const Template& t);
 
 // The first route `file_name` fits -> its folder, or "".
 std::string route_for(const Template& t, const std::string& file_name);
+// s023h: the first route a file at `rel` (inside the project: "Archive/A0001.png")
+// fits -> its folder, kStays, kTop, or "" (no route). A "Folder/glob" route fits
+// a file anywhere under that folder; a plain glob fits the file's name.
+std::string route_for_path(const Template& t, const std::string& rel);
+// A route's pattern: "" = fine, else why not.
+std::string pattern_refusal(const std::string& pattern);
 const Folder* find(const Template& t, const std::string& path);
 
 // ── Lift and drift ─────────────────────────────────────────────────────────
 // The folders of `dir`, kDepth deep, relative and sorted (READ-ONLY: hidden
 // names, symlinks and files skipped; nothing else is opened).
-std::vector<std::string> folders_of(const std::string& dir);
+// s024: `depth` -- a lift reads kLiftDepth (the upper two levels, as before);
+// a drift check reads as deep as its template goes (depth_of).
+inline constexpr int kLiftDepth = 2;
+std::vector<std::string> folders_of(const std::string& dir, int depth = kLiftDepth);
+int depth_of(const Template& t);          // the template's deepest folder, kLiftDepth at least
 // A role guessed from a folder's name (backups / Old / archive -> history;
 // Final / Release / Export / Out / dist -> product; else input).
 Role guess_role(const std::string& path);
@@ -126,6 +148,8 @@ public:
     // Each edit: "" = done (and undoable), else why not (nothing changed).
     std::string set_name(const std::string& name);
     std::string set_category(const std::string& category);
+    std::string set_by_place(bool on);                     // s024: off clears the group
+    std::string set_group(const std::string& label);       // s024: "" = none
     std::string add_folder(const std::string& path, Role role);
     std::string remove_folder(const std::string& path);   // its children and routes go too
     std::string set_role(const std::string& path, Role role);

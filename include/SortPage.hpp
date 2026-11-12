@@ -43,6 +43,8 @@ private:
     void fill();
     void show(Look look);
     void on_sort();
+    void on_move_now();                       // s023g: unread downloads, moved on as if read
+    void preview(std::vector<core::sort::Row> chosen);
     void on_run();
     std::string shown(const std::string& path) const;
 

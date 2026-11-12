@@ -1,4 +1,5 @@
 #pragma once
+#include <functional>
 #include "core/Templates.hpp"
 
 #include <gtkmm/stack.h>
@@ -29,8 +30,13 @@ namespace tidy {
 class TemplatesPage : public Gtk::Stack {
 public:
     TemplatesPage(Gtk::Window& parent, std::string home, std::string data_dir, bool fixture);
+    void set_on_conform(std::function<void()> f) { m_on_conform = std::move(f); }   // s023h
+    void set_on_scan(std::function<void()> f) { m_on_scan = std::move(f); }         // s023i
+    void refresh();   // s023i: a template saved elsewhere -- the list again (not while the builder is open)
 
 private:
+    std::function<void()> m_on_conform;   // s023h
+    std::function<void()> m_on_scan;      // s023i
     void build_start();
     void build_list();
     void build_builder();
@@ -76,6 +82,9 @@ private:
     Gtk::Label*    m_b_summary = nullptr;
     Gtk::Entry*    m_b_name = nullptr;
     Gtk::Entry*    m_b_category = nullptr;
+    Gtk::CheckButton* m_b_by_place = nullptr;    // s024: projects known by their place (no -project)
+    Gtk::Entry*    m_b_group = nullptr;          // s024: the middle level's label (Author (Last, First))
+    bool           m_b_quiet = false;            // s024: refresh sets the check without an edit
     Gtk::ListBox*  m_b_folders = nullptr;
     Gtk::Entry*    m_b_new_folder = nullptr;
     Gtk::DropDown* m_b_new_role = nullptr;

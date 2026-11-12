@@ -136,6 +136,19 @@ void AdoptWindow::open(const core::settings::Settings& current) {
     if (!m_picks.empty()) on_look();   // the remembered folders: what is new in them
 }
 
+void AdoptWindow::add(const std::string& rel, bool catch_all) {
+    for (auto& p : m_picks)
+        if (p.rel == rel) {
+            p.catch_all = catch_all;
+            build_folders();
+            on_look();
+            return;
+        }
+    m_picks.push_back({rel, catch_all});
+    build_folders();
+    on_look();
+}
+
 void AdoptWindow::build_folders() {
     while (auto* r = m_folders->get_row_at_index(0)) m_folders->remove(*r);
     if (m_picks.empty()) {
@@ -214,7 +227,7 @@ void AdoptWindow::on_look() {
     const std::string home = m_home, dirs = m_user_dirs ? m_user_dirs() : "";
     const int old_years = m_current.old_years;
     const auto picks = m_picks;
-    if (m_busy) return;
+    if (m_busy) { m_again = true; return; }   // asked while a look runs: one more after it (the picks changed)
     m_busy = true;
     std::string where;
     for (const auto& p : picks) where += (where.empty() ? "~/" : ", ~/") + p.rel;
@@ -235,7 +248,11 @@ void AdoptWindow::on_look() {
             std::vector<std::string> made, freed;
             for (const auto& a : ad::plan(ok).actions) r.refused_steps += !door->refusal(a, made, freed).empty();
         },
-        [this, out] { m_busy = false; show(std::move(*out)); });
+        [this, out] {
+            m_busy = false;
+            if (m_again) { m_again = false; on_look(); return; }   // that look is stale -- look again
+            show(std::move(*out));
+        });
 }
 
 void AdoptWindow::show(Result r) {

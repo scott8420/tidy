@@ -6,6 +6,7 @@
 #include "core/Own.hpp"
 #include "core/Rescan.hpp"
 #include "core/Pages.hpp"
+#include "core/Starters.hpp"
 #include "core/Templates.hpp"
 
 #include <gtkmm/box.h>
@@ -264,23 +265,43 @@ void ProjectsPage::build_new() {
     const auto where = [this] {
         const auto i = m_new_tpl->get_selected();
         const std::string n = m_new_name->get_text();
-        m_new_where->set_text(i < m_new_templates.size() && !n.empty()
-            ? "~/" + m_new_templates[i].category + "/" + pj::folder_for(n) + "  --  " +
-                  std::to_string(m_new_templates[i].folders.size()) + " folders"
+        const tp::Template* t = i < m_new_templates.size() ? &m_new_templates[i] : nullptr;
+        const int pd = t ? tp::place_depth(*t) : 0;
+        // s024: a by-place template asks its group (the author) and adds no suffix.
+        m_new_group_label->set_visible(pd == 2);
+        m_new_group->set_visible(pd == 2);
+        if (pd == 2) m_new_group_label->set_text(t->group);
+        m_new_name->set_placeholder_text(pd > 0 ? "The Message in the Hollow Oak" : "Jasper  (-project is added)");
+        const std::string g = m_new_group->get_text();
+        const std::string folder = pd > 0 ? n : pj::folder_for(n);
+        m_new_where->set_text(t && !n.empty() && (pd < 2 || !g.empty())
+            ? "~/" + t->category + "/" + (pd == 2 ? g + "/" : "") + folder + "  --  " +
+                  std::to_string(t->folders.size()) + " folders"
             : "");
     };
     m_new_tpl->property_selected().signal_changed().connect(where);
+    m_new_refresh = where;
     grid->attach(*m_new_tpl, 1, 0);
-    grid->attach(*label("Name", nullptr, 0.0f), 0, 1);
+    m_new_group_label = label("Author", nullptr, 0.0f);
+    m_new_group_label->set_visible(false);
+    grid->attach(*m_new_group_label, 0, 1);
+    m_new_group = Gtk::make_managed<Gtk::Entry>();
+    m_new_group->set_name("projects.new.group");
+    m_new_group->set_placeholder_text("Keene, Carolyn");
+    m_new_group->set_visible(false);
+    m_new_group->signal_changed().connect(where);
+    m_new_group->signal_activate().connect([this] { m_new_name->grab_focus(); });
+    grid->attach(*m_new_group, 1, 1);
+    grid->attach(*label("Name", nullptr, 0.0f), 0, 2);
     m_new_name = Gtk::make_managed<Gtk::Entry>();
     m_new_name->set_name("projects.new.name");
     m_new_name->set_placeholder_text("Jasper  (-project is added)");
     m_new_name->signal_changed().connect(where);
     m_new_name->signal_activate().connect([this] { on_new_preview(); });
-    grid->attach(*m_new_name, 1, 1);
+    grid->attach(*m_new_name, 1, 2);
     m_new_where = label("", "dim", 0.0f);
     m_new_where->set_name("projects.new.where");
-    grid->attach(*m_new_where, 1, 2);
+    grid->attach(*m_new_where, 1, 3);
     box->append(*grid);
     auto spacer = Gtk::make_managed<Gtk::Box>();
     spacer->set_vexpand(true);
@@ -307,28 +328,43 @@ void ProjectsPage::new_from(const std::string& name) {
     show_new();
     for (std::size_t i = 0; i < m_new_templates.size(); ++i)
         if (m_new_templates[i].name == name) m_new_tpl->set_selected(static_cast<guint>(i));
-    m_new_name->grab_focus();
+    if (m_new_group->get_visible()) m_new_group->grab_focus();
+    else m_new_name->grab_focus();
 }
 
 void ProjectsPage::show_new() {
     m_new_templates = tp::list(m_data_dir);
+    // s024: the built-in bookbinding is offered until a template of that name is saved.
+    std::size_t builtin = m_new_templates.size();
+    if (const auto* b = core::starters::find("bookbinding");
+        b && std::none_of(m_new_templates.begin(), m_new_templates.end(), [&](const tp::Template& t) { return t.name == b->t.name; })) {
+        m_new_templates.push_back(b->t);
+    }
     auto names = Gtk::StringList::create({});
-    for (const auto& t : m_new_templates) names->append(t.name + "  (~/" + t.category + ")");
+    for (std::size_t k = 0; k < m_new_templates.size(); ++k) {
+        const auto& t = m_new_templates[k];
+        names->append(t.name + "  (~/" + t.category + (tp::place_depth(t) == 2 ? "/<" + t.group + ">" : "") + ")" +
+                      (k >= builtin ? "  -- built in" : ""));
+    }
     m_new_tpl->set_model(names);
     m_new_name->set_text("");
+    m_new_group->set_text("");
     m_new_where->set_text("");
+    if (m_new_refresh) m_new_refresh();
     m_new_status->set_text(m_new_templates.empty()
         ? "No templates saved yet -- Templates -> Starters... -> Use -> Save, then come back."
         : "Then save into it from your app.");
     set_visible_child("new");
-    m_new_name->grab_focus();
+    if (m_new_group->get_visible()) m_new_group->grab_focus();   // s024: a book -- the author first
+    else m_new_name->grab_focus();
 }
 
 void ProjectsPage::on_new_preview() {
     const auto i = m_new_tpl->get_selected();
     if (i >= m_new_templates.size()) { m_new_status->set_text("Pick a template first."); return; }
     std::string why;
-    auto plan = pj::create(m_new_templates[i], m_new_name->get_text(), m_home, core::facts::new_id(), &why);
+    auto plan = pj::create(m_new_templates[i], m_new_name->get_text(), m_home, core::facts::new_id(), &why,
+                           m_new_group->get_text());
     if (plan.actions.empty()) { m_new_status->set_text("Not possible: " + why); return; }
     preview(std::move(plan));
 }
@@ -380,7 +416,7 @@ core::rescan::Result ProjectsPage::look() {
     std::error_code ec;
     core::catalog::Catalog cat;
     if ((any_id || std::filesystem::exists(core::catalog::Catalog::path_in(m_data_dir), ec)) && cat.open(m_data_dir, true))
-        r = core::rescan::record(m_found, tp::list(m_data_dir), cat, static_cast<std::int64_t>(std::time(nullptr)));
+        r = core::rescan::record(m_found, pj::known_templates(m_data_dir), cat, static_cast<std::int64_t>(std::time(nullptr)));
     for (const auto& t : r.twins)
         if (auto lg = log::get(log::Area::Io)) lg->warn("projects: {} carries an id already seen -- a copy?", t);
     return r;
@@ -583,13 +619,13 @@ void ProjectsPage::uses_row(const pj::Project& p) {
 
 void ProjectsPage::render() {
     const std::string q = m_search ? std::string(m_search->get_text()) : std::string();
-    const auto ts = tp::list(m_data_dir);
+    const auto ts = pj::known_templates(m_data_dir);
     std::vector<pj::Project> found;
     {
         core::catalog::Catalog cat;
         const bool open = cat.open(m_data_dir, false);
         for (const auto& p : m_found) {
-            std::vector<std::string> fields = {p.name, p.rel, p.category, p.code ? "code" : ""};
+            std::vector<std::string> fields = {p.name, p.rel, p.category, p.group, p.code ? "code" : ""};
             if (const auto* t = pj::template_for(p, ts)) fields.push_back(t->name);
             if (open && !p.id.empty())
                 if (auto r = cat.project(p.id)) { fields.push_back(r->status); fields.push_back(r->outcome); }
@@ -683,7 +719,7 @@ void ProjectsPage::render() {
             std::size_t missing = 0;
             if (!t) under += " -- no template for " + p.category;
             else {
-                d = tp::drift(*t, tp::folders_of(p.path));
+                d = tp::drift(*t, tp::folders_of(p.path, tp::depth_of(*t)));
                 for (const auto& x : d) missing += x.kind == tp::Drift::Kind::Missing;
                 const std::size_t extra = d.size() - missing;
                 if (d.empty()) under += " -- matches " + t->name;

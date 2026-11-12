@@ -50,6 +50,8 @@ std::string refusal(const std::string& home, const std::string& path) {
     if (rel == kFolder || rel.rfind(std::string(kFolder) + "/", 0) == 0) return "already in ~/Archive";
     for (const auto& part : fs::path(rel).parent_path())
         if (projects::is_project_name(part.string())) return "inside " + part.string() + " -- a project moves whole";
+    if (std::string at; projects::inside_whole(fs::path(rel).parent_path().string(), &at))   // s024: a book
+        return "inside " + fs::path(at).filename().string() + " -- a project moves whole";
     std::error_code ec;
     const auto st = fs::symlink_status(path, ec);
     if (ec || !fs::is_regular_file(st)) return "not a file here";

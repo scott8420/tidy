@@ -11,6 +11,8 @@ const std::vector<Page>& all() {
          "What is due to archive or to go. Tidy proposes; it never acts on its own.", "s012"},
         {"sort", "Sort",
          "Every loose file in the home, sorted in one pass: a level and a place for each, previewed first.", "s020"},
+        {"map", "Map",
+         "Your home at a glance: where files are cataloged, loose, or not tracked yet.", "s023"},
         {"projects", "Projects",
          "Each <name>-project is found, placed by category, and moved whole.", "s008"},
         {"templates", "Templates",

@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <fnmatch.h>
 #include <ctime>
 #include <regex>
 #include <filesystem>
@@ -39,6 +40,33 @@ std::string source_of(const birth::Born& b, const std::string& home) {
     return "Loose";
 }
 }  // namespace
+
+const std::vector<homing::TypeRoute>& ent_defaults() {
+    static const std::vector<homing::TypeRoute> t = [] {
+        std::vector<homing::TypeRoute> v;
+        const auto add = [&](std::initializer_list<const char*> exts, const char* folder) {
+            for (const char* e : exts) v.push_back({std::string("*.") + e, folder});
+        };
+        add({"mkv", "mp4", "avi", "mov", "m4v", "webm", "wmv", "mpg", "mpeg", "ts"}, "Entertainment/Movies");
+        add({"epub", "mobi", "azw", "azw3", "pdf", "djvu", "fb2", "cbz", "cbr", "cb7"}, "Entertainment/EBooks");
+        add({"mp3", "flac", "ogg", "opus", "m4a", "aac", "wav"}, "Entertainment/Music");
+        return v;
+    }();
+    return t;
+}
+
+std::vector<homing::TypeRoute> ent_table(const settings::Settings& s) {
+    if (!s.ent_set) return ent_defaults();
+    std::vector<homing::TypeRoute> out;
+    for (const auto& l : s.ent)
+        if (homing::TypeRoute r; homing::parse_line(l, r)) out.push_back(r);
+    return out;
+}
+
+std::string ent_folder(const std::vector<homing::TypeRoute>& table, const std::string& file_name) {
+    const auto* r = homing::type_of(table, file_name);
+    return r ? r->folder : std::string();
+}
 
 std::string kind_of(const std::string& file_name) {
     const auto dot = file_name.rfind('.');
@@ -95,18 +123,25 @@ std::string dated(const birth::Born& b, const std::string& type_folder, std::int
 
 namespace {
 // ~/Entertainment/<Kind>[/<Show>/Season NN] for a read download; "" if not entertainment.
-std::string entertainment_for(const std::string& name, const std::string& kind, std::string* why) {
+// s023g: the Entertainment table's folder; an episode (a video named S01E02)
+// -> Entertainment/Series/<Show>/Season NN instead. "" if not entertainment.
+std::string entertainment_for(const std::vector<homing::TypeRoute>& table, const std::string& name,
+                              const std::string& as_file, std::string* why) {
+    const std::string folder = ent_folder(table, as_file);
+    if (folder.empty()) return "";
     std::string show;
     int season = 0;
-    if (kind == "Movies" && episode(name, &show, &season)) {
+    if (kind_of(as_file) == "Movies" && episode(name, &show, &season)) {
         char s2[16];
         std::snprintf(s2, sizeof s2, "Season %02d", season);
         if (why) *why = "an episode of " + show;
         return std::string(kEntertainment) + "/Series/" + show + "/" + s2;
     }
-    if (kind.empty()) return "";
-    if (why) *why = kind == "Movies" ? "a movie" : kind == "Books" ? "a book" : "music";
-    return std::string(kEntertainment) + "/" + kind;
+    if (why) {
+        for (const auto& r : table)
+            if (::fnmatch(r.pattern.c_str(), as_file.c_str(), FNM_CASEFOLD) == 0) { *why = r.pattern + " -> ~/" + r.folder; break; }
+    }
+    return folder;
 }
 std::string month_now(std::int64_t now) { return month_of(now); }
 }  // namespace
@@ -115,6 +150,7 @@ std::vector<Row> rows(const std::string& home, const birth::Report& rep, const s
                       std::int64_t now, const std::vector<projects::Project>& found,
                       const std::vector<templates::Template>& ts, const routes::Book* learned) {
     const auto table = homing::table(st);
+    const auto ent = ent_table(st);   // s023g
     const auto v = closet::view(rep, now, st);
     std::vector<Row> out;
     // s020a: the plain folders in Downloads and on the Desktop -- each ONE row.
@@ -153,13 +189,25 @@ std::vector<Row> rows(const std::string& home, const birth::Report& rep, const s
                 r.go = Go::Stays;
                 r.why = "unread download -- stays; Due proposes the Trash after " + std::to_string(st.aging_days) +
                         " days unread";
+                // s023g: where "Move on now" sends it -- the Entertainment table, else home by type.
+                std::string what;
+                if (const auto e = entertainment_for(ent, name, name, &what); !e.empty()) {
+                    r.now_folder = e;
+                    r.now_why = "moved on now -- " + what;
+                } else if (const auto* t = homing::type_of(table, name)) {
+                    std::string f;
+                    if (homing::by_type(t->folder, dated(r.born, t->folder, now), &f).empty()) {
+                        r.now_folder = f;
+                        r.now_why = "moved on now -- by type " + t->pattern + " -> ~/" + t->folder;
+                    }
+                }
                 return;
             }
             r.level = rt::Level::Keep;
             r.tag = true;
             was_read = true;
             std::string what;
-            if (const auto e = entertainment_for(name, kind_of(name), &what); !e.empty()) {
+            if (const auto e = entertainment_for(ent, name, name, &what); !e.empty()) {
                 r.go = Go::Home;
                 r.folder = e;
                 r.why = "read since it arrived -- " + what;
@@ -248,10 +296,13 @@ std::vector<Row> rows(const std::string& home, const birth::Report& rep, const s
         r.level = rt::Level::Keep;
         const std::string name = fs::path(path).filename().string();
         std::map<std::string, std::size_t> kinds, types;
+        std::map<std::string, std::string> sample;   // an Entertainment folder -> a file name that went there
         bool read = false;
         for (const auto* b : f.files) {
             const std::string n = fs::path(b->file.path).filename().string();
-            ++kinds[kind_of(n)];
+            const auto ef = ent_folder(ent, n);
+            ++kinds[ef];
+            if (!ef.empty() && !sample.count(ef)) sample[ef] = n;
             if (const auto* t = homing::type_of(table, n)) ++types[t->folder];
             read = read || read_since_arrival(b->file);
         }
@@ -263,14 +314,26 @@ std::vector<Row> rows(const std::string& home, const birth::Report& rep, const s
         };
         const std::string count = std::to_string(f.files.size()) + (f.files.size() == 1 ? " file" : " files");
         if (f.place == "downloads") {
-            if (!read) continue;   // unread: it stays, nothing to do yet
             std::string kind = most(kinds), what;
             if (kind.empty() && kinds.size() > 1) {   // the subtitles and nfo are not the kind: the media is
                 std::map<std::string, std::size_t> media = kinds;
                 media.erase("");
                 kind = most(media);
             }
-            if (const auto e = entertainment_for(name, kind, &what); !e.empty()) {
+            // s023g: a comic folder with sub-folders, a season of episodes: by the table, WHOLE.
+            const std::string e = kind.empty() ? std::string() : entertainment_for(ent, name, sample[kind], &what);
+            if (!read) {   // unread: it stays -- s023g: listed now, so "Move on now" can take it
+                r.go = Go::Stays;
+                r.tag = false;
+                r.why = "a folder (" + count + "), unread -- stays";
+                if (!e.empty()) {
+                    r.now_folder = e;
+                    r.now_why = "a folder (" + count + "), moved on now -- " + what + ", moved whole";
+                }
+                out.push_back(std::move(r));
+                continue;
+            }
+            if (!e.empty()) {
                 r.go = Go::Home;
                 r.folder = e;
                 r.why = "a folder (" + count + "), read -- " + what + ", moved whole";
@@ -322,6 +385,18 @@ std::vector<Row> rows(const std::string& home, const birth::Report& rep, const s
     }
     (void)month_now;
     return out;
+}
+
+bool move_on_now(Row& r) {
+    if (r.now_folder.empty()) return false;
+    r.go = Go::Home;
+    r.folder = r.now_folder;
+    r.why = r.now_why;
+    if (!r.folder_whole) {
+        r.level = rt::Level::Keep;
+        r.tag = true;
+    }
+    return true;
 }
 
 Planned plan(const std::string& home, const std::vector<Row>& chosen, std::int64_t now) {

@@ -70,7 +70,10 @@ const std::vector<Topic>& topics() {
           "your junk list stay where they are, labelled.",
           "Downloads: everything there arrives Ephemeral. Once you have opened it, Sort moves it on: a movie to "
           "~/Entertainment/Movies, an episode (Mobland_s01e02) to ~/Entertainment/Series/Mobland/Season 01, a book "
-          "(.epub .mobi .azw3 .cbz .cbr .pdf) to ~/Entertainment/Books, music to ~/Entertainment/Music; anything "
+          "(.epub .mobi .azw3 .cbz .cbr .pdf) to ~/Entertainment/EBooks, music to ~/Entertainment/Music -- all of it "
+          "yours to change in Settings (the Entertainment table); a folder of them (a comic series and its "
+          "sub-folders) moves whole. Not read yet but you want it moved: select it -> Move on now (it becomes Keep). "
+          "Files home lists Downloads too: send one into a folder or a project and it becomes Keep. Anything "
           "else home by type. Unread 30 days (Settings), Due proposes the Trash.",
           "A folder in Downloads or on the Desktop moves whole, never split -- by most of its files (an episode "
           "folder into its season). A <name>-project goes to the category whose template its folders match; with "
@@ -87,6 +90,18 @@ const std::vector<Topic>& topics() {
           "Do it. The whole sort is ONE step in Activity -> Undo puts it all back.",
           "Then Archive -> Back up, for what went to ~/Archive."},
          "sort"},
+        {"map", "Every day", "Map -- your home at a glance",
+         {"A treemap of the home: each box is a folder, as big as the number of files in it. Its colours say what "
+          "Tidy knows: green cataloged (it carries an id), amber loose (Sort will see it), red untracked (in a "
+          "subfolder nobody has adopted), grey inside a -project or a repo (kept whole), blue in ~/Archive. A dark "
+          "box is Hands off, Samson's or never-touch -- not looked inside.",
+          "Red is the work left: adopt the folder in place if it is already where it belongs, or make it a "
+          "catch-all so Sort, Files home and the Closet see its files. Look reads only."},
+         {"Map -> Look.",
+          "Click a box to go into it; Up (or Backspace) comes back.",
+          "Hover a box for its counts. Right-click it: Adopt in place..., Make it a catch-all..., Conform to a template..., Open in Files.",
+          "Look again after you adopt or sort to see the red shrink."},
+         "map"},
         {"home", "Every day", "Files home",
          {"Sends decided files to their folder: by type (pictures to Pictures, from the type table in Settings), into "
           "a folder at home's top you name (a subfolder of it, never loose), into the project they serve, or into the "
@@ -108,14 +123,31 @@ const std::vector<Topic>& topics() {
         // ── Projects ──────────────────────────────────────────────────────────
         {"projects", "Projects", "Projects",
          {"A folder named something-project is a project: it moves whole, never file by file. Tidy finds them, "
-          "gives each an id, follows them when they move, and keeps their status (active, paused, done, dropped)."},
+          "gives each an id, follows them when they move, and keeps their status (active, paused, done, dropped).",
+          "Some projects are known by their PLACE instead of a name: a book is any folder at "
+          "~/Documents/Bookbinding/<Last, First>/<Title> -- no -project needed. It is kept whole the same way."},
          {"Projects -> Look: what is where it belongs, and what is loose.", "Place a loose project where its kind lives.",
-          "New project: pick a template, a name -> preview -> Do it."},
+          "New project: pick a template, a name -> preview -> Do it.",
+          "A new book: New project -> bookbinding -> the author (Keene, Carolyn) and the title -> preview -> Do it. "
+          "Body and Cover come with every stage folder, empty until you fill them."},
          "projects"},
         {"templates", "Projects", "Templates",
-         {"A template is the shape of a project: its folders. Lift one from a project you like; New project builds "
-          "the same tree. Drift shows where a project has wandered from its template."},
-         {"Templates -> Lift from a project.", "Keep or remove folders; set where projects of this kind live.", "Save."},
+         {"A template is the shape of a project: its folders, the whole tree (six deep at most). Lift one from a "
+          "project you like; New project builds the same tree. Drift shows where a project has wandered from its template.",
+          "\"Known by its place\" (the builder's check): its projects are the folders under ~/<category>/<group>/ -- "
+          "no -project. The built-in bookbinding is one: Body (OCR, Layout, Print, Finals) and Cover (Layout, Print).",
+          "Its routes say where files go: \"*.odt -> Originals\". Top to bottom, the first that fits decides. A route may "
+          "name a folder first (\"Archive/*.png\" -- a .png anywhere under Archive) and may say \"stays where it is\" "
+          "or \"the project's top\" (\"*.optik\"). Conform folders... puts the files of many project folders -- your "
+          "30 books in ~/Documents/EBooks -- where the routes say, all at once: one preview, one undo. A file no route "
+          "fits stays and is listed; add a route and Look again."},
+         {"Templates -> From a scan... (or the Map: right-click a folder -> Make a template from a scan...): a project "
+          "folder, or a folder of many -> every file type found, with counts; a numbered run (A0001.png ..) has a line "
+          "of its own.",
+          "Tick the folders to keep; add new ones (Originals, Workups/Images).",
+          "Give each file type a folder. Tick Source on the types that build the others (.optik): they stay at the top.",
+          "Name it; say where projects of this kind live. Save and conform -> Conform's preview -> Do it.",
+          "Or: Lift from a project, add routes by hand, Save; Conform folders... -> Look -> Do it."},
          "templates"},
         {"code", "Projects", "Code projects",
          {"A code project's source lives on its remote (GitHub). What is worth keeping in the archive is the "

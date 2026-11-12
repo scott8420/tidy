@@ -70,10 +70,14 @@ class HelpWindow;
 class ProjectsPage;
 class IdListsWindow;
 class AdoptWindow;
+class ConformWindow;
+class ShapeWindow;
+class TemplatesPage;
 class BackgroundWindow;
 class PurposesPage;
 class HomePage;
 class SortPage;
+class MapPage;
 class DuePage;
 class ArchivePage;
 class SettingsWindow;
@@ -112,6 +116,9 @@ private:
                                                    // handler: the loose background rescan (s010f1)
     void on_id_lists();                            // handler: the Id lists window (s010f2)
     void on_adopt();
+    void on_conform(const std::string& folder = "");   // s023h: the Conform folders window
+    void on_shape(const std::string& folder = "");     // s023i: a template made from a scan
+    void on_adopt_folder(const std::string& rel, bool catch_all);   // s023f: from the Map
     void after_activity_undo(const std::string& label, const latch::door::Result& r, std::size_t synced);   // s023a                               // handler: the Adopt folders window (s023)
     void on_background();                          // handler: the Background scan window (s012b)
     void offer_lists();                            // handler: s010f3 -- count stale id lists -> the offer bar
@@ -178,6 +185,8 @@ private:
     PurposesPage* m_purposes = nullptr;           // s009 (managed by the stack)
     HomePage*     m_home_page = nullptr;
     SortPage*     m_sort_page = nullptr;   // s020
+    MapPage*      m_map_page = nullptr;    // s023f
+    TemplatesPage* m_templates_page = nullptr;   // s023i
     ArchivePage*  m_archive = nullptr;            // s013b the archive + backup (managed by the stack)
     DuePage*      m_due = nullptr;                // s012a the trigger (managed by the stack)          // s011 files home (managed by the stack)
 
@@ -186,6 +195,8 @@ private:
     std::unique_ptr<SettingsWindow>  m_settings_win;
     std::unique_ptr<IdListsWindow>   m_idlists_win;   // s010f2
     std::unique_ptr<AdoptWindow>     m_adopt_win;     // s023
+    std::unique_ptr<ConformWindow>   m_conform_win;   // s023h
+    std::unique_ptr<ShapeWindow>     m_shape_win;     // s023i
     std::unique_ptr<BackgroundWindow> m_background_win;   // s012b
     core::settings::Settings         m_settings;   // read at build_ui; written only by core::own
     std::unique_ptr<ShortcutsDialog> m_shortcuts;

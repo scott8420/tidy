@@ -84,6 +84,47 @@ std::vector<Starter> make() {
         sorted(t);
         out.push_back({std::move(t), "Our gtk workspace: the repo beside backups, docs, fixes, scripts"});
     }
+    {   // s024 (Scott, 2026-11-12): his hand-built Hollow Oak, the whole tree.
+        // A pipeline: part (Body / Cover) -> stage (OCR -> Layout -> Print ->
+        // Finals); each stage's builder bundle sits in its stage. Known BY ITS
+        // PLACE: ~/Documents/Bookbinding/<Last, First>/<Title>, no -project.
+        Template t;
+        t.name = "bookbinding";
+        t.category = "Documents/Bookbinding";
+        t.by_place = true;
+        t.group = "Author (Last, First)";
+        t.folders = {
+            {"Body", Role::Input},
+            {"Body/OCR", Role::Input}, {"Body/OCR/Scans", Role::Input}, {"Body/OCR/Scans/Archive", Role::History},
+            {"Body/Layout", Role::Input}, {"Body/Layout/Images", Role::Input}, {"Body/Layout/ODT", Role::Input},
+            {"Body/Layout/Workups", Role::History},
+            {"Body/Print", Role::Product},
+            {"Body/Finals", Role::Product},
+            {"Cover", Role::Input},
+            {"Cover/Layout", Role::Input}, {"Cover/Layout/Workups", Role::History},
+            {"Cover/Print", Role::Product},
+        };
+        // First fit wins: the scan runs, then the bundles, then by type. A
+        // .png that is neither a scan nor named cover* has no route (scans,
+        // workups and the final cover share the type -- the row asks).
+        t.routes = {
+            {"A[0-9][0-9][0-9][0-9].png", "Body/OCR/Scans/Archive"},
+            {"A[0-9][0-9][0-9][0-9].tif", "Body/OCR/Scans/Archive"},
+            {"Archive*.zip", "Body/OCR/Scans"},
+        };
+        routes(t, {"optik"}, "Body/OCR/Scans");
+        routes(t, {"composix"}, "Body/Layout");
+        routes(t, {"odt", "bak"}, "Body/Layout/ODT");
+        routes(t, {"quire", "pdf"}, "Body/Print");
+        routes(t, {"epub"}, "Body/Finals");
+        t.routes.push_back({"cover*.png", "Cover/Layout/Workups"});
+        t.routes.push_back({"cover*.jpg", "Cover/Layout/Workups"});
+        routes(t, {"xcf"}, "Cover/Layout/Workups");
+        routes(t, {"svg"}, "Cover/Layout");
+        routes(t, {"jpg", "jpeg"}, "Body/Layout/Images");
+        sorted(t);
+        out.push_back({std::move(t), "A bookbinding project: Body and Cover, each by stage (OCR, Layout, Print, Finals)"});
+    }
     kind("3d-project", "3D", "Models, textures and renders; .blend in Work", [](Template& t) {
         add(t, {"Assets/Models", "Assets/Textures", "Assets/Renders"});
         routes(t, {"blend"}, "Work");

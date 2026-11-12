@@ -58,6 +58,8 @@ const TypeRoute* type_of(const std::vector<TypeRoute>& table, const std::string&
 bool offered_level(const std::string& retention_id);
 // What the page offers: from a birth report (the landing places), the files
 // that may go home. READ-ONLY.
+// s023g: and every file loose in Downloads, decided or not (Scott: "I just can't set
+// up untracked comic files in the downloads") -- sending one makes it Keep.
 std::vector<birth::Born> offered(const birth::Report& r);
 
 // The folders directly in `dir` a file may go into: not hidden, not a symlink,
@@ -99,5 +101,9 @@ struct Planned {
 // MakeDir each missing folder level (parents first, once), then a Move per
 // pick to <home>/<folder>/<free name>. READ-ONLY until the door runs it.
 Planned plan(const std::string& home, const std::vector<Pick>& picks);
+// s023g: a file sent home that would still come due (no level, Undecided,
+// Ephemeral) is tagged Keep first (an id too where none) -- Due never trashes
+// what you placed. The tags go at the plan's front (before the moves).
+void keep_sent(latch::door::Plan& plan, const std::vector<Pick>& picks);
 
 }  // namespace tidy::core::homing

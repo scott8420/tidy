@@ -73,6 +73,11 @@ struct Settings {
     // exactly these lines, even none.
     std::vector<std::string> home;
     bool home_set = false;
+    // s023g the Entertainment table (Scott: "the user designs the known places"):
+    // "*.cbz -> Entertainment/EBooks", where a READ download goes (Sort). ent_set
+    // = false -> the standard table (core::sort::ent_defaults()).
+    std::vector<std::string> ent;
+    bool ent_set = false;
     std::vector<Media> media;   // s013b: labels unique, first wins
     int proofs_needed = kProofsDefault;   // s014
     bool operator==(const Settings&) const = default;

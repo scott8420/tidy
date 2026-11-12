@@ -1,6 +1,12 @@
 #include "core/Projects.hpp"
 
+#include "core/Starters.hpp"
+
+#include <latch/Package.hpp>
 #include <latch/Protect.hpp>
+
+#include <atomic>
+#include <memory>
 
 #include <algorithm>
 #include <cctype>
@@ -18,6 +24,82 @@ namespace dr = latch::door;
 bool is_project_name(const std::string& n) {
     const std::string s = kSuffix;
     return n.size() > s.size() && n.compare(n.size() - s.size(), s.size(), s) == 0 && n[0] != '.';
+}
+
+// ── s024: shelves ────────────────────────────────────────────────────────────
+namespace {
+std::atomic<std::shared_ptr<const std::vector<Shelf>>> g_shelves{std::make_shared<const std::vector<Shelf>>()};
+std::vector<std::string> parts(const std::string& rel) {
+    std::vector<std::string> out;
+    std::string cur;
+    for (char c : rel) {
+        if (c == '/') { if (!cur.empty()) out.push_back(cur); cur.clear(); }
+        else cur += c;
+    }
+    if (!cur.empty()) out.push_back(cur);
+    return out;
+}
+}  // namespace
+
+std::vector<Shelf> shelves_of(const std::vector<templates::Template>& ts) {
+    std::vector<Shelf> out;
+    for (const auto& t : ts) {
+        const int d = templates::place_depth(t);
+        if (d <= 0 || t.category.empty()) continue;
+        if (std::any_of(out.begin(), out.end(), [&](const Shelf& s) { return s.category == t.category; })) continue;
+        out.push_back({t.category, d, t.name});
+    }
+    return out;
+}
+void set_shelves(std::vector<Shelf> s) { g_shelves.store(std::make_shared<const std::vector<Shelf>>(std::move(s))); }
+std::vector<Shelf> shelves() { return *g_shelves.load(); }
+
+std::vector<templates::Template> known_templates(const std::string& data_dir) {
+    auto ts = templates::list(data_dir);
+    if (const auto* b = starters::find("bookbinding");
+        b && std::none_of(ts.begin(), ts.end(), [&](const templates::Template& t) { return t.name == b->t.name; }))
+        ts.push_back(b->t);
+    return ts;
+}
+
+void apply_places(const std::string& data_dir) {
+    auto ts = known_templates(data_dir);
+    if (const auto* b = starters::find("bookbinding")) ts.push_back(b->t);   // a book stays whole whatever was saved
+    set_shelves(shelves_of(ts));
+    auto extra = latch::pkg::load_extra(data_dir);
+    for (const auto& e : own_bundles())
+        if (std::find(extra.begin(), extra.end(), e) == extra.end()) extra.push_back(e);
+    latch::pkg::set_extra(std::move(extra));
+}
+
+bool is_whole_at(const std::string& rel, Shelf* shelf_out) {
+    const auto ps = parts(rel);
+    if (ps.empty()) return false;
+    if (is_project_name(ps.back())) return true;
+    const auto sh = g_shelves.load();
+    for (const auto& s : *sh) {
+        const auto cs = parts(s.category);
+        if (ps.size() != cs.size() + static_cast<std::size_t>(s.depth)) continue;
+        if (!std::equal(cs.begin(), cs.end(), ps.begin())) continue;
+        if (std::any_of(ps.begin() + static_cast<long>(cs.size()), ps.end(),
+                        [](const std::string& p) { return p.empty() || p[0] == '.'; }))
+            continue;
+        if (shelf_out) *shelf_out = s;
+        return true;
+    }
+    return false;
+}
+
+bool inside_whole(const std::string& rel, std::string* at) {
+    std::string so_far;
+    for (const auto& p : parts(rel)) {
+        so_far += (so_far.empty() ? "" : "/") + p;
+        if (is_whole_at(so_far)) {
+            if (at) *at = so_far;
+            return true;
+        }
+    }
+    return false;
 }
 
 std::string category_of(const std::string& rel) {
@@ -80,7 +162,7 @@ std::string folder_for(const std::string& name) {
 }
 
 dr::Plan create(const templates::Template& t, const std::string& name, const std::string& home,
-                const std::string& id, std::string* why) {
+                const std::string& id, std::string* why, const std::string& group) {
     const auto no = [&](const std::string& w) { if (why) *why = w; return dr::Plan{}; };
     if (name.empty()) return no("a project needs a name");
     if (const auto w = templates::part_refusal(name); !w.empty()) return no("name: " + w);
@@ -89,13 +171,22 @@ dr::Plan create(const templates::Template& t, const std::string& name, const std
     if (const auto w = templates::category_refusal(t.category); !w.empty()) return no("category: " + w);
     const std::string top = t.category.substr(0, t.category.find('/'));
     if (top == "Desktop" || top == "Downloads") return no("a landing place is not a category");
-    const std::string folder = folder_for(name);
-    const std::string dir = home + "/" + t.category;
+    // s024: by place -- no suffix, under the group's folder (the author).
+    const int pd = templates::place_depth(t);
+    if (pd == 2) {
+        if (group.empty()) return no("a " + t.name + " project needs its " + (t.group.empty() ? "group" : t.group));
+        if (const auto w = templates::part_refusal(group); !w.empty()) return no(t.group + ": " + w);
+    }
+    const std::string folder = pd > 0 ? name : folder_for(name);
+    const std::string cat_dir = home + "/" + t.category;
+    const std::string dir = pd == 2 ? cat_dir + "/" + group : cat_dir;
     const std::string at = dir + "/" + folder;
+    const std::string shown = "~/" + fs::path(at).lexically_relative(home).string();
     std::error_code ec;
-    if (fs::exists(fs::symlink_status(at, ec))) return no("~/" + t.category + "/" + folder + " already exists");
+    if (fs::exists(fs::symlink_status(at, ec))) return no(shown + " already exists");
     dr::Plan plan;
-    plan.label = "New project: " + folder + " (" + t.name + ")";
+    plan.label = (pd > 0 ? "New " + t.name + ": " + (pd == 2 ? group + " / " : "") + folder
+                         : "New project: " + folder) + " (" + t.name + ")";
     auto mk = [&](const std::string& p, const std::string& reason) {
         dr::Action a;
         a.verb = dr::Verb::MakeDir;
@@ -104,7 +195,8 @@ dr::Plan create(const templates::Template& t, const std::string& name, const std
         plan.actions.push_back(a);
     };
     if (!fs::is_directory(home + "/" + top, ec)) mk(home + "/" + top, "the category's folder");
-    if (dir != home + "/" + top && !fs::is_directory(dir, ec)) mk(dir, "the category's folder");
+    if (cat_dir != home + "/" + top && !fs::is_directory(cat_dir, ec)) mk(cat_dir, "the category's folder");
+    if (dir != cat_dir && !fs::is_directory(dir, ec)) mk(dir, "the " + (t.group.empty() ? std::string("group") : t.group) + "'s folder");
     mk(at, "the project");
     for (const auto& f : t.folders) mk(at + "/" + f.path, "the template names it");   // tree order: parents first
     dr::Action w;
@@ -160,6 +252,15 @@ bool fits(const std::string& query, const std::vector<std::string>& fields) {
 
 std::vector<Project> find(const std::string& home, const std::set<std::string>& left) {
     std::vector<Project> out;
+    // s024: a shelf may sit deeper than kDepth -- walk down along it.
+    const auto sh = shelves();
+    const auto deeper = [&](const std::string& r) {
+        return std::any_of(sh.begin(), sh.end(), [&](const Shelf& s) {
+            const std::string full = s.category + "/";
+            return (full.rfind(r + "/", 0) == 0) ||
+                   (r.rfind(full, 0) == 0 && parts(r).size() < parts(s.category).size() + static_cast<std::size_t>(s.depth));
+        });
+    };
     const auto walk = [&](const fs::path& at, const std::string& rel, int depth, auto& self) -> void {
         std::error_code ec;
         for (fs::directory_iterator it(at, ec), end; !ec && it != end; it.increment(ec)) {
@@ -169,19 +270,27 @@ std::vector<Project> find(const std::string& home, const std::set<std::string>& 
             if (ec || !fs::is_directory(st)) continue;               // files and symlinks
             const std::string r = rel.empty() ? fn : rel + "/" + fn;
             if (latch::protect::here(r)) continue;                   // never touched -- never listed
-            if (is_project_name(fn)) {
+            Shelf shelf;
+            if (is_whole_at(r, &shelf)) {
                 Project p;
                 p.path = it->path().string();
                 p.rel = r;
-                p.name = fn.substr(0, fn.size() - std::string(kSuffix).size());
-                p.category = category_of(r);
+                if (is_project_name(fn)) {
+                    p.name = fn.substr(0, fn.size() - std::string(kSuffix).size());
+                    p.category = category_of(r);
+                } else {                                             // s024: by its place
+                    p.name = fn;
+                    p.category = shelf.category;
+                    p.by_place = true;
+                    if (shelf.depth == 2) p.group = fs::path(r).parent_path().filename().string();
+                }
                 p.code = is_code(it->path());
                 p.left = p.category.empty() && left.count(r);
                 p.id = read_id(p.path);
                 out.push_back(std::move(p));
                 continue;                                            // never inside a project
             }
-            if (depth < kDepth) self(it->path(), r, depth + 1, self);
+            if (depth < kDepth || deeper(r)) self(it->path(), r, depth + 1, self);
         }
     };
     walk(fs::path(home), "", 1, walk);

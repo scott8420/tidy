@@ -134,7 +134,7 @@ std::string path_refusal(const std::string& path) {
     if (path.empty()) return "an empty folder";
     const auto ps = parts_of(path);
     if (static_cast<int>(ps.size()) > kDepth)
-        return "\"" + path + "\" is " + std::to_string(ps.size()) + " deep -- templates hold the upper two levels only";
+        return "\"" + path + "\" is " + std::to_string(ps.size()) + " deep -- a template holds " + std::to_string(kDepth) + " levels at most";
     for (const auto& p : ps)
         if (auto why = part_refusal(p); !why.empty()) return why;
     return "";
@@ -143,7 +143,13 @@ std::string path_refusal(const std::string& path) {
 std::string category_refusal(const std::string& category) {
     // Two deep at most (Scott, s010c): ~/Develop holds plain GitHub repos,
     // ~/Develop/gtk our workspaces.
+    if (parts_of(category).size() > 2) return "\"" + category + "\" -- a category is one or two folders under home";
     return path_refusal(category);
+}
+
+int place_depth(const Template& t) {
+    if (!t.by_place) return 0;
+    return t.group.empty() ? 1 : 2;
 }
 
 std::vector<std::string> problems(const Template& t) {
@@ -152,6 +158,8 @@ std::vector<std::string> problems(const Template& t) {
     if (t.category.empty()) out.push_back("a template needs a category (the home folder its projects live in)");
     else if (auto w = category_refusal(t.category); !w.empty()) out.push_back("category: " + w);
     if (t.folders.empty()) out.push_back("a template needs at least one folder");
+    if (!t.by_place && !t.group.empty()) out.push_back("a group level is only for projects known by their place");
+    if (t.group.find('\n') != std::string::npos) out.push_back("the group's label is one line");
     std::set<std::string> seen;
     for (const auto& f : t.folders) {
         if (auto w = path_refusal(f.path); !w.empty()) { out.push_back(w); continue; }
@@ -161,9 +169,9 @@ std::vector<std::string> problems(const Template& t) {
     }
     std::set<std::string> pats;
     for (const auto& r : t.routes) {
-        if (r.pattern.empty() || r.pattern.find('/') != std::string::npos || r.pattern.find("->") != std::string::npos)
-            out.push_back("route \"" + r.pattern + "\": a file-name pattern (no '/' or '->')");
-        if (!find(t, r.folder)) out.push_back("route \"" + r.pattern + "\" goes to \"" + r.folder + "\", not a folder of the template");
+        if (auto w = pattern_refusal(r.pattern); !w.empty()) out.push_back("route \"" + r.pattern + "\": " + w);
+        if (r.folder != kStays && r.folder != kTop && !find(t, r.folder))
+            out.push_back("route \"" + r.pattern + "\" goes to \"" + r.folder + "\", not a folder of the template");
         if (!pats.insert(lower(r.pattern)).second) out.push_back("route \"" + r.pattern + "\" twice");
     }
     return out;
@@ -175,6 +183,8 @@ std::string format(const Template& t) {
     o << "# Tidy template -- written by Tidy; edit it in Tidy's builder\n"
       << "name=" << t.name << "\n"
       << "category=" << t.category << "\n";
+    if (t.by_place) o << "place=by-place\n";
+    if (!t.group.empty()) o << "group=" << t.group << "\n";
     for (const auto& f : t.folders) o << "folder=" << id_of(f.role) << " " << f.path << "\n";
     for (const auto& r : t.routes) o << "route=" << r.pattern << " -> " << r.folder << "\n";
     return o.str();
@@ -193,6 +203,8 @@ Template parse(const std::string& text) {
         const std::string key = trim(line.substr(0, eq)), val = trim(line.substr(eq + 1));
         if (key == "name") t.name = val;
         else if (key == "category") t.category = val;
+        else if (key == "place") t.by_place = (val == "by-place");
+        else if (key == "group") t.group = val;
         else if (key == "folder") {
             const auto sp = val.find(' ');
             Role r;
@@ -236,9 +248,39 @@ std::string save(const std::string& data_dir, const Template& t) {
     return own::write(data_dir, rel_of(s.name), format(s));
 }
 
+std::string pattern_refusal(const std::string& pattern) {
+    if (pattern.empty() || pattern.find("->") != std::string::npos) return "a file-name pattern, like *.curvz";
+    const auto slash = pattern.rfind('/');
+    if (slash == std::string::npos) return "";
+    // "Folder/glob" or "Folder/Sub/glob": the folder part one or two deep, the glob a name.
+    const std::string dir = pattern.substr(0, slash), name = pattern.substr(slash + 1);
+    if (name.empty()) return "a folder then a file-name pattern, like Archive/*.png";
+    if (auto w = path_refusal(dir); !w.empty()) return w;
+    return "";
+}
+
+std::string route_for_path(const Template& t, const std::string& rel) {
+    const std::string name = fs::path(rel).filename().string();
+    for (const auto& r : t.routes) {
+        const auto slash = r.pattern.rfind('/');
+        if (slash == std::string::npos) {
+            if (glob(r.pattern, name)) return r.folder;
+            continue;
+        }
+        const std::string dir = r.pattern.substr(0, slash);
+        if (rel.size() > dir.size() + 1 && lower(rel.substr(0, dir.size())) == lower(dir) && rel[dir.size()] == '/' &&
+            glob(r.pattern.substr(slash + 1), name))
+            return r.folder;
+    }
+    return "";
+}
+
 std::string route_for(const Template& t, const std::string& file_name) {
-    for (const auto& r : t.routes)
+    for (const auto& r : t.routes) {
+        // s023h: Conform's own routes (stays / top / "Folder/glob") never send a file INTO a project.
+        if (r.folder == kStays || r.folder == kTop || r.pattern.find('/') != std::string::npos) continue;
         if (glob(r.pattern, file_name)) return r.folder;
+    }
     return "";
 }
 const Folder* find(const Template& t, const std::string& path) {
@@ -248,7 +290,13 @@ const Folder* find(const Template& t, const std::string& path) {
 }
 
 // ── Lift and drift ─────────────────────────────────────────────────────────
-std::vector<std::string> folders_of(const std::string& dir) {
+int depth_of(const Template& t) {
+    int d = kLiftDepth;
+    for (const auto& f : t.folders) d = std::max(d, static_cast<int>(parts_of(f.path).size()));
+    return d;
+}
+
+std::vector<std::string> folders_of(const std::string& dir, int max_depth) {
     std::vector<std::string> out;
     const auto walk = [&](const fs::path& at, const std::string& prefix, int depth, auto& self) -> void {
         std::error_code ec;
@@ -259,7 +307,7 @@ std::vector<std::string> folders_of(const std::string& dir) {
             if (ec || !fs::is_directory(st)) continue;   // files and symlinks skipped
             const std::string rel = prefix.empty() ? fn : prefix + "/" + fn;
             out.push_back(rel);
-            if (depth < kDepth) self(it->path(), rel, depth + 1, self);
+            if (depth < max_depth) self(it->path(), rel, depth + 1, self);
         }
     };
     walk(fs::path(dir), "", 1, walk);
@@ -346,6 +394,22 @@ std::string Builder::set_category(const std::string& category) {
     d.t.category = category;
     return apply(std::move(d));
 }
+std::string Builder::set_by_place(bool on) {
+    if (m_now.t.by_place == on) return "";
+    Draft d = m_now;
+    d.t.by_place = on;
+    if (!on) d.t.group.clear();
+    return apply(std::move(d));
+}
+std::string Builder::set_group(const std::string& raw) {
+    const std::string label = trim(raw);
+    if (!m_now.t.by_place && !label.empty()) return "a group level is only for projects known by their place";
+    if (label.find('/') != std::string::npos || label.find('\n') != std::string::npos) return "a label, one line, no '/'";
+    if (label == m_now.t.group) return "";
+    Draft d = m_now;
+    d.t.group = label;
+    return apply(std::move(d));
+}
 std::string Builder::add_folder(const std::string& raw, Role role) {
     std::string path = trim(raw);
     while (!path.empty() && path.back() == '/') path.pop_back();
@@ -381,13 +445,18 @@ std::string Builder::confirm(const std::string& path) {
 }
 std::string Builder::add_route(const std::string& raw, const std::string& folder) {
     const std::string pattern = trim(raw);
-    if (pattern.empty() || pattern.find('/') != std::string::npos || pattern.find("->") != std::string::npos)
-        return "a route takes a file-name pattern, like *.curvz";
-    if (!find(m_now.t, folder)) return "no folder \"" + folder + "\"";
+    if (auto w = pattern_refusal(pattern); !w.empty()) return "a route takes " + w;
+    if (folder != kStays && folder != kTop && !find(m_now.t, folder)) return "no folder \"" + folder + "\"";
     for (const auto& r : m_now.t.routes)
         if (lower(r.pattern) == lower(pattern)) return "\"" + pattern + "\" already goes to " + r.folder;
     Draft d = m_now;
-    d.t.routes.push_back({pattern, folder});
+    // s023h: a "Folder/glob" route is more particular than a plain one -- it goes
+    // before the plain ones, so "Archive/*.png -> (stays)" wins over "*.png -> Images".
+    auto at = d.t.routes.end();
+    if (pattern.find('/') != std::string::npos)
+        at = std::find_if(d.t.routes.begin(), d.t.routes.end(),
+                          [](const Route& r) { return r.pattern.find('/') == std::string::npos; });
+    d.t.routes.insert(at, {pattern, folder});
     return apply(std::move(d));
 }
 std::string Builder::remove_route(const std::string& pattern) {

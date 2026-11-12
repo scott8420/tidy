@@ -42,6 +42,7 @@ std::string refusal(const std::string& home, const std::string& user_dirs, const
         if (so_far.empty() && n == archive::kFolder) return "~/Archive is Tidy's archive";
         if (projects::is_project_name(n)) return "a -project is kept whole (the Projects page)";
         so_far += (so_far.empty() ? "" : "/") + n;
+        if (projects::is_whole_at(so_far)) return "a project by its place is kept whole (the Projects page)";   // s024
         std::error_code ec;
         const auto st = fs::symlink_status(fs::path(home) / so_far, ec);
         if (ec || !fs::exists(st)) return "not there";

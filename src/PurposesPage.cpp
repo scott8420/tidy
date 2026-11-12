@@ -225,10 +225,10 @@ std::vector<core::facts::Facts> PurposesPage::candidates(const std::string& m_ho
     for (const auto& pl : places) if (landing) landing->push_back(fs::path(pl.path).filename().string());
     if (landing) landing->push_back(fs::path(m_home).filename().string());   // s019: home's top teaches nothing either
     // A project is kept whole: nothing inside a <name>-project is offered file by file.
-    const auto in_project = [](const std::string& path) {
+    const auto in_project = [&m_home](const std::string& path) {
         for (const auto& part : fs::path(path).parent_path())
             if (core::projects::is_project_name(part.string())) return true;
-        return false;
+        return core::projects::inside_whole(fs::path(path).parent_path().lexically_relative(m_home).string());   // s024
     };
     for (const auto& b : core::birth::report(m_home, core::birth::sweep(m_home, user_dirs)).items)
         if (!b.file.dir && !in_project(b.file.path)) out.push_back(b.file);

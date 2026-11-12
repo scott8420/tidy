@@ -104,7 +104,7 @@ void SortPage::build_start() {
     auto note = label(std::string("Look sweeps the home for loose files. Each gets a place: kept files go home by type ") +
                       "where you sent the same kind before (cover*.png -> ~/Pictures/Covers), else into a dated folder "
                       "named for where they came from (~/Pictures/Desktop 2026-11); a download "
-                      "you have opened goes on to ~/Entertainment (Movies, Series/<Show>/Season 01, Books, Music); "
+                      "you have opened goes on to ~/Entertainment (Movies, Series/<Show>/Season 01, EBooks, Music -- Settings: the Entertainment table; Move on now takes an unread one); "
                       "old records go to ~/Archive, fingerprinted; a folder moves whole; a -project goes to its "
                       "category. Unread downloads and your junk list stay, labelled. Hands-off "
                       "folders, hidden files, projects and repos are never touched. All of it is selected -- "
@@ -147,8 +147,8 @@ void SortPage::build_results() {
     m_list->set_margin_start(32);
     m_list->set_margin_end(32);
     m_list->set_margin_bottom(16);
-    m_list->set_choices({"Sort these"});
-    m_list->on_choose([this](std::size_t) { on_sort(); });
+    m_list->set_choices({"Sort these", "Move on now (as read)"});   // s023g
+    m_list->on_choose([this](std::size_t c) { if (c == 1) on_move_now(); else on_sort(); });
     box->append(*m_list);
     auto bar = bar_box();
     m_status = label("", "dim", 0.0f);
@@ -163,6 +163,14 @@ void SortPage::build_results() {
          c = c->get_next_sibling())
         c->set_visible(false);
     bar->append(setter);
+    // s023g: unread downloads (files and whole folders) -> where they go once read.
+    auto now = Gtk::make_managed<Gtk::Button>("Move on now...");
+    now->set_name("sort.now");
+    now->set_valign(Gtk::Align::CENTER);
+    now->set_tooltip_text("The selected UNREAD downloads, moved on as if read -- a file becomes Keep; a folder moves "
+                          "whole (Settings: the Entertainment table). Previewed first.");
+    now->signal_clicked().connect([this] { on_move_now(); });
+    bar->append(*now);
     auto go = Gtk::make_managed<Gtk::Button>("Sort...");
     go->set_name("sort.go");
     go->add_css_class("act");
@@ -259,6 +267,7 @@ void SortPage::show(Look look) {
                     : r.folder_whole ? std::string("   (a folder, whole)")
                     : "   -> " + (r.junk ? std::string("the Junk Drawer") : rt::title_of(r.level)));
         it.line = shown(std::filesystem::path(r.born.file.path).parent_path().string()) + "   ·   " + r.why +
+                  (r.now_folder.empty() ? std::string() : "   ·   Move on now -> ~/" + r.now_folder) +
                   (r.tag || r.folder_whole || r.is_project ? "" : "   ·   decided already");
         it.tooltip = r.born.file.path;
         items.push_back(std::move(it));
@@ -273,11 +282,32 @@ void SortPage::show(Look look) {
                                           : "All selected. Unselect what is wrong, then Sort...");
 }
 
+void SortPage::on_move_now() {   // s023g
+    std::vector<so::Row> chosen;
+    std::size_t other = 0;
+    for (auto i : m_list->selected()) {
+        if (i >= m_rows.size()) continue;
+        auto r = m_rows[i];
+        if (so::move_on_now(r)) chosen.push_back(std::move(r));
+        else ++other;
+    }
+    if (chosen.empty()) {
+        m_status->set_text("Select unread downloads first (\"unread download -- stays\", \"a folder ..., unread\").");
+        return;
+    }
+    if (other) m_status->set_text(std::to_string(other) + " selected that are not unread downloads -- left out.");
+    preview(std::move(chosen));
+}
+
 void SortPage::on_sort() {
     std::vector<so::Row> chosen;
     for (auto i : m_list->selected())
         if (i < m_rows.size()) chosen.push_back(m_rows[i]);
     if (chosen.empty()) { m_status->set_text("Select some files first."); return; }
+    preview(std::move(chosen));
+}
+
+void SortPage::preview(std::vector<so::Row> chosen) {
     auto planned = so::plan(m_home, chosen, static_cast<std::int64_t>(std::time(nullptr)));
     m_archiving = planned.archiving > 0;
     m_learning.clear();
