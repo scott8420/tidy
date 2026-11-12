@@ -83,6 +83,7 @@ add_library(tidy_core STATIC
     src/core/Protection.cpp  # s019a: Hands-off folders + Samson's places -> latch
     src/core/Sort.cpp        # s020: the one-step Sort -- a level and a place for every loose file
     src/core/Routes.cpp      # s022: learned routes -- each send home remembered, proposed again
+    src/core/Adopt.cpp       # s023: adopt -- picked folders cataloged in place, routes learned; catch-alls swept
     src/core/Shortcuts.cpp   # one shortcut list, two consumers (Cairn)
     src/core/Facts.cpp       # statx times + user.tidy.* tags, read (s004)
     src/core/Scan.cpp        # walk folders, read-only: never Protected, packages whole (s004)
@@ -156,6 +157,8 @@ add_executable(tidy
     src/AboutWindow.cpp
     src/SettingsWindow.cpp
     src/IdListsWindow.cpp
+    src/AdoptWindow.cpp      # s023: adopt folders -- in place or catch-all
+    src/Busy.cpp             # s023a: long work off the window's thread, a progress bar over it
     src/TemplatesPage.cpp
     src/ProjectsPage.cpp
     src/PurposesPage.cpp

@@ -165,7 +165,7 @@ Attention look(const std::string& home, const std::string& data_dir, const std::
         (it.to == To::Remove ? a.remove : it.to == To::Archive ? a.archive : a.settle)++;
     const auto stale = filelists::stale(files);
     a.lists = stale.lists + stale.refound;
-    a.closet = closet::view(birth::report(home, birth::sweep(home, user_dirs), now, st.old_years), now, st).proposed.size();   // s019: the whole home
+    a.closet = closet::view(birth::report(home, birth::sweep(home, user_dirs, st.catch_all), now, st.old_years), now, st).proposed.size();   // s019: the whole home
     if (items) *items = std::move(list);
     a.ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
     return a;

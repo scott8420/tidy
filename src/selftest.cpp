@@ -68,6 +68,8 @@
 #include "core/Paths.hpp"
 #include "core/Protection.hpp"
 #include "core/Sort.hpp"
+#include "Busy.hpp"
+#include "core/Adopt.hpp"
 #include "core/Routes.hpp"
 #include "core/Shortcuts.hpp"
 #include "core/Catalog.hpp"
@@ -1445,6 +1447,152 @@ int main(int argc, char** argv) {
         check("plan: into the learned folder, which is there already (no new folder)", moved && !made);
         std::error_code ec;
         fs::remove_all(root, ec);
+    }
+
+    // ── s023: adopt -- picked folders cataloged in place; catch-alls swept ──
+    {
+        std::cout << "[adopt]\n";
+        namespace ad = core::adopt;
+        namespace cb = core::birth;
+        namespace so = core::sort;
+        namespace ro = core::routes;
+        namespace rt = core::retention;
+        const fs::path root = fs::temp_directory_path() / ("tidy_selftest_adopt_" + std::to_string(::getpid()));
+        fs::remove_all(root);
+        const fs::path home = root / "home";
+        for (const char* f : {"Pictures/Covers/cover-a.png", "Pictures/Covers/cover-b.png", "Pictures/Covers/cover-c.png",
+                              "Pictures/Trips/cover-x.png", "Pictures/Trips/beach.jpg", "Pictures/loose.png",
+                              "Pictures/Covers/old-notes.txt", "Pictures/Covers/kept.png", "Pictures/Covers/eph.png",
+                              "Pictures/Covers/Book-project/x.txt", "Pictures/Covers/.hidden.png",
+                              "Pictures/Repo/.git/HEAD", "Pictures/Repo/a.png", "Documents/Misc/a.txt",
+                              "Documents/Misc/deep/b.txt", "Documents/top.txt", "Downloads/d.pdf", "Taxes/w2.pdf"})
+            put_file(home / f, f);
+        fs::create_directories(home / "Archive/2025");
+        fs::create_directories(home / ".config");
+        xset(home / "Pictures/Covers/kept.png", core::facts::kId, "11111111-2222-3333-4444-555555555555");
+        xset(home / "Pictures/Covers/kept.png", core::facts::kRetention, "keep");
+        xset(home / "Pictures/Covers/eph.png", core::facts::kRetention, "ephemeral");
+        age(home / "Pictures/Covers/old-notes.txt", 2019);
+        const std::string H = fs::canonical(home).string();
+        latch::protect::set_owned({"Taxes"});
+        const auto refused = [&](const std::string& rel, bool ca) { return !ad::refusal(H, "", rel, ca).empty(); };
+        check("refused: home, hidden, ~/Archive, a -project, a repo, Hands off, missing",
+              refused("", false) && refused(".config", false) && refused("Archive/2025", false) &&
+              refused("Pictures/Covers/Book-project", false) && refused("Pictures/Repo", false) &&
+              refused("Taxes", false) && refused("Nope", false),
+              ad::refusal(H, "", "Pictures/Repo", false));
+        check("refused: Downloads in place and as a catch-all (Sort sees it all); Documents is fine",
+              refused("Downloads", false) && refused("Downloads", true) &&
+              !refused("Documents/Misc", true) && !refused("Pictures", false));
+        const auto before = tree_facts(H);
+        const std::int64_t now = now_s();
+        const auto lk = ad::look(H, "", "Pictures", false, now, 2);
+        check("look: READ-ONLY", tree_facts(H) == before);
+        const auto item = [&](const std::string& rel) -> const ad::Item* {
+            for (const auto& i : lk.items) if (i.file.path == H + "/" + rel) return &i;
+            return nullptr;
+        };
+        check("look: Keep where you put it, an id and a level", item("Pictures/Covers/cover-a.png") &&
+              item("Pictures/Covers/cover-a.png")->level == rt::Level::Keep &&
+              item("Pictures/Covers/cover-a.png")->give_id && item("Pictures/Covers/cover-a.png")->set_level);
+        check("look: untouched for years -> Historical", item("Pictures/Covers/old-notes.txt") &&
+              item("Pictures/Covers/old-notes.txt")->level == rt::Level::Historical);
+        check("look: a level already carried stays, only an id added; both carried -> known",
+              item("Pictures/Covers/eph.png") && item("Pictures/Covers/eph.png")->level == rt::Level::Ephemeral &&
+              !item("Pictures/Covers/eph.png")->set_level && !item("Pictures/Covers/kept.png") && lk.known == 1);
+        check("look: the loose top of Pictures is Sort's, said", !item("Pictures/loose.png") && lk.loose == 1,
+              std::to_string(lk.loose));
+        check("look: never inside a -project, a repo, or a hidden file",
+              !item("Pictures/Covers/Book-project/x.txt") && !item("Pictures/Repo/a.png") &&
+              !item("Pictures/Covers/.hidden.png") && lk.items.size() == 7, std::to_string(lk.items.size()));
+        check("learned: cover*.png -> Pictures/Covers (3 of 4); none for Trips (1)",
+              lk.routes.size() == 1 && lk.routes[0].pattern == "cover*.png" && lk.routes[0].folder == "Pictures/Covers" &&
+              lk.routes[0].count == 3, lk.routes.empty() ? "none" : lk.routes[0].pattern + " " + lk.routes[0].folder);
+        ro::Book book;
+        check("learn: one route, yes 3; again -> unchanged (not doubled)",
+              ad::learn(book, {lk}) == 1 && book.routes.size() == 1 && book.routes[0].yes == 3 &&
+              ad::learn(book, {lk}) == 0 && book.routes[0].yes == 3);
+        {
+            put_file(home / "Desktop/cover-new.png", "c");
+            const auto rep = cb::report(H, cb::sweep(H, ""), now, 2);
+            cb::Born b;
+            for (const auto& x : rep.items) if (x.file.path == H + "/Desktop/cover-new.png") b = x;
+            check("learn: the adopted route proposes a new cover on the Desktop",
+                  ro::propose(book, H, b).folder == "Pictures/Covers");
+            fs::remove(home / "Desktop/cover-new.png");
+        }
+        const auto ca = ad::look(H, "", "Documents/Misc", true, now, 2);
+        check("catch-all: nothing tagged, 2 files offered", ca.items.empty() && ca.offered == 2, std::to_string(ca.offered));
+        {
+            const auto rep0 = cb::report(H, cb::sweep(H, ""), now, 2);
+            const auto rep1 = cb::report(H, cb::sweep(H, "", {"Documents/Misc"}), now, 2);
+            const auto has = [&](const cb::Report& r, const std::string& rel) {
+                for (const auto& x : r.items) if (x.file.path == H + "/" + rel) return true;
+                return false;
+            };
+            check("sweep: a catch-all's files at every depth are loose; without it they are home",
+                  !has(rep0, "Documents/Misc/deep/b.txt") && has(rep1, "Documents/Misc/deep/b.txt") &&
+                  has(rep1, "Documents/Misc/a.txt") && has(rep1, "Documents/top.txt"));
+            core::settings::Settings st;
+            const auto rows = so::rows(H, rep1, st, now);
+            bool named = false;
+            for (const auto& r : rows) named |= r.born.file.path == H + "/Documents/Misc/a.txt" &&
+                                                r.folder.find("/Misc ") != std::string::npos;
+            check("sort: a catch-all's file goes home by type, named for its folder (Misc YYYY-MM)", named);
+            const auto rep2 = cb::report(H, cb::sweep(H, "", {"Documents"}), now, 2);
+            check("sweep: Documents as a catch-all is walked whole (no second place)",
+                  has(rep2, "Documents/Misc/deep/b.txt") &&
+                  std::count_if(rep2.places.begin(), rep2.places.end(), [](const cb::Place& p) { return p.id == "catchall"; }) == 0);
+        }
+        {
+            core::settings::Settings st;
+            st.adopted = {"Pictures"};
+            st.catch_all = {"Documents/Misc"};
+            const auto back = core::settings::parse(core::settings::format(st));
+            check("settings: adopted + catch_all round trip; bad lines dropped",
+                  back == st && core::settings::parse("adopted=/etc\nadopted=../x\ncatch_all=a\ncatch_all=a\n").catch_all.size() == 1 &&
+                  core::settings::parse("adopted=/etc\nadopted=../x\n").adopted.empty());
+        }
+        auto p = ad::plan({lk, ca});
+        {
+            std::size_t ids = 0, levels = 0;
+            for (const auto& a : p.actions) {
+                ids += a.attr == core::facts::kId;
+                levels += a.attr == core::facts::kRetention;
+            }
+            check("plan: 7 ids, 6 levels (eph keeps its own), tags only", ids == 7 && levels == 6 &&
+                  std::all_of(p.actions.begin(), p.actions.end(), [](const auto& a) { return a.verb == latch::door::Verb::Tag; }),
+                  std::to_string(ids) + "/" + std::to_string(levels) + " " + p.label);
+        }
+        latch::door::Door door(H, H + "/.tidy-data-adopt");
+        door.load();
+        p.previewed = true;
+        const auto r = door.run(p);
+        check("run: every step done", r.ok && r.failed == 0, r.messages.empty() ? "" : r.messages.front());
+        const auto ta = core::facts::tags_of(H + "/Pictures/Covers/cover-a.png");
+        check("run: tagged in place, nothing moved", ta.retention == "keep" && core::facts::is_id(ta.id) &&
+              core::facts::tags_of(H + "/Pictures/Covers/old-notes.txt").retention == "historical" &&
+              core::facts::tags_of(H + "/Pictures/Covers/eph.png").retention == "ephemeral" &&
+              fs::exists(home / "Pictures/loose.png") && core::facts::tags_of(H + "/Pictures/loose.png").id.empty());
+        {
+            core::catalog::Catalog cat;
+            const bool open = cat.open(H + "/.tidy-data-adopt", true);
+            const auto n = open ? core::tagging::record(cat, core::tagging::paths_of(door, r.batch), now) : 0;
+            check("catalog: 7 adopted files recorded", n == 7, std::to_string(n));
+        }
+        check("again: everything known, nothing to do",
+              ad::look(H, "", "Pictures", false, now, 2).items.empty());
+        const auto u = door.undo();
+        check("undo: one step, the tags off again", u.ok && core::facts::tags_of(H + "/Pictures/Covers/cover-a.png").id.empty() &&
+              core::facts::tags_of(H + "/Pictures/Covers/eph.png").retention == "ephemeral");
+        latch::protect::set_owned({});
+        std::error_code ec;
+        fs::remove_all(root, ec);
+        // s023a: Busy's bar follows the manifest -- the batch line, then an intent + a done per step.
+        check("busy: the bar -- 0 at the batch line, half at 2 of 4 steps, full at the end, never past it",
+              tidy::busy::door_fraction(0, 4) == 0.0 && tidy::busy::door_fraction(1, 4) == 0.0 &&
+              tidy::busy::door_fraction(5, 4) == 0.5 && tidy::busy::door_fraction(9, 4) == 1.0 &&
+              tidy::busy::door_fraction(50, 4) == 1.0 && tidy::busy::door_fraction(0, 0) == 1.0);
     }
 
     // ── s020a: Downloads on to Entertainment; folders whole; projects placed ──
@@ -3160,12 +3308,23 @@ int main(int argc, char** argv) {
             if (a.verb == dr::Verb::Move) tos.push_back(a.to.substr(H.size() + 1));
         }
         check("plan: the project's file refused, said; the rest tagged (archived = the day; an id where none)",
-              pl.refused.size() == 1 && tags == 5 && ids == 2 && pl.plan.actions[0].verb == dr::Verb::Tag &&
+              pl.refused.size() == 1 && tags == 6 && ids == 2 && pl.plan.actions[0].verb == dr::Verb::Tag &&
               pl.plan.actions[0].attr == core::facts::kArchived && pl.plan.actions[0].content == "2026-11-10", std::to_string(tags) + " tags");
         check("plan: into ~/Archive/2026/<its folder>; a taken name -> \"old (2).odt\", warned; home's top -> ~/Archive/2026",
               tos == std::vector<std::string>{"Archive/2026/Documents/Letters/letters-2019.odt",
                                                "Archive/2026/Documents/Letters/old (2).odt", "Archive/2026/notes.txt"} &&
               pl.renamed.size() == 1 && dirs == 0, tos.empty() ? "" : tos[0]);
+        {   // s023d: archived by hand, a file with no level (or Ephemeral) becomes Historical; Historical stays
+            std::size_t hist = 0;
+            bool old_untouched = true;
+            for (const auto& a : pl.plan.actions)
+                if (a.verb == dr::Verb::Tag && a.attr == core::facts::kRetention) {
+                    hist += a.content == "historical";
+                    old_untouched = old_untouched && a.from != H + "/Documents/Letters/old.odt";
+                }
+            check("plan: archived by hand -> Historical (notes.txt, no level); the Historical ones untouched",
+                  hist == 1 && old_untouched, std::to_string(hist));
+        }
         check("plan: READ-ONLY until run", tree_facts(H) == before);
 
         latch::door::set_app_name("Tidy");

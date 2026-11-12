@@ -76,7 +76,11 @@ const std::vector<Topic>& topics() {
           "folder into its season). A <name>-project goes to the category whose template its folders match; with "
           "no match it is listed, and you pick its category on the Projects page.",
           "Hands off, hidden files, your Hands-off folders, Samson's folders, projects and repos are never touched. "
-          "A name already taken in a folder gets \"(2)\" -- nothing is overwritten."},
+          "A name already taken in a folder gets \"(2)\" -- nothing is overwritten.",
+          "Folders you organized by hand: Adopt folders... (on Sort's start, or the main menu). In place, every "
+          "file in one is cataloged where it is -- an id, and Keep (Historical when untouched for years) -- and "
+          "Tidy learns its routes from what is there. Mark a folder of leftovers Catch-all instead, and Sort, "
+          "Files home and the Closet see its files, at any depth, like loose ones."},
          {"Sort -> Look. Everything comes up selected, grouped by where it goes.",
           "Unselect what is wrong (Ctrl+click), or select only some.",
           "Sort... -> the preview: every label, new folder and move.",

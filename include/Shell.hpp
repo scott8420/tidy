@@ -69,6 +69,7 @@ class AboutWindow;
 class HelpWindow;
 class ProjectsPage;
 class IdListsWindow;
+class AdoptWindow;
 class BackgroundWindow;
 class PurposesPage;
 class HomePage;
@@ -110,6 +111,8 @@ private:
     void arm_rescan();
                                                    // handler: the loose background rescan (s010f1)
     void on_id_lists();                            // handler: the Id lists window (s010f2)
+    void on_adopt();
+    void after_activity_undo(const std::string& label, const latch::door::Result& r, std::size_t synced);   // s023a                               // handler: the Adopt folders window (s023)
     void on_background();                          // handler: the Background scan window (s012b)
     void offer_lists();                            // handler: s010f3 -- count stale id lists -> the offer bar
     void on_shortcuts();                           // category: handler: the keyboard reference
@@ -182,6 +185,7 @@ private:
     std::unique_ptr<HelpWindow>      m_help;
     std::unique_ptr<SettingsWindow>  m_settings_win;
     std::unique_ptr<IdListsWindow>   m_idlists_win;   // s010f2
+    std::unique_ptr<AdoptWindow>     m_adopt_win;     // s023
     std::unique_ptr<BackgroundWindow> m_background_win;   // s012b
     core::settings::Settings         m_settings;   // read at build_ui; written only by core::own
     std::unique_ptr<ShortcutsDialog> m_shortcuts;

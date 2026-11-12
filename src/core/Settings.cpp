@@ -48,6 +48,11 @@ Settings parse(const std::string& text) {
             if (!v.empty() && v[0] != '/' && v.find("..") == std::string::npos &&
                 std::find(s.hands_off.begin(), s.hands_off.end(), v) == s.hands_off.end())
                 s.hands_off.push_back(v);
+        } else if (k == "adopted" || k == "catch_all") {   // s023: relative to home, checked when picked
+            auto& v2 = k == "adopted" ? s.adopted : s.catch_all;
+            if (!v.empty() && v[0] != '/' && v.find("..") == std::string::npos &&
+                std::find(v2.begin(), v2.end(), v) == v2.end())
+                v2.push_back(v);
         } else if (k == "old_years") {
             try {
                 s.old_years = std::clamp(std::stoi(v), kOldMin, kOldMax);
@@ -103,6 +108,8 @@ std::string format(const Settings& s) {
     o << "rescan_minutes=" << std::clamp(s.rescan_minutes, kRescanMin, kRescanMax) << "\n";
     o << "old_years=" << std::clamp(s.old_years, kOldMin, kOldMax) << "\n";
     for (const auto& h : s.hands_off) o << "hands_off=" << h << "\n";
+    for (const auto& a : s.adopted) o << "adopted=" << a << "\n";
+    for (const auto& c : s.catch_all) o << "catch_all=" << c << "\n";
     for (const auto& j : s.junk) o << "junk=" << j << "\n";
     o << "proofs_needed=" << std::clamp(s.proofs_needed, kProofsMin, kProofsMax) << "\n";
     for (const auto& m : s.media) o << "media=" << m.label << "|" << m.path << "\n";

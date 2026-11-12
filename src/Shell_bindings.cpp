@@ -11,6 +11,7 @@ void Shell::bind_actions() {  // bindings: win.* actions
     add_action("about",         sigc::mem_fun(*this, &Shell::on_about));
     add_action("settings",      sigc::mem_fun(*this, &Shell::on_settings));
     add_action("id-lists",      sigc::mem_fun(*this, &Shell::on_id_lists));
+    add_action("adopt",         sigc::mem_fun(*this, &Shell::on_adopt));   // s023
     add_action("background",    sigc::mem_fun(*this, &Shell::on_background));
     add_action("shortcuts",     sigc::mem_fun(*this, &Shell::on_shortcuts));
     add_action("dump-registry", sigc::mem_fun(*this, &Shell::on_dump_registry));

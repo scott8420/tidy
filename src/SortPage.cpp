@@ -1,4 +1,5 @@
 #include "SortPage.hpp"
+#include "Busy.hpp"
 #include "SelectList.hpp"
 #include "Log.hpp"
 #include "core/Archive.hpp"
@@ -13,6 +14,7 @@
 #include "core/Tagging.hpp"
 
 #include <gtkmm/box.h>
+#include <gtkmm/window.h>
 #include <gtkmm/button.h>
 #include <gtkmm/image.h>
 #include <gtkmm/label.h>
@@ -21,6 +23,7 @@
 #include <gtkmm/scrolledwindow.h>
 
 #include <ctime>
+#include <memory>
 #include <filesystem>
 #include <map>
 
@@ -117,6 +120,15 @@ void SortPage::build_start() {
     orb->set_margin_top(18);
     orb->signal_clicked().connect([this] { fill(); set_visible_child("results"); });
     start->append(*orb);
+    // s023: folders already organized by hand -- cataloged in place, or a catch-all swept here.
+    auto adopt = Gtk::make_managed<Gtk::Button>("Adopt folders...");
+    adopt->set_name("sort.adopt");
+    adopt->set_halign(Gtk::Align::CENTER);
+    adopt->set_margin_top(10);
+    adopt->set_tooltip_text("Folders you organized by hand: catalog them where they are, or mark a catch-all whose "
+                            "files Sort should see");
+    adopt->signal_clicked().connect([this] { if (m_on_adopt) m_on_adopt(); });
+    start->append(*adopt);
     add(*start, "start");
 }
 
@@ -207,7 +219,7 @@ void SortPage::fill() {
             Look l;
             l.now = static_cast<std::int64_t>(std::time(nullptr));
             const auto st = core::settings::parse(core::own::read(data, core::settings::kFile));
-            const auto rep = core::birth::report(home, core::birth::sweep(home, dirs), l.now, st.old_years);
+            const auto rep = core::birth::report(home, core::birth::sweep(home, dirs, st.catch_all), l.now, st.old_years);
             const auto found = core::projects::find(home, core::projects::parse_left(core::own::read(data, core::projects::kFile)));
             const auto book = core::routes::parse(core::own::read(data, core::routes::kFile));   // s022
             l.rows = so::rows(home, rep, st, l.now, found, core::templates::list(data), &book);
@@ -320,51 +332,65 @@ void SortPage::on_sort() {
 }
 
 void SortPage::on_run() {
-    if (!m_plan) return;
+    if (!m_plan || m_busy) return;
     auto plan = std::move(*m_plan);
     m_plan.reset();
-    {   // drop what the door refuses, judged in order as previewed
-        std::vector<std::string> made;
-        std::vector<dr::Action> keep;
-        for (const auto& a : plan.actions) {
-            if (!m_door.refusal(a, made).empty()) continue;
-            if (a.verb == dr::Verb::MakeDir) made.push_back(a.to);
-            keep.push_back(a);
-        }
-        plan.actions = std::move(keep);
-    }
     plan.previewed = true;   // shown in full by on_sort() (RULES: preview first)
-    const auto r = m_door.run(plan);
-    std::size_t prints = 0;
-    core::catalog::Catalog cat;
-    if (cat.open(m_data_dir, true)) {   // the catalog: the tagged files where they now are
-        const auto now = static_cast<std::int64_t>(std::time(nullptr));
-        core::tagging::record(cat, core::tagging::paths_of(m_door, r.batch), now);       // tagged and staying
-        core::tagging::record(cat, core::tagging::moved_paths(m_door, r.batch), now);    // tagged and moved
-        if (m_archiving) prints = core::archive::record(cat, m_door, r.batch, now);
-    }
-    m_archiving = false;
-    std::size_t taught = 0;
-    if (r.done > 0 && !m_learning.empty()) {   // s022: each learned route followed is a yes
-        auto book = core::routes::parse(core::own::read(m_data_dir, core::routes::kFile));
-        for (const auto& row : m_learning) {
-            std::error_code ec;
-            if (std::filesystem::exists(row.born.file.path, ec)) continue;   // refused / not moved: no yes
-            core::routes::learn(book, row.born, row.folder, row.learned);
-            ++taught;
-        }
-        if (taught) core::own::write(m_data_dir, core::routes::kFile, core::routes::format(book));
-    }
-    m_learning.clear();
-    if (m_changed) m_changed();
-    fill();   // first: it says "Looking..."; the Done line below replaces that and stays
-    m_status->set_text(r.ok ? "Done: " + plan.label + " (" + std::to_string(r.done) + " steps; " +
-                                  std::to_string(prints) + " fingerprinted) -- undo in Activity"
-                            : plan.label + ": " + std::to_string(r.done) + " done, " + std::to_string(r.failed) +
-                                  " not -- " + (r.messages.empty() ? std::string() : r.messages.front()));
-    set_visible_child("results");
-    if (auto lg = log::get(log::Area::Door))
-        lg->info("sort run '{}': {} done, {} failed; {} fingerprinted", plan.label, r.done, r.failed, prints);
+    auto* win = dynamic_cast<Gtk::Window*>(get_root());
+    if (!win) return;
+    m_busy = true;
+    m_prev_run->set_sensitive(false);
+    // s023a: the run, the catalog and the fingerprints happen off the window's
+    // thread under a progress bar (Busy); the routes and the look again after.
+    auto prints = std::make_shared<std::size_t>(0);
+    const std::string data = m_data_dir;
+    const bool archiving = m_archiving;
+    dr::Door* door = &m_door;
+    const std::string label = plan.label;
+    busy::door(*win, m_door, std::move(plan), "Sort",
+        [this, prints, label](const dr::Result& r) {
+            m_busy = false;
+            m_archiving = false;
+            std::size_t taught = 0;
+            if (r.done > 0 && !m_learning.empty()) {   // s022: each learned route followed is a yes
+                auto book = core::routes::parse(core::own::read(m_data_dir, core::routes::kFile));
+                for (const auto& row : m_learning) {
+                    std::error_code ec;
+                    if (std::filesystem::exists(row.born.file.path, ec)) continue;   // refused / not moved: no yes
+                    core::routes::learn(book, row.born, row.folder, row.learned);
+                    ++taught;
+                }
+                if (taught) core::own::write(m_data_dir, core::routes::kFile, core::routes::format(book));
+            }
+            m_learning.clear();
+            if (m_changed) m_changed();
+            fill();   // first: it says "Looking..."; the Done line below replaces that and stays
+            m_status->set_text(r.ok ? "Done: " + label + " (" + std::to_string(r.done) + " steps; " +
+                                          std::to_string(*prints) + " fingerprinted) -- undo in Activity"
+                                    : label + ": " + std::to_string(r.done) + " done, " + std::to_string(r.failed) +
+                                          " not -- " + (r.messages.empty() ? std::string() : r.messages.front()));
+            set_visible_child("results");
+            if (auto lg = log::get(log::Area::Door))
+                lg->info("sort run '{}': {} done, {} failed; {} fingerprinted", label, r.done, r.failed, *prints);
+        },
+        [data, door, archiving, prints](const dr::Result& r) {   // the catalog: the tagged files where they now are
+            core::catalog::Catalog cat;
+            if (!cat.open(data, true)) return;
+            const auto now = static_cast<std::int64_t>(std::time(nullptr));
+            core::tagging::record(cat, core::tagging::paths_of(*door, r.batch), now);       // tagged and staying
+            core::tagging::record(cat, core::tagging::moved_paths(*door, r.batch), now);    // tagged and moved
+            if (archiving) *prints = core::archive::record(cat, *door, r.batch, now);
+        },
+        [door](dr::Plan& p) {   // drop what the door refuses, judged in order as previewed
+            std::vector<std::string> made;
+            std::vector<dr::Action> keep;
+            for (const auto& a : p.actions) {
+                if (!door->refusal(a, made).empty()) continue;
+                if (a.verb == dr::Verb::MakeDir) made.push_back(a.to);
+                keep.push_back(a);
+            }
+            p.actions = std::move(keep);
+        });
 }
 
 }  // namespace tidy

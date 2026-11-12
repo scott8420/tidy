@@ -29,7 +29,7 @@ std::string month_of(std::int64_t now) {
 }
 std::string source_of(const birth::Born& b, const std::string& home) {
     if (b.place == "home") return "Home";
-    if (b.place == "top" || b.place == "documents") {   // the folder it sits loose in
+    if (b.place == "top" || b.place == "documents" || b.place == "catchall") {   // the folder it sits loose in
         return fs::path(b.file.path).parent_path().filename().string();
     }
     if (b.place == "screenshots") return "Screenshots";
@@ -372,7 +372,8 @@ Planned plan(const std::string& home, const std::vector<Row>& chosen, std::int64
     out.plan.actions.insert(out.plan.actions.end(), home_p.plan.actions.begin(), home_p.plan.actions.end());
     out.plan.actions.insert(out.plan.actions.end(), placed.begin(), placed.end());
     for (auto& a : arch_p.plan.actions) {
-        if (a.verb == dr::Verb::Tag && a.attr == facts::kId && stamped.count(a.from)) continue;
+        if (a.verb == dr::Verb::Tag && (a.attr == facts::kId || a.attr == facts::kRetention) && stamped.count(a.from))
+            continue;   // step 1 gives it (s023d: its level too -- Historical already)
         out.plan.actions.push_back(std::move(a));
     }
     std::size_t files = 0;

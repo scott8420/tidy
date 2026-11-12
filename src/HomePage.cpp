@@ -252,12 +252,13 @@ void HomePage::fill() {
     m_look.start(
         [home, data, dirs] {
             Look l;
-            l.table = ho::table(core::settings::parse(core::own::read(data, core::settings::kFile)));
+            const auto st = core::settings::parse(core::own::read(data, core::settings::kFile));
+            l.table = ho::table(st);
             l.projects = pj::find(home, pj::parse_left(core::own::read(data, pj::kFile)));
             std::sort(l.projects.begin(), l.projects.end(), [](const auto& a, const auto& b) { return a.rel < b.rel; });
             l.templates = core::templates::list(data);
             const auto places = core::birth::places(home, dirs);
-            l.offered = ho::offered(core::birth::report(home, core::birth::sweep(home, dirs)));
+            l.offered = ho::offered(core::birth::report(home, core::birth::sweep(home, dirs, st.catch_all)));   // s023: catch-alls too
             // s018d (Scott: "the std folders too"): By type | Into ~/<each top folder> |
             // Archive (fingerprinted) | Into <each project>.
             std::vector<std::string> skip;

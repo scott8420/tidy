@@ -63,6 +63,10 @@ struct Settings {
     int rescan_minutes = kRescanDefault;
     int old_years = kOldDefault;   // s019
     std::vector<std::string> hands_off;   // s019a: folders Tidy never touches, relative to home
+    // s023 adopt: folders you picked, relative to home. adopted = cataloged in
+    // place (its files are home, learned from); catch_all = its files, at any
+    // depth, are offered to Sort / Files home / the Closet like loose ones.
+    std::vector<std::string> adopted, catch_all;
     std::vector<std::string> junk;
     // s011 files home: the type table, "*.png -> Pictures" per line (core::homing
     // reads it). home_set = false -> the standard table (Scott: "fine"); true ->

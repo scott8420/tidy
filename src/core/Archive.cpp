@@ -55,6 +55,8 @@ std::string refusal(const std::string& home, const std::string& path) {
     if (ec || !fs::is_regular_file(st)) return "not a file here";
     std::string day;
     if (dr::tag_of(path, kTag, day)) return "already archived (" + day + ")";
+    std::string level;
+    if (dr::tag_of(path, facts::kRetention, level) && level == "hands-off") return "Hands off -- Tidy never touches it";
     return "";
 }
 
@@ -83,6 +85,18 @@ Planned plan(const std::string& home, const std::vector<std::string>& paths, std
         a.content = day;
         a.reason = "archived " + day;
         tags.push_back(a);
+        // s023d (Scott: archive even what Due would remove): a file archived by hand
+        // that would otherwise come due again (Ephemeral, Held, Until done, none)
+        // becomes Historical -- so Due never proposes trashing it out of ~/Archive.
+        if (t.retention != "historical" && t.retention != "keep") {
+            dr::Action h;
+            h.verb = dr::Verb::Tag;
+            h.from = p;
+            h.attr = facts::kRetention;
+            h.content = "historical";
+            h.reason = "archived by hand: " + (t.retention.empty() ? std::string("no level") : t.retention) + " -> Historical";
+            tags.push_back(h);
+        }
         picks.push_back({p, folder_for(home, p, year), "archive: " + (t.retention.empty() ? std::string("by hand")
                                                                                            : t.retention)});
     }

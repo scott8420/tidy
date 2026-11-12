@@ -90,7 +90,7 @@ std::vector<Place> places(const std::string& home, const std::string& user_dirs)
     return out;
 }
 
-std::vector<Place> sweep(const std::string& home, const std::string& user_dirs) {
+std::vector<Place> sweep(const std::string& home, const std::string& user_dirs, const std::vector<std::string>& catch_all) {
     namespace fs = std::filesystem;
     auto out = places(home, user_dirs);
     std::set<std::string> taken;
@@ -112,6 +112,16 @@ std::vector<Place> sweep(const std::string& home, const std::string& user_dirs) 
     }
     std::sort(tops.begin(), tops.end());
     for (const auto& n : tops) out.push_back({"top", n, home + "/" + n, true});
+    for (const auto& rel : catch_all) {   // s023
+        if (rel.empty() || rel[0] == '/' || rel.find("..") != std::string::npos) continue;
+        const std::string p = home + "/" + rel;
+        std::error_code e3;
+        if (!fs::is_directory(fs::symlink_status(p, e3))) continue;
+        bool merged = false;
+        for (auto& pl : out)
+            if (pl.path == p) { pl.top_only = false; merged = true; }
+        if (!merged) out.push_back({"catchall", rel, p, false});
+    }
     return out;
 }
 

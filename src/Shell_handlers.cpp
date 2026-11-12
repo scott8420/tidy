@@ -14,6 +14,10 @@
 #include "ShortcutsDialog.hpp"
 #include "SettingsWindow.hpp"
 #include "IdListsWindow.hpp"
+#include "AdoptWindow.hpp"
+#include "Busy.hpp"
+
+#include <memory>
 #include "BackgroundWindow.hpp"
 #include "core/Background.hpp"
 #include "core/FileLists.hpp"
@@ -102,15 +106,27 @@ void Shell::on_activity_undo() {  // handler: Activity's act button
     for (auto it = m_door->batches().rbegin(); it != m_door->batches().rend(); ++it)
         if (!it->undone) { b = it->id; break; }
     const std::string label = m_door->undo_label();
-    const auto r = m_door->undo();
-    core::catalog::Catalog cat;
-    std::size_t synced = 0;
-    if (cat.open(m_data_dir, true)) {
-        synced = core::tagging::after_undo(cat, *m_door, b, static_cast<std::int64_t>(std::time(nullptr)));
-        synced += core::archive::after_undo(cat, b);   // s013a: an archive undone leaves no fingerprint behind
-        synced += core::backup::after_undo(cat, b);    // s013b: copies undone -> their proofs go
-        synced += core::removal::after_undo(cat, b);   // s014: back from the Trash -> not removed
-    }
+    // s023a: a big batch (an adopt of thousands) undoes off the window's thread, under Busy's bar.
+    struct Out { latch::door::Result r; std::size_t synced = 0; };
+    auto out = std::make_shared<Out>();
+    m_act_undo->set_sensitive(false);
+    latch::door::Door* door = m_door.get();
+    const std::string data = m_data_dir;
+    busy::start(*this, "Undo", "Undoing \u201c" + label + "\u201d",
+        [door, data, b, out] {
+            out->r = door->undo();
+            core::catalog::Catalog cat;
+            if (cat.open(data, true)) {
+                out->synced = core::tagging::after_undo(cat, *door, b, static_cast<std::int64_t>(std::time(nullptr)));
+                out->synced += core::archive::after_undo(cat, b);   // s013a: an archive undone leaves no fingerprint behind
+                out->synced += core::backup::after_undo(cat, b);    // s013b: copies undone -> their proofs go
+                out->synced += core::removal::after_undo(cat, b);   // s014: back from the Trash -> not removed
+            }
+        },
+        [this, out, label] { after_activity_undo(label, out->r, out->synced); });
+}
+
+void Shell::after_activity_undo(const std::string& label, const latch::door::Result& r, std::size_t synced) {  // helper
     refresh_activity();
     if (m_due) m_due->refresh_if_shown();
     if (m_archive) m_archive->refresh_if_shown();
@@ -200,6 +216,27 @@ void Shell::on_id_lists() {  // handler
     if (!m_idlists_win)
         m_idlists_win = std::make_unique<IdListsWindow>(*this, *m_door, m_home, m_data_dir, [this] { refresh_activity(); offer_lists(); });
     m_idlists_win->open();
+}
+
+// s023: adopt folders -- the tags through the door (undo in Activity); the
+// picked folders saved in settings.ini as Settings saves them.
+void Shell::on_adopt() {  // handler
+    if (!m_adopt_win)
+        m_adopt_win = std::make_unique<AdoptWindow>(
+            *this, *m_door, m_home, m_data_dir, [this] { return user_dirs_text(); },
+            [this](const core::settings::Settings& s) {
+                const std::string err = core::own::write(m_data_dir, core::settings::kFile, core::settings::format(s));
+                if (!err.empty()) return err;
+                m_settings = s;
+                if (m_clo_states && m_clo_states->get_visible_child_name() == "results") fill_closet();
+                if (m_home_page) m_home_page->refresh_if_shown();
+                if (m_sort_page) m_sort_page->refresh_if_shown();
+                if (auto lg = log::get(log::Area::Shell))
+                    lg->info("adopted folders saved: {} in place, {} catch-all", s.adopted.size(), s.catch_all.size());
+                return std::string();
+            },
+            [this] { refresh_activity(); });
+    m_adopt_win->open(m_settings);
 }
 
 }  // namespace tidy

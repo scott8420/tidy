@@ -161,6 +161,7 @@ void Shell::build_page(const std::string& id) {  // zone: a page's hero
         const auto* pp = core::pages::find(id);
         m_sort_page = Gtk::make_managed<SortPage>(*m_door, m_home, m_data_dir, m_fixture,
                                                   [this] { return user_dirs_text(); }, [this] { refresh_activity(); });
+        m_sort_page->set_on_adopt([this] { on_adopt(); });   // s023
         m_stack.add(*m_sort_page, id, pp ? pp->title : "Sort");
         return;
     }
@@ -452,6 +453,7 @@ Glib::RefPtr<Gio::Menu> Shell::build_menu() {  // zone: hamburger model
     auto menu = Gio::Menu::create();
     auto prefs = Gio::Menu::create();
     prefs->append("Settings\u2026", "win.settings");
+    prefs->append("Adopt folders\u2026", "win.adopt");   // s023
     prefs->append("Id lists\u2026", "win.id-lists");
     prefs->append("Background scan\u2026", "win.background");
     menu->append_section(prefs);

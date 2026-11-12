@@ -30,6 +30,7 @@ public:
     SortPage(latch::door::Door& door, std::string home, std::string data_dir, bool fixture, Text user_dirs,
              Changed changed);
     void refresh_if_shown();
+    void set_on_adopt(std::function<void()> f) { m_on_adopt = std::move(f); }   // s023: the Adopt folders window
 
 private:
     struct Look {
@@ -50,10 +51,12 @@ private:
     bool m_fixture = false;
     Text m_user_dirs;
     Changed m_changed;
+    std::function<void()> m_on_adopt;   // s023
     OffThread<Look> m_look;
     std::vector<core::sort::Row> m_rows;   // the list's rows, by index
     std::optional<latch::door::Plan> m_plan;
     bool m_archiving = false;
+    bool m_busy = false;   // s023a: a run is under its Busy window
     std::vector<core::sort::Row> m_learning;   // s022: rows moved by a learned route -- a yes each at Do it
 
     Gtk::Label* m_summary = nullptr;

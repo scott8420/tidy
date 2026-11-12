@@ -109,7 +109,7 @@ void Shell::fill_closet() {  // helper
         [home, dirs, st] {
             ClosetLook l;
             l.now = static_cast<std::int64_t>(std::time(nullptr));
-            l.rep = core::birth::report(home, core::birth::sweep(home, dirs), l.now, st.old_years);
+            l.rep = core::birth::report(home, core::birth::sweep(home, dirs, st.catch_all), l.now, st.old_years);
             l.view = core::closet::view(l.rep, l.now, st);
             return l;
         },

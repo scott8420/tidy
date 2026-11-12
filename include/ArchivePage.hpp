@@ -63,6 +63,8 @@ private:
     Gtk::Label*    m_prev_status = nullptr;
     Gtk::Button*   m_prev_run = nullptr;
     std::optional<latch::door::Plan> m_plan;              // shown, not yet run
+    bool m_busy = false;                                  // s023e: a plan or a run is under Busy
+    void preview_rows(const std::vector<std::pair<std::string, const char*>>& rows);   // s023e: capped
     std::vector<core::backup::Check> m_checks;            // shown with it
     std::optional<core::settings::Media> m_plan_media;
     bool m_filling = false;

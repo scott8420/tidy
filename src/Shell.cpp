@@ -6,6 +6,7 @@
 #include "ShortcutsDialog.hpp"
 #include "SettingsWindow.hpp"
 #include "IdListsWindow.hpp"
+#include "AdoptWindow.hpp"
 #include "BackgroundWindow.hpp"
 #include "ProjectsPage.hpp"
 #include "core/Own.hpp"

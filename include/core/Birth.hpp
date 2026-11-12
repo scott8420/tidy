@@ -40,7 +40,11 @@ std::vector<Place> places(const std::string& home, const std::string& user_dirs)
 // folder at home's top ("top", top only: ~/Pictures/x.png is loose,
 // ~/Pictures/Covers/x.png is home). Never a hidden folder, a symlink, a
 // <name>-project, a git repo, ~/Archive, a package, or anything protected.
-std::vector<Place> sweep(const std::string& home, const std::string& user_dirs);
+// s023: each catch-all folder (relative to home) is added WHOLE ("catchall",
+// every depth) -- its files are loose. A catch-all that is already a place
+// (Documents) is walked whole instead of its top only. A bad one is skipped.
+std::vector<Place> sweep(const std::string& home, const std::string& user_dirs,
+                         const std::vector<std::string>& catch_all = {});
 
 struct Rule {
     std::string      id;      // "screenshot", "gov-download", ...

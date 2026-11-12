@@ -8,6 +8,8 @@
 
 #include <latch/Door.hpp>
 
+#include "core/Due.hpp"
+
 // ─────────────────────────────────────────────────────────────────────────────
 // DuePage (s012a on the road) -- the trigger's page: what is due to remove,
 // to archive, to settle, and what else needs attention (the Closet, id
@@ -19,7 +21,8 @@
 //
 // States: start (hero + Look) | results (grouped list) | preview.
 // ─────────────────────────────────────────────────────────────────────────────
-namespace Gtk { class Label; class ListBox; class Button; class CheckButton; }
+namespace Gtk { class Label; class ListBox; class Button; }
+namespace tidy { class SelectList; }
 
 namespace tidy {
 
@@ -47,11 +50,12 @@ private:
     Text m_user_dirs;
     std::string m_line;
     Gtk::Label*   m_summary = nullptr;
-    Gtk::ListBox* m_list = nullptr;
+    SelectList*   m_list = nullptr;              // s023b: selected like Nautilus (was a check per row)
+    Gtk::Label*   m_also = nullptr;              // the Closet / id lists line under the list
     Gtk::Label*   m_status = nullptr;
     Gtk::Button*  m_archive = nullptr;
-    std::vector<std::pair<Gtk::CheckButton*, std::string>> m_arc_rows;   // (check, path)
-    std::vector<std::pair<Gtk::CheckButton*, std::string>> m_rem_rows;   // s014 (check, path)
+    std::vector<core::due::Item> m_items;        // the list's rows, by index
+    std::vector<std::string> selected_paths(core::due::To to, std::size_t* others) const;
     Gtk::Button*  m_remove = nullptr;
     bool m_removing = false;                   // the preview shown is a removal
     std::vector<std::string> m_rem_paths;      // what it was planned from (planned again at Do it)
@@ -60,6 +64,8 @@ private:
     Gtk::Label*   m_prev_status = nullptr;
     Gtk::Button*  m_prev_run = nullptr;
     std::optional<latch::door::Plan> m_plan;   // shown, not yet run
+    bool m_busy = false;                       // s023e: a plan or a run is under Busy
+    void preview_rows(const std::vector<std::pair<std::string, const char*>>& rows);   // s023e: capped
 };
 
 }  // namespace tidy
