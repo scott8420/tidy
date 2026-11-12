@@ -30,6 +30,8 @@ public:
     void refresh_if_shown();
     void set_on_conform(std::function<void(const std::string& dir)> f) { m_conform = std::move(f); }   // s023h
     void set_on_scan(std::function<void(const std::string& dir)> f) { m_scan = std::move(f); }         // s023i
+    void set_on_book(std::function<void(const std::string& dir)> f) { m_book = std::move(f); }         // s024b
+    void set_on_layout(std::function<void(const std::string& dir)> f) { m_layout = std::move(f); }     // s024b
 
 private:
     struct Box {
@@ -51,6 +53,8 @@ private:
     Adopt m_adopt;
     std::function<void(const std::string&)> m_conform;   // s023h
     std::function<void(const std::string&)> m_scan;      // s023i
+    std::function<void(const std::string&)> m_book;      // s024b: Make it a book...
+    std::function<void(const std::string&)> m_layout;    // s024b: a book -> Put in the layout...
     bool m_busy = false;
     std::shared_ptr<core::map::Node> m_root;
     std::string m_rel;                       // the folder shown

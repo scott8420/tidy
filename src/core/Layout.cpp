@@ -2,11 +2,15 @@
 #include "core/Layout.hpp"
 #include "core/Conform.hpp"
 #include "core/Homing.hpp"
+#include "core/Archive.hpp"
+#include "core/Projects.hpp"
+#include "core/Protection.hpp"
 
 #include <latch/Package.hpp>
 
 #include <algorithm>
 #include <filesystem>
+#include <cctype>
 #include <set>
 
 namespace tidy::core::layout {
@@ -126,6 +130,96 @@ Planned plan(const std::string& home, const tp::Template& t, const Look& l) {
     out.plan.label = "Layout: " + title + " -- " + std::to_string(out.moves) + (out.moves == 1 ? " move" : " moves") +
                      ", " + std::to_string(out.made) + " new folders" +
                      (out.emptied.empty() ? "" : ", " + std::to_string(out.emptied.size()) + " emptied to the Trash");
+    return out;
+}
+
+// ── s024b: make it a book ─────────────────────────────────────────────────
+std::string guess_title(const std::string& name) {
+    std::string s = name;
+    if (projects::is_project_name(s)) s = s.substr(0, s.size() - std::string(projects::kSuffix).size());
+    std::size_t i = 0;
+    while (i < s.size() && std::isdigit(static_cast<unsigned char>(s[i]))) ++i;
+    if (i > 0 && i < s.size()) {   // a leading number, then a separator
+        std::size_t j = i;
+        while (j < s.size() && (s[j] == ' ' || s[j] == '-' || s[j] == '_' || s[j] == '.')) ++j;
+        if (j > i && j < s.size()) s = s.substr(j);
+    }
+    while (!s.empty() && (s.back() == ' ' || s.back() == '.')) s.pop_back();
+    return s;
+}
+
+std::string guess_author(const std::string& dir) {
+    const std::string p = fs::path(dir).parent_path().filename().string();
+    const auto c = p.find(", ");
+    if (c == std::string::npos || c == 0 || p.find(',', c + 1) != std::string::npos || c + 2 >= p.size()) return "";
+    return p;
+}
+
+std::vector<std::string> candidates(const std::string& dir, bool each_sub) { return conform::folders(dir, each_sub); }
+
+std::string book_refusal(const std::string& home, const tp::Template& t, const std::string& author, const Book& b) {
+    const int pd = tp::place_depth(t);
+    if (pd <= 0) return "the template " + t.name + " is not known by its place";
+    if (pd == 2 && author.empty()) return "no " + (t.group.empty() ? std::string("author") : t.group);
+    if (pd == 2) if (auto w = tp::part_refusal(author); !w.empty()) return "author: " + w;
+    if (b.title.empty()) return "no title";
+    if (auto w = tp::part_refusal(b.title); !w.empty()) return "title: " + w;
+    const std::string rel = rel_to(home, b.dir);
+    if (rel.empty()) return "not a folder in your home";
+    for (const auto& part : fs::path(rel))
+        if (!part.empty() && part.string()[0] == '.') return "a hidden folder";
+    if (rel == archive::kFolder || rel.rfind(std::string(archive::kFolder) + "/", 0) == 0) return "~/Archive is Tidy's archive";
+    if (protection::under(rel)) return "Hands off (Settings), Samson's, or never-touch";
+    std::error_code ec;
+    const auto st = fs::symlink_status(b.dir, ec);
+    if (ec || !fs::is_directory(st)) return "not a folder";
+    if (latch::pkg::is_package_name(fs::path(b.dir).filename().string())) return "a bundle -- it belongs inside a book";
+    if (fs::exists(fs::symlink_status(b.dir + "/.git", ec))) return "a git repo";
+    if (std::string at; projects::inside_whole(rel, &at))
+        return at == rel ? "already a project" : "inside " + fs::path(at).filename().string() + " -- a project kept whole";
+    if ((t.category + "/").rfind(rel + "/", 0) == 0) return "the shelf ~/" + t.category + " itself, or above it";
+    const std::string to = home + "/" + t.category + (pd == 2 ? "/" + author : "") + "/" + b.title;
+    if (to == b.dir) return "already there";
+    if (fs::exists(fs::symlink_status(to, ec))) return "~/" + rel_to(home, to) + " is taken";
+    return "";
+}
+
+Made make_books(const std::string& home, const tp::Template& t, const std::string& author, const std::vector<Book>& books) {
+    Made out;
+    const int pd = tp::place_depth(t);
+    std::set<std::string> taken, made;
+    std::vector<dr::Action> moves;
+    for (const auto& b : books) {
+        const std::string name = fs::path(b.dir).filename().string();
+        if (auto why = book_refusal(home, t, author, b); !why.empty()) { out.refused.push_back(name + " -- " + why); continue; }
+        const std::string shelf = home + "/" + t.category;
+        const std::string dir = pd == 2 ? shelf + "/" + author : shelf;
+        const std::string to = dir + "/" + b.title;
+        if (!taken.insert(to).second) { out.refused.push_back(name + " -- \"" + b.title + "\" twice"); continue; }
+        // The shelf's levels and the author's folder, once each, parents first.
+        std::string so_far = home;
+        for (const auto& part : fs::path(rel_to(home, dir))) {
+            so_far += "/" + part.string();
+            std::error_code ec;
+            if (made.count(so_far) || fs::is_directory(fs::symlink_status(so_far, ec))) continue;
+            made.insert(so_far);
+            dr::Action a;
+            a.verb = dr::Verb::MakeDir;
+            a.to = so_far;
+            a.reason = so_far == dir && pd == 2 ? "the author's folder" : "the shelf";
+            out.plan.actions.push_back(a);
+        }
+        dr::Action m;
+        m.verb = dr::Verb::Move;
+        m.from = b.dir;
+        m.to = to;
+        m.reason = "a book -- moved whole" + (b.title != name ? " (\"" + name + "\" -> \"" + b.title + "\")" : std::string());
+        moves.push_back(m);
+        ++out.books;
+    }
+    for (auto& m : moves) out.plan.actions.push_back(std::move(m));
+    out.plan.label = "Make books: " + std::to_string(out.books) + (out.books == 1 ? " book" : " books") + " to ~/" +
+                     t.category + (pd == 2 && !author.empty() ? "/" + author : "");
     return out;
 }
 

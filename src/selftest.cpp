@@ -4481,6 +4481,72 @@ int main(int argc, char** argv) {
         core::projects::set_shelves({});
     }
 
+
+    // ── s024b: make it a book -- a folder anywhere moved whole onto the shelf ──
+    {
+        std::cout << "[make books]\n";
+        namespace ly = core::layout;
+        namespace dr = latch::door;
+        const auto& bt = core::starters::find("bookbinding")->t;
+        check("books: titles -- a leading number goes, -project goes, the rest stays",
+              ly::guess_title("02 The Hidden Staircase") == "The Hidden Staircase" && ly::guess_title("02 - X") == "X" &&
+              ly::guess_title("13_The Clue") == "The Clue" && ly::guess_title("Hollow Oak-project") == "Hollow Oak" &&
+              ly::guess_title("1984") == "1984" && ly::guess_title("Tapper") == "Tapper");
+        check("books: the author from a \"Last, First\" parent, else none",
+              ly::guess_author("/h/Documents/EBooks/Keene, Carolyn/X") == "Keene, Carolyn" &&
+              ly::guess_author("/h/Documents/Nancy Drew/X").empty() && ly::guess_author("/h/a, b, c/X").empty());
+        const fs::path root = fs::temp_directory_path() / ("tidy_selftest_books_" + std::to_string(::getpid()));
+        fs::remove_all(root);
+        fs::create_directories(root / "home");
+        fs::create_directories(root / "data");
+        const std::string H = fs::canonical(root / "home").string(), D = fs::canonical(root / "data").string();
+        core::projects::apply_places(D);
+        const std::string S = H + "/Documents/Nancy Drew";
+        put_file(S + "/01 The Secret of the Old Clock/A0001.png", "s");
+        put_file(S + "/02 The Hidden Staircase/Hidden.odt", "o");
+        put_file(S + "/03 The Bungalow Mystery/x.pdf", "p");
+        put_file(S + "/bibliography.ods", "b");
+        fs::create_directories(S + "/04 The Repo/.git");
+        put_file(S + "/Book.optik/book.json", "{}");
+        const auto before = tree_facts(H);
+        const auto c = ly::candidates(S, true);
+        std::vector<ly::Book> picks;
+        for (const auto& d : c) picks.push_back({d, ly::guess_title(fs::path(d).filename().string())});
+        auto mk = ly::make_books(H, bt, "Keene, Carolyn", picks);
+        check("books: a series folder, each sub-folder -- 3 books; the repo and the bundle are not offered or refused",
+              mk.books == 3 && c.size() == 3, std::to_string(mk.books) + " / " + std::to_string(c.size()));
+        check("books: the plan -- Bookbinding, the author, then 3 whole moves to their titles",
+              mk.plan.actions.size() == 5 && mk.plan.actions[0].to == H + "/Documents/Bookbinding" &&
+              mk.plan.actions[1].to == H + "/Documents/Bookbinding/Keene, Carolyn" &&
+              mk.plan.actions[3].from == S + "/02 The Hidden Staircase" &&
+              mk.plan.actions[3].to == H + "/Documents/Bookbinding/Keene, Carolyn/The Hidden Staircase");
+        check("books: READ-ONLY until run", tree_facts(H) == before);
+        check("books: refused -- no author, a bad title, the shelf itself, a bundle",
+              !ly::book_refusal(H, bt, "", picks[0]).empty() && !ly::book_refusal(H, bt, "K", {picks[0].dir, "a/b"}).empty() &&
+              !ly::book_refusal(H, bt, "K", {H + "/Documents", "Documents"}).empty() &&
+              !ly::book_refusal(H, bt, "K", {S + "/Book.optik", "Book"}).empty());
+        check("books: two folders to one title -- the second refused",
+              ly::make_books(H, bt, "K, C", {{picks[0].dir, "Same"}, {picks[1].dir, "Same"}}).refused.size() == 1);
+        latch::door::set_app_name("Tidy");
+        dr::Door door(H, D);
+        door.load();
+        mk.plan.previewed = true;
+        const auto r = door.run(mk.plan);
+        const auto found = core::projects::find(H);
+        check("books: run -> moved whole; Projects finds 3 books by Keene, Carolyn; the series' own files stay",
+              r.ok && found.size() == 3 && found[0].by_place && found[0].group == "Keene, Carolyn" &&
+              fs::exists(H + "/Documents/Bookbinding/Keene, Carolyn/The Hidden Staircase/Hidden.odt") &&
+              fs::exists(S + "/bibliography.ods") && !fs::exists(S + "/02 The Hidden Staircase"));
+        check("books: made again -- refused, already a project",
+              !ly::book_refusal(H, bt, "Keene, Carolyn",
+                                {H + "/Documents/Bookbinding/Keene, Carolyn/The Hidden Staircase", "The Hidden Staircase"}).empty());
+        const auto u = door.undo();
+        check("books: ONE undo -> back in the series folder, the shelf gone",
+              u.ok && fs::exists(S + "/02 The Hidden Staircase/Hidden.odt") && !fs::exists(H + "/Documents/Bookbinding"));
+        fs::remove_all(root);
+        core::projects::set_shelves({});
+    }
+
     std::cout << "-----------------------------------------------\n";
     std::cout << g_pass << " pass / " << g_fail << " fail\n";
     return g_fail == 0 ? 0 : 1;

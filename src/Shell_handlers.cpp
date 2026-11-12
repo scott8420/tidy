@@ -17,6 +17,7 @@
 #include "AdoptWindow.hpp"
 #include "ConformWindow.hpp"
 #include "LayoutWindow.hpp"
+#include "BooksWindow.hpp"
 #include "ShapeWindow.hpp"
 #include "TemplatesPage.hpp"
 #include "Busy.hpp"
@@ -258,6 +259,26 @@ void Shell::on_layout(const std::string& book, const core::templates::Template& 
             if (m_projects) m_projects->refresh_if_shown();
         });
     m_layout_win->open(book, t);
+}
+
+// s024b: a book from the Map -- its shelf's template.
+void Shell::on_layout_at(const std::string& book) {  // handler
+    core::projects::Shelf shelf;
+    const std::string rel = book.size() > m_home.size() + 1 ? book.substr(m_home.size() + 1) : "";
+    if (!core::projects::is_whole_at(rel, &shelf)) return;
+    for (const auto& t : core::projects::known_templates(m_data_dir))
+        if (t.name == shelf.tpl) { on_layout(book, t); return; }
+}
+
+// s024b: folders -> books on the shelf, moved whole.
+void Shell::on_books(const std::string& folder) {  // handler
+    if (!m_books_win)
+        m_books_win = std::make_unique<BooksWindow>(*this, *m_door, m_home, m_data_dir, [this] {
+            refresh_activity();
+            if (m_projects) m_projects->refresh_if_shown();
+        });
+    const bool each = !folder.empty() && folder.back() == '/';
+    m_books_win->open(each ? folder.substr(0, folder.size() - 1) : folder, each);
 }
 
 // s023i: a template made from a scan -- Save and conform goes on to Conform's preview.

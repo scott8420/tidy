@@ -161,6 +161,12 @@ void ProjectsPage::build_start() {
     nw->set_tooltip_text("A template's tree under a name you give, with its id -- previewed first");
     nw->signal_clicked().connect([this] { show_new(); });
     start->append(*nw);
+    auto books = Gtk::make_managed<Gtk::Button>("Make books...");   // s024b
+    books->set_name("projects.start.books");
+    books->set_halign(Gtk::Align::CENTER);
+    books->set_tooltip_text("Folders anywhere -> books on the shelf: ~/Documents/Bookbinding/<Author>/<Title>, moved whole");
+    books->signal_clicked().connect([this] { if (m_on_books) m_on_books(); });
+    start->append(*books);
     auto code = Gtk::make_managed<Gtk::Button>("Code projects...");
     code->set_name("projects.start.code");
     code->set_halign(Gtk::Align::CENTER);
@@ -211,6 +217,11 @@ void ProjectsPage::build_results() {
     nw->set_name("projects.new");
     nw->signal_clicked().connect([this] { show_new(); });
     bar->append(*nw);
+    auto books = Gtk::make_managed<Gtk::Button>("Make books...");   // s024b
+    books->set_name("projects.books");
+    books->set_tooltip_text("Folders anywhere -> books on the shelf: ~/Documents/Bookbinding/<Author>/<Title>, moved whole");
+    books->signal_clicked().connect([this] { if (m_on_books) m_on_books(); });
+    bar->append(*books);
     auto code = Gtk::make_managed<Gtk::Button>("Code projects...");
     code->set_name("projects.code");
     code->set_tooltip_text("Each code project: pushed?, sizes (build, .git), status -- archive the done ones, clean builds");

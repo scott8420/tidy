@@ -73,6 +73,7 @@ class IdListsWindow;
 class AdoptWindow;
 class ConformWindow;
 class LayoutWindow;
+class BooksWindow;
 class ShapeWindow;
 class TemplatesPage;
 class BackgroundWindow;
@@ -120,6 +121,8 @@ private:
     void on_adopt();
     void on_conform(const std::string& folder = "");   // s023h: the Conform folders window
     void on_layout(const std::string& book, const core::templates::Template& t);   // s024a: one book into the layout
+    void on_layout_at(const std::string& book);                                     // s024b: the same, its template found
+    void on_books(const std::string& folder = "");   // s024b: Make books (a trailing '/' = each sub-folder)
     void on_shape(const std::string& folder = "");     // s023i: a template made from a scan
     void on_adopt_folder(const std::string& rel, bool catch_all);   // s023f: from the Map
     void after_activity_undo(const std::string& label, const latch::door::Result& r, std::size_t synced);   // s023a                               // handler: the Adopt folders window (s023)
@@ -200,6 +203,7 @@ private:
     std::unique_ptr<AdoptWindow>     m_adopt_win;     // s023
     std::unique_ptr<ConformWindow>   m_conform_win;   // s023h
     std::unique_ptr<LayoutWindow>    m_layout_win;    // s024a
+    std::unique_ptr<BooksWindow>     m_books_win;     // s024b
     std::unique_ptr<ShapeWindow>     m_shape_win;     // s023i
     std::unique_ptr<BackgroundWindow> m_background_win;   // s012b
     core::settings::Settings         m_settings;   // read at build_ui; written only by core::own

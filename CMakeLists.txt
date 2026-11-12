@@ -165,6 +165,7 @@ add_executable(tidy
     src/MapPage.cpp          # s023f: the home map -- a treemap of cataloged / loose / untracked
     src/ConformWindow.cpp    # s023h: conform many project folders to a template
     src/LayoutWindow.cpp     # s024a: one old book into the layout
+    src/BooksWindow.cpp      # s024b: folders -> books on the shelf, moved whole
     src/ShapeWindow.cpp      # s023i: a template made from a scan -- types and folders found, each type given a folder
     src/Busy.cpp             # s023a: long work off the window's thread, a progress bar over it
     src/TemplatesPage.cpp

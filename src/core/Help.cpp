@@ -132,7 +132,10 @@ const std::vector<Topic>& topics() {
           "Body and Cover come with every stage folder, empty until you fill them.",
           "An old book: Projects -> its row -> Layout... -> each file's folder proposed (scans to Body/OCR/Scans/Archive, "
           "a name with cover or jacket to the Cover) -- change any; what no route fits is asked first and stays until "
-          "you pick -> Do it. Missing stage folders are made, folders left empty go to the Trash; one undo in Activity."},
+          "you pick -> Do it. Missing stage folders are made, folders left empty go to the Trash; one undo in Activity.",
+          "A book somewhere else (~/Documents/Nancy Drew/02 The Hidden Staircase): Projects -> Make books... (or the Map: "
+          "right-click -> Make it a book... / Its sub-folders are books...) -> the author once, each title guessed (the "
+          "number goes) -> Do it: each folder moves WHOLE onto the shelf. Then Layout... on each."},
          "projects"},
         {"templates", "Projects", "Templates",
          {"A template is the shape of a project: its folders, the whole tree (six deep at most). Lift one from a "

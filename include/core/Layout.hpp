@@ -56,4 +56,37 @@ struct Planned {
 // template folder, never one holding a hidden file, never the book).
 Planned plan(const std::string& home, const templates::Template& t, const Look& l);
 
+// ── s024b: make it a book ─────────────────────────────────────────────────
+// A folder anywhere in home (the Nancy Drew series' "02 The Hidden Staircase")
+// becomes a book by moving it WHOLE to ~/<category>/<author>/<title> -- the
+// by-place template's shelf. Its files are not touched (Layout... does that).
+
+// "02 The Hidden Staircase" / "02 - X" / "02_X" / "X-project" -> the title.
+std::string guess_title(const std::string& folder_name);
+// The parent folder's name when it reads "Last, First" (one comma, words on
+// both sides), else "".
+std::string guess_author(const std::string& dir);
+// The folders to offer: `dir` itself, or (each_sub) each folder in it (as
+// conform::folders). READ-ONLY.
+std::vector<std::string> candidates(const std::string& dir, bool each_sub);
+
+struct Book {
+    std::string dir;       // absolute, where it is now
+    std::string title;     // the folder name it gets
+};
+// "" = it may be made a book, else why not: outside home, hidden, ~/Archive,
+// protected, a git repo, a book or a -project already (or inside one), the
+// shelf itself or above it, a bad name, the place taken.
+std::string book_refusal(const std::string& home, const templates::Template& t, const std::string& author,
+                         const Book& b);
+struct Made {
+    latch::door::Plan plan;
+    std::vector<std::string> refused;    // "<folder> -- why"
+    std::size_t books = 0;
+};
+// MakeDir the shelf's missing levels and the author's folder, then a Move per
+// book (whole). Two books to one place: the second refused.
+Made make_books(const std::string& home, const templates::Template& t, const std::string& author,
+                const std::vector<Book>& books);
+
 }  // namespace tidy::core::layout

@@ -1,4 +1,5 @@
 #include "MapPage.hpp"
+#include "core/Projects.hpp"
 #include "Busy.hpp"
 #include "Log.hpp"
 #include "core/Pages.hpp"
@@ -358,6 +359,12 @@ void MapPage::menu_for(const Box& b, double x, double y) {
     }
     if (!whole && m_conform)
         item("Conform to a template...", "map.menu.conform", [this, rel] { m_conform(m_home + "/" + rel); });   // s023h
+    if (!whole && m_book) {   // s024b
+        item("Make it a book...", "map.menu.book", [this, rel] { m_book(m_home + "/" + rel); });
+        item("Its sub-folders are books...", "map.menu.books", [this, rel] { m_book(m_home + "/" + rel + "/"); });
+    }
+    if (m_layout && core::projects::is_whole_at(rel) && !core::projects::is_project_name(std::filesystem::path(rel).filename().string()))
+        item("Put in the layout...", "map.menu.layout", [this, rel] { m_layout(m_home + "/" + rel); });   // s024b
     if (!whole && m_scan)
         item("Make a template from a scan...", "map.menu.scan", [this, rel] { m_scan(m_home + "/" + rel); });   // s023i
     item("Open in Files", "map.menu.open", [this, rel] {
