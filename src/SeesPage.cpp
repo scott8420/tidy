@@ -340,7 +340,7 @@ void SeesPage::show(const rc::Report& r) {
         b->set_halign(Gtk::Align::END);
     }
     if (!r.kinds.empty()) {
-        auto s = section("4  Kinds", "what is left, by the type table -- " + n_of(r.in_kinds, "file"));
+        auto s = section("4  Kinds", "what is left, by your Home design -- " + n_of(r.in_kinds, "file"));
         for (const auto& k : r.kinds) {
             std::vector<std::pair<std::size_t, std::string>> e;
             for (const auto& [f, n] : k.elsewhere) e.push_back({n, f});

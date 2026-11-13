@@ -162,6 +162,10 @@ std::vector<std::string> problems(const Template& t) {
     std::vector<std::string> out;
     if (auto w = name_refusal(t.name); !w.empty()) out.push_back(w);
     if (t.category.empty()) out.push_back("a template needs a category (the home folder its projects live in)");
+    // s029: "home" is the Home type -- its top is ~ itself; no other type lives at ~.
+    else if ((t.name == "home") != (t.category == "~"))
+        out.push_back(t.name == "home" ? "\"home\" is the Home type's name -- pick another"
+                                       : "\"~\" is the Home type's place -- a category is a folder under home");
     else if (auto w = category_refusal(t.category, t.by_place); !w.empty()) out.push_back("category: " + w);
     // s028: a shelf type may be just its title folder (an ebook: the file at its top).
     if (t.folders.empty() && !t.by_place) out.push_back("a template needs at least one folder");
@@ -241,7 +245,7 @@ std::vector<Template> list(const std::string& data_dir) {
         if (!it->is_regular_file(ec)) continue;
         bool found = false;
         auto t = parse(own::read(data_dir, std::string(kDir) + "/" + fn, &found));
-        if (found && !t.name.empty()) out.push_back(std::move(t));
+        if (found && !t.name.empty() && t.name != "home") out.push_back(std::move(t));   // s029: Home is no project type
     }
     std::sort(out.begin(), out.end(), [](const Template& a, const Template& b) { return a.name < b.name; });
     return out;

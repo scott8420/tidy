@@ -6,10 +6,11 @@
 // Every loose file the sweep finds gets a LEVEL and a PLACE in one pass:
 //   * decided already -> its own level; undecided -> its proposal (birth rule,
 //     age, the junk list), or Keep when nothing is proposed;
-//   * Keep / Until done / Held -> home BY TYPE (Settings: the type table; no
-//     type -> Documents) into a DATED subfolder named for where it came from:
-//     ~/Pictures/Desktop 2026-11 (Scott chose the dated default, s020) --
-//     unless a learned route knows better (s022: cover*.png -> Pictures/Covers);
+//   * Keep / Until done / Held -> where the HOME DESIGN says (s029: Design ->
+//     Types -> Home; *.png -> Pictures, *.otf -> Fonts/<A-Z|OTHER>/<full name>)
+//     -- unless a learned route knows better (s022: cover*.png -> Pictures/Covers);
+//     no Home rule fits -> it stays, waiting in the Closet (s029: the dated
+//     "Desktop 2026-11" folders are gone);
 //   * Historical -> ~/Archive/<year>/<its folder> (core::archive, fingerprinted);
 //   * Ephemeral -> stays (tagged); Due removes it when its days are up;
 //   * the junk list -> the Junk Drawer: stays (tagged Keep, role junk-drawer);
@@ -18,6 +19,7 @@
 // folders and moves, then the archive. One undo step in Activity.
 // ─────────────────────────────────────────────────────────────────────────────
 #include "core/Birth.hpp"
+#include "core/Home.hpp"
 #include "core/Homing.hpp"
 #include "core/Projects.hpp"
 #include "core/Templates.hpp"
@@ -43,7 +45,8 @@ struct Row {
     bool             junk = false;                     // to the Junk Drawer (role junk-drawer)
     Go               go = Go::Home;
     std::string      folder;                           // Home: relative to home; Archive: "Archive/2026/..."
-    std::string      why;                              // one line: "by type *.png -> Pictures, from the Desktop"
+    std::string      why;                              // one line: "Home: *.png -> ~/Pictures, Keep"
+    bool             closet = false;                   // s029: no Home rule fits -- it stays, untagged (the Closet)
     bool             folder_whole = false;             // s020a: a plain folder, moved whole (born.file is the folder)
     bool             is_project = false;               // s020a: a <name>-project, placed by its category
     projects::Project project;
@@ -85,7 +88,8 @@ std::string dated(const birth::Born& b, const std::string& type_folder, std::int
 std::vector<Row> rows(const std::string& home, const birth::Report& rep, const settings::Settings& st,
                       std::int64_t now, const std::vector<projects::Project>& found = {},
                       const std::vector<templates::Template>& ts = {},
-                      const routes::Book* learned = nullptr);   // s022: a learned route before the dated default
+                      const routes::Book* learned = nullptr,    // s022: a learned route before the Home rule
+                      const home::Design* design = nullptr);    // s029: the Home design (null: seeded from st)
 
 // s023g "Move on now": an unread download that stays, sent where it would go
 // once read (the Entertainment table, else by type) -- a file then carries Keep.

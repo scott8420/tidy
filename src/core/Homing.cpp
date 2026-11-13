@@ -92,6 +92,8 @@ bool parse_line(const std::string& line, TypeRoute& out) {
     return true;
 }
 
+std::string folder_check(const std::string& rel) { return folder_refusal(rel, 6); }
+
 std::string route_refusal(const TypeRoute& r) {
     if (r.pattern.empty()) return "no pattern";
     if (r.pattern.find('/') != std::string::npos) return "a pattern names a file, not a path";

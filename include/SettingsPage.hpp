@@ -39,8 +39,6 @@ private:
     Gtk::SpinButton* m_archive = nullptr;    // s012a
     Gtk::SpinButton* m_proofs = nullptr;     // s014
     Gtk::TextView*   m_junk = nullptr;
-    Gtk::TextView*   m_home = nullptr;      // s011: the type table
-    Gtk::TextView*   m_ent = nullptr;       // s023g: the Entertainment table
     Gtk::TextView*   m_media = nullptr;     // s013b: backup media, "name | /folder"
     Gtk::TextView*   m_hands = nullptr;     // s019a: Hands-off folders, "~/Taxes"
     Gtk::Label*      m_samson = nullptr;    // s019a: Samson's places, locked

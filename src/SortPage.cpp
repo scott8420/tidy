@@ -101,10 +101,11 @@ void SortPage::build_start() {
     auto sub = label(p ? p->promise : "", "hero-sub");
     sub->set_max_width_chars(52);
     start->append(*sub);
-    auto note = label(std::string("Look sweeps the home for loose files. Each gets a place: kept files go home by type ") +
-                      "where you sent the same kind before (cover*.png -> ~/Pictures/Covers), else into a dated folder "
-                      "named for where they came from (~/Pictures/Desktop 2026-11); a download "
-                      "you have opened goes on to ~/Entertainment (Movies, Series/<Show>/Season 01, EBooks, Music -- Settings: the Entertainment table; Move on now takes an unread one); "
+    auto note = label(std::string("Look sweeps the home for loose files. Each gets a place: kept files go ") +
+                      "where you sent the same kind before (cover*.png -> ~/Pictures/Covers), else where your Home design "
+                      "says (Design -> Types -> Home: *.png -> Pictures, *.otf -> Fonts/G/Garamond); no rule -> it waits "
+                      "in the Closet; a download "
+                      "you have opened goes on by Home's Downloads/ rules (Movies, Series/<Show>/Season 01, EBooks, Music; Move on now takes an unread one); "
                       "old records go to ~/Archive, fingerprinted; a folder moves whole; a -project goes to its "
                       "category. Unread downloads and your junk list stay, labelled. Hands-off "
                       "folders, hidden files, projects and repos are never touched. All of it is selected -- "
@@ -175,7 +176,7 @@ void SortPage::build_results() {
     now->set_name("sort.now");
     now->set_valign(Gtk::Align::CENTER);
     now->set_tooltip_text("The selected UNREAD downloads, moved on as if read -- a file becomes Keep; a folder moves "
-                          "whole (Settings: the Entertainment table). Previewed first.");
+                          "whole (Home's Downloads/ rules: Design -> Types -> Home). Previewed first.");
     now->signal_clicked().connect([this] { on_move_now(); });
     bar->append(*now);
     auto go = Gtk::make_managed<Gtk::Button>("Sort...");
@@ -250,7 +251,8 @@ void SortPage::fill() {
             const auto rep = core::birth::report(home, core::birth::sweep(home, dirs, places), l.now, st.old_years);
             const auto found = core::projects::find(home, core::projects::parse_left(core::own::read(data, core::projects::kFile)));
             const auto book = core::routes::parse(core::own::read(data, core::routes::kFile));   // s022
-            l.rows = so::rows(home, rep, st, l.now, found, core::templates::list(data), &book);
+            const auto dz = core::home::design(core::home::load(data, st));   // s029: the Home design
+            l.rows = so::rows(home, rep, st, l.now, found, core::templates::list(data), &book, &dz);
             if (!scope.empty()) {   // s027a: only what is under the folder, nothing inside its projects / bundles
                 const auto under = [&](const std::string& path, const std::string& rel) {
                     const std::string root = home + "/" + rel;
@@ -291,7 +293,7 @@ void SortPage::show(Look look) {
             const auto n = plural(count[k], "file");
             if (r.go == so::Go::Home) { it.header = "To ~/" + r.folder + "  (" + n + ")"; }
             else if (r.go == so::Go::Archive) { it.header = "To ~/" + r.folder + "  (" + n + ")"; it.header_sub = "Historical -- archived and fingerprinted; Back up from the Archive page."; }
-            else { it.header = "Stays where it is  (" + n + ")"; it.header_sub = "Unread downloads and Ephemeral files (Due proposes the Trash when their days are up), your junk list (the Junk Drawer), and projects with no category (pick one on the Projects page)."; }
+            else { it.header = "Stays where it is  (" + n + ")"; it.header_sub = "Unread downloads and Ephemeral files (Due proposes the Trash when their days are up), your junk list (the Junk Drawer), files no Home rule fits (they wait in the Closet), and projects with no category (pick one on the Projects page)."; }
         }
         home += r.go == so::Go::Home;
         arch += r.go == so::Go::Archive;
@@ -299,10 +301,11 @@ void SortPage::show(Look look) {
         it.title = std::filesystem::path(r.born.file.path).filename().string() +
                    (r.is_project ? std::string("   (a project, whole)")
                     : r.folder_whole ? std::string("   (a folder, whole)")
+                    : r.closet ? std::string("   -> the Closet")   // s029: no Home rule fits
                     : "   -> " + (r.junk ? std::string("the Junk Drawer") : rt::title_of(r.level)));
         it.line = shown(std::filesystem::path(r.born.file.path).parent_path().string()) + "   ·   " + r.why +
                   (r.now_folder.empty() ? std::string() : "   ·   Move on now -> ~/" + r.now_folder) +
-                  (r.tag || r.folder_whole || r.is_project ? "" : "   ·   decided already");
+                  (r.tag || r.folder_whole || r.is_project || r.closet ? "" : "   ·   decided already");
         it.tooltip = r.born.file.path;
         items.push_back(std::move(it));
     }

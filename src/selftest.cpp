@@ -67,6 +67,7 @@
 #include "core/Pages.hpp"
 #include "core/Paths.hpp"
 #include "core/Protection.hpp"
+#include "core/Home.hpp"
 #include "core/Sort.hpp"
 #include "Busy.hpp"
 #include "core/Adopt.hpp"
@@ -1308,14 +1309,14 @@ int main(int argc, char** argv) {
             return r && r->go == so::Go::Home && r->folder == folder;
         };
         check("sort: READ-ONLY until run", tree_facts(H) == before);
-        check("dated: the Desktop, Downloads, home's top; Loose at its own type folder",
-              home_to("Desktop/cover-final.png", "Pictures/Desktop " + month) &&
-              home_to("Downloads/f1040.pdf", "Documents/Downloads " + month) &&
-              home_to("todo.txt", "Documents/Home " + month) &&
-              home_to("Pictures/landscape.png", "Pictures/Loose " + month),
-              row("Pictures/landscape.png") ? row("Pictures/landscape.png")->folder : "missing");
-        check("sort: a top folder's loose file goes by type, named for its folder (Writing/ideas.txt)",
-              home_to("Writing/ideas.txt", "Documents/Writing " + month));
+        check("home (s029): the Desktop, Downloads, home's top -> the Home design's folder; at its folder: stays",
+              home_to("Desktop/cover-final.png", "Pictures") && home_to("Downloads/f1040.pdf", "Documents") &&
+              home_to("todo.txt", "Documents") && row("Pictures/landscape.png") &&
+              row("Pictures/landscape.png")->go == so::Go::Stays &&
+              row("Pictures/landscape.png")->why.rfind("at home already", 0) == 0,
+              row("Pictures/landscape.png") ? row("Pictures/landscape.png")->why : "missing");
+        check("sort: a top folder's loose file goes by the Home design (Writing/ideas.txt -> Documents)",
+              home_to("Writing/ideas.txt", "Documents"));
         check("sort: undecided -> tagged; waiting -> Keep; decided -> its own level, untagged",
               row("todo.txt")->tag && row("todo.txt")->level == rt::Level::Keep &&
               row("Downloads/f1040.pdf")->level == rt::Level::UntilDone &&
@@ -1349,10 +1350,10 @@ int main(int argc, char** argv) {
         planned.plan.previewed = true;
         const auto r = door.run(planned.plan);
         check("run: every step done", r.ok && r.failed == 0, r.messages.empty() ? "" : r.messages.front());
-        const auto t_cover = core::facts::tags_of(H + "/Pictures/Desktop " + month + "/cover-final.png");
-        const auto t_todo = core::facts::tags_of(H + "/Documents/Home " + month + "/todo.txt");
+        const auto t_cover = core::facts::tags_of(H + "/Pictures/cover-final.png");
+        const auto t_todo = core::facts::tags_of(H + "/Documents/todo.txt");
         const auto t_letter = core::facts::tags_of(H + "/Archive/" + std::to_string(year) + "/old-letter.txt");
-        check("run: home by type into the dated folders, tagged", !fs::exists(home / "todo.txt") &&
+        check("run: home by the Home design, tagged", !fs::exists(home / "todo.txt") &&
               t_todo.retention == "keep" && !t_todo.id.empty() && t_cover.retention == "keep");
         check("run: archived, tagged Historical + archived", t_letter.retention == "historical" && !t_letter.archived.empty());
         check("run: Ephemeral + the Junk Drawer stayed, tagged",
@@ -1497,9 +1498,9 @@ int main(int argc, char** argv) {
         check("sort: cover-final.png goes where you sent covers -- learned, said so",
               rc && rc->go == so::Go::Home && rc->folder == "Pictures/Covers" && !rc->learned.folder.empty() &&
               rc->why.rfind("learned: cover*.png -> Pictures/Covers (1 time)", 0) == 0, rc ? rc->why : "missing");
-        check("sort: holiday.png (a .png from the Desktop) too; plan.txt (nothing learned) -> the dated default",
+        check("sort: holiday.png (a .png from the Desktop) too; plan.txt (nothing learned) -> the Home design",
               row("Desktop/holiday.png") && row("Desktop/holiday.png")->folder == "Pictures/Covers" &&
-              rp && rp->learned.folder.empty() && rp->folder.rfind("Documents/Desktop ", 0) == 0, rp ? rp->folder : "missing");
+              rp && rp->learned.folder.empty() && rp->folder == "Documents", rp ? rp->folder : "missing");
         check("sort: READ-ONLY with a book", tree_facts(H) == before);
         const auto planned = so::plan(H, rows, now);
         bool moved = false, made = false;
@@ -1600,8 +1601,8 @@ int main(int argc, char** argv) {
             const auto rows = so::rows(H, rep1, st, now);
             bool named = false;
             for (const auto& r : rows) named |= r.born.file.path == H + "/Documents/Misc/a.txt" &&
-                                                r.folder.find("/Misc ") != std::string::npos;
-            check("sort: a catch-all's file goes home by type, named for its folder (Misc YYYY-MM)", named);
+                                                r.go == so::Go::Home && r.folder == "Documents";
+            check("sort: a catch-all's file goes by the Home design (Misc/a.txt -> Documents)", named);
             const auto rep2 = cb::report(H, cb::sweep(H, "", {"Documents"}), now, 2);
             check("sweep: Documents as a catch-all is walked whole (no second place)",
                   has(rep2, "Documents/Misc/deep/b.txt") &&
@@ -1979,9 +1980,9 @@ int main(int argc, char** argv) {
         check("downloads: a read movie -> Entertainment/Movies; a read .epub and .pdf -> Entertainment/EBooks (s023g)",
               to("Downloads/Dune.2021.1080p.mkv", "Entertainment/Movies") && to("Downloads/book.epub", "Entertainment/EBooks") &&
               to("Downloads/scan.pdf", "Entertainment/EBooks"));
-        check("downloads: read, not entertainment -> home by type (Documents/Downloads <month>)",
+        check("downloads: read, not entertainment -> the Home design (Documents)",
               row("Downloads/readme.txt") && row("Downloads/readme.txt")->go == so::Go::Home &&
-              row("Downloads/readme.txt")->folder.rfind("Documents/Downloads ", 0) == 0);
+              row("Downloads/readme.txt")->folder == "Documents");
         check("downloads: unread -> stays, Ephemeral, tagged (Due's Trash after the aging days)",
               row("Downloads/Unwatched.mkv") && row("Downloads/Unwatched.mkv")->go == so::Go::Stays &&
               row("Downloads/Unwatched.mkv")->level == rt::Level::Ephemeral && row("Downloads/Unwatched.mkv")->tag);
@@ -2017,9 +2018,9 @@ int main(int argc, char** argv) {
             check("ent table: yours, saved and read back -- .cbz -> Comics; .mkv not listed -> none",
                   back == st2 && so::ent_folder(mine, "x.cbz") == "Entertainment/Comics" && so::ent_folder(mine, "x.mkv").empty());
         }
-        check("folder: a Desktop folder moves whole by most of its files (Trip -> Pictures/Desktop <month>)",
+        check("folder: a Desktop folder moves whole by most of its files (Trip -> Pictures)",
               row("Desktop/Trip") && row("Desktop/Trip")->go == so::Go::Home &&
-              row("Desktop/Trip")->folder.rfind("Pictures/Desktop ", 0) == 0 && !row("Desktop/Trip/a.jpg"),
+              row("Desktop/Trip")->folder == "Pictures" && !row("Desktop/Trip/a.jpg"),
               row("Desktop/Trip") ? row("Desktop/Trip")->folder : "missing");
         check("project: Desktop/Essay-project matches writing-project -> ~/Writing, whole; a code project stays",
               row("Desktop/Essay-project") && row("Desktop/Essay-project")->is_project &&
@@ -5358,6 +5359,112 @@ int main(int argc, char** argv) {
             check("ebooks: one undo -- back in Downloads", u.ok && fs::exists(H + "/Downloads/random_name.epub") && !fs::exists(at));
             core::projects::set_shelves({});
         }
+        fs::remove_all(root);
+    }
+
+
+    // ── s029 the Home design: Home is a type; fonts named from the font ─────────
+    {
+        std::cout << "[home design]\n";
+        namespace hm = core::home;
+        namespace tp = core::templates;
+        namespace so = core::sort;
+        namespace cb = core::birth;
+        const fs::path root = fs::temp_directory_path() / ("tidy_selftest_home_" + std::to_string(::getpid()));
+        fs::remove_all(root);
+        const fs::path home = root / "home";
+        const auto font = [](const std::string& full) {   // a tiny OTF: one table, 'name', nameID 4 (UTF-16BE)
+            std::string str;
+            for (char c : full) { str += '\0'; str += c; }
+            std::string b;
+            const auto u16 = [&](unsigned v) { b += char(v >> 8); b += char(v & 0xFF); };
+            const auto u32 = [&](unsigned v) { u16(v >> 16); u16(v & 0xFFFF); };
+            b += "OTTO"; u16(1); u16(0); u16(0); u16(0);
+            b += "name"; u32(0); u32(28); u32(18 + unsigned(str.size()));
+            u16(0); u16(1); u16(18);
+            u16(3); u16(1); u16(0x409); u16(4); u16(unsigned(str.size())); u16(0);
+            return b + str;
+        };
+        put_file(home / "Desktop/GaramondPremrPro.otf", font("Garamond Premier Pro"));
+        put_file(home / "Desktop/1942Report.otf", font("1942 Report"));
+        put_file(home / "Desktop/mystery.xyz", "what is it");
+        put_file(home / "Desktop/notes.txt", "notes");
+        put_file(home / "Downloads/.keep", "");
+        const std::string H = fs::canonical(home).string();
+        const std::string D = (root / "data").string();
+        fs::create_directories(D);
+
+        check("font name: nameID 4 from the name table", hm::font_name(H + "/Desktop/GaramondPremrPro.otf") == "Garamond Premier Pro",
+              hm::font_name(H + "/Desktop/GaramondPremrPro.otf"));
+        check("font name: not a font -> \"\"", hm::font_name(H + "/Desktop/notes.txt").empty());
+        check("letter: G; a digit -> OTHER", hm::letter_of("Garamond") == "G" && hm::letter_of("1942 Report") == "OTHER");
+        const std::string slot = std::string("Fonts/") + hm::kLetter + "/" + hm::kFullName;
+        check("expand: Fonts/<A-Z|OTHER>/<full name> -> Fonts/G/Garamond Premier Pro; OTHER for 1942",
+              hm::expand(slot, H + "/Desktop/GaramondPremrPro.otf") == "Fonts/G/Garamond Premier Pro" &&
+              hm::expand(slot, H + "/Desktop/1942Report.otf") == "Fonts/OTHER/1942 Report");
+        check("expand: not a font -> the file's name; a plain folder as it is; a hidden one refused",
+              hm::expand(slot, H + "/Desktop/notes.txt") == "Fonts/N/notes" && hm::expand("Pictures", "x") == "Pictures" &&
+              hm::expand(".secret", "x").empty());
+        check("fixed part: Fonts", hm::fixed_part(slot) == "Fonts" && hm::fixed_part("Pictures/Covers") == "Pictures/Covers");
+
+        core::settings::Settings st;
+        const auto seeded = hm::seed(st);
+        const auto d = hm::design(seeded);
+        check("seed: the standard tables -- *.png -> Pictures, *.otf named, Downloads/*.mkv -> Entertainment/Movies",
+              hm::is_home(seeded) && tp::problems(seeded).empty() && hm::rule_for(d, "a.PNG") &&
+              hm::rule_for(d, "a.png")->folder == "Pictures" && hm::rule_for(d, "x.otf")->folder == slot &&
+              so::ent_folder(d.ent, "a.mkv") == "Entertainment/Movies" && hm::rule_for(d, "a.mkv")->folder == "Videos",
+              tp::problems(seeded).empty() ? "" : tp::problems(seeded).front());
+        core::settings::Settings mine;
+        mine.home_set = true;
+        mine.home = {"*.png -> Pictures/Shots"};
+        mine.ent_set = true;
+        mine.ent = {"*.cbz -> Entertainment/Comics"};
+        const auto d2 = hm::design(hm::seed(mine));
+        check("seed: from YOUR Settings tables (nothing lost) + the Graphics / Fonts kinds",
+              hm::rule_for(d2, "a.png")->folder == "Pictures/Shots" && !hm::rule_for(d2, "a.txt") &&
+              hm::rule_for(d2, "a.svg") && hm::rule_for(d2, "a.otf") &&
+              so::ent_folder(d2.ent, "a.cbz") == "Entertainment/Comics" && so::ent_folder(d2.ent, "a.mkv").empty());
+        tp::Template wrong = seeded;
+        wrong.category = "Writing";
+        tp::Template other = tp::shell("notes-project", "~");
+        check("home: \"home\" lives at ~ and nothing else does", !tp::problems(wrong).empty() && !tp::problems(other).empty());
+        check("load: never saved -> seeded", !hm::saved(D) && hm::load(D, st) == seeded);
+        tp::Template edited = seeded;
+        edited.routes.insert(edited.routes.begin(), {"*.xyz", "Documents"});
+        const auto w = tp::save(D, edited);
+        check("save: the Home type kept as home.template, read back; not in the types list (no project type)",
+              w.empty() && hm::saved(D) && hm::load(D, st) == edited && tp::list(D).empty(), w);
+
+        // Sort follows it: fonts named, no rule -> the Closet, never a dated folder.
+        const std::int64_t now = now_s();
+        const auto rep = cb::report(H, cb::sweep(H, ""), now, st.old_years);
+        const auto dz = hm::design(seeded);
+        const auto rows = so::rows(H, rep, st, now, {}, {}, nullptr, &dz);
+        const auto row = [&](const std::string& rel) -> const so::Row* {
+            for (const auto& r : rows) if (r.born.file.path == H + "/" + rel) return &r;
+            return nullptr;
+        };
+        const auto* rf = row("Desktop/GaramondPremrPro.otf");
+        check("sort: a font -> ~/Fonts/G/Garamond Premier Pro (named from the font)",
+              rf && rf->go == so::Go::Home && rf->folder == "Fonts/G/Garamond Premier Pro", rf ? rf->folder + " | " + rf->why : "missing");
+        const auto* rx = row("Desktop/mystery.xyz");
+        check("sort: no Home rule -> stays, untagged, waits in the Closet",
+              rx && rx->go == so::Go::Stays && !rx->tag && rx->closet && rx->why.find("Closet") != std::string::npos, rx ? rx->why : "missing");
+        bool dated = false;
+        for (const auto& r : rows) dated |= r.folder.find(" 20") != std::string::npos;
+        check("sort: no dated folders", !dated);
+        auto pl = so::plan(H, rows, now);
+        latch::door::Door door(H, D + "/door");
+        door.load();
+        pl.plan.previewed = true;
+        const auto r = door.run(pl.plan);
+        check("run: the font in its own folder; the .xyz where it was",
+              r.ok && fs::exists(H + "/Fonts/G/Garamond Premier Pro/GaramondPremrPro.otf") &&
+              fs::exists(H + "/Fonts/OTHER/1942 Report/1942Report.otf") && fs::exists(H + "/Desktop/mystery.xyz"),
+              r.messages.empty() ? "" : r.messages.front());
+        const auto u = door.undo();
+        check("run: one undo -- the fonts back on the Desktop", u.ok && fs::exists(H + "/Desktop/GaramondPremrPro.otf"));
         fs::remove_all(root);
     }
 

@@ -51,6 +51,8 @@ std::vector<TypeRoute> table(const settings::Settings& s);
 std::vector<std::string> lines_of(const std::vector<TypeRoute>& t);
 // "" = fine, else why not (a bad glob, a folder that is hidden / .. / a project / too deep).
 std::string route_refusal(const TypeRoute& r);
+// s029: a folder under home a file may be sent into (any depth up to 6): "" = fine.
+std::string folder_check(const std::string& rel);
 // The first route `file_name` fits, or nullptr.
 const TypeRoute* type_of(const std::vector<TypeRoute>& table, const std::string& file_name);
 

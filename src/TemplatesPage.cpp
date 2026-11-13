@@ -2,6 +2,7 @@
 #include "Log.hpp"
 #include "core/Pages.hpp"
 #include "core/Starters.hpp"
+#include "core/Home.hpp"
 #include "core/Projects.hpp"
 
 #include <algorithm>
@@ -349,8 +350,27 @@ void TemplatesPage::refresh() {
 
 void TemplatesPage::show_home() {
     m_saved = tp::list(m_data_dir);
-    if (m_saved.empty()) { set_visible_child("start"); return; }
     clear(m_list);
+    {   // s029: the Home type first -- always there (seeded from Settings' old tables until saved)
+        namespace hm = core::home;
+        const auto h = hm::load(m_data_dir);
+        const bool saved = hm::saved(m_data_dir);
+        auto row = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::HORIZONTAL, 10);
+        row->set_margin(8);
+        auto text = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::VERTICAL, 2);
+        text->set_hexpand(true);
+        text->append(*label("Home", "heading", 0.0f));
+        text->append(*label("~ -- where loose files live: " + std::to_string(h.folders.size()) +
+                            (h.folders.size() == 1 ? " folder, " : " folders, ") + std::to_string(h.routes.size()) +
+                            (h.routes.size() == 1 ? " rule" : " rules") +
+                            (saved ? "" : " (from Settings' old tables -- Save keeps it as yours)"), "dim", 0.0f));
+        row->append(*text);
+        auto op = Gtk::make_managed<Gtk::Button>("Open");
+        op->set_name("templates.list.open.home");
+        op->signal_clicked().connect([this, h, saved] { open(tp::Builder(tp::Draft{h, {}, ""}, saved ? h.name : "")); });
+        row->append(*op);
+        m_list->append(*row);
+    }
     for (const auto& t : m_saved) {
         auto row = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::HORIZONTAL, 10);
         row->set_margin(8);
@@ -373,7 +393,7 @@ void TemplatesPage::show_home() {
         row->append(*op);
         m_list->append(*row);
     }
-    m_list_summary->set_text(std::to_string(m_saved.size()) + " template" + (m_saved.size() == 1 ? "" : "s") +
+    m_list_summary->set_text("Home + " + std::to_string(m_saved.size()) + " type" + (m_saved.size() == 1 ? "" : "s") +
                              " in " + shown(m_data_dir) + "/templates");
     set_visible_child("list");
 }
@@ -384,7 +404,10 @@ void TemplatesPage::open(tp::Builder b) {
     m_drift.clear();
     m_drift_dir.clear();
     m_back_armed = false;
-    m_b_status->set_text(m_b.draft().unconfirmed.empty()
+    m_b_status->set_text(core::home::is_home(m_b.tpl())
+        ? "Your home: right-click a folder -> This goes here... (*.png). A folder named <A-Z|OTHER> or <full name> "
+          "is filled from each file -- a font's own name. A file no rule fits waits in the Closet."
+        : m_b.draft().unconfirmed.empty()
         ? "Every edit can be undone here until you leave the builder. Save writes the template."
         : "A proposal: Keep each lifted folder you want, Remove the rest. Save waits until every one is decided.");
     refresh_builder();
@@ -403,8 +426,9 @@ void TemplatesPage::edit(const std::string& err) {
 void TemplatesPage::refresh_head() {
     const auto& d = m_b.draft();
     const auto& t = d.t;
-    std::string sum = t.name.empty() ? "(no name yet)" : t.name;
-    sum += m_b.saved_as().empty() ? " -- new" : (m_b.saved_as() == t.name ? " -- saved" : " -- renamed from " + m_b.saved_as());
+    const bool is_home = core::home::is_home(t);
+    std::string sum = is_home ? std::string("Home (~)") : t.name.empty() ? "(no name yet)" : t.name;
+    sum += m_b.saved_as().empty() ? (is_home ? " -- from Settings' old tables, not saved yet" : " -- new") : (m_b.saved_as() == t.name ? " -- saved" : " -- renamed from " + m_b.saved_as());
     if (!d.origin.empty()) sum += "\nLifted from " + shown(d.origin) + (d.unconfirmed.empty()
         ? std::string(" -- every lifted folder decided")
         : " -- a proposal, " + std::to_string(d.unconfirmed.size()) + " folder" +
@@ -448,6 +472,13 @@ void TemplatesPage::refresh_builder() {
     m_b_quiet = false;
     m_b_group->set_text(t.group);
     m_b_group->set_sensitive(t.by_place);
+    {   // s029: the Home type -- its name and place are fixed (~); no shelf
+        const bool h = core::home::is_home(t);
+        m_b_name->set_sensitive(!h);
+        m_b_category->set_sensitive(!h);
+        m_b_by_place->set_sensitive(!h);
+        m_b_group->set_sensitive(!h && t.by_place);
+    }
 
     fill_tree();   // s024d
 
@@ -646,7 +677,8 @@ void TemplatesPage::fill_tree() {
     // The rows: the project's top, each folder (tree order), then "stays where it is".
     struct R { std::string key, name; int depth; };
     std::vector<R> rows;
-    rows.push_back({tp::kTop, t.name.empty() ? std::string("(the project)") : t.name + "  (the project's top)", 0});
+    rows.push_back({tp::kTop, core::home::is_home(t) ? std::string("~  (your home's top)")
+                              : t.name.empty() ? std::string("(the project)") : t.name + "  (the project's top)", 0});
     for (const auto& f : t.folders) {
         const auto slash = f.path.rfind('/');
         rows.push_back({f.path, slash == std::string::npos ? f.path : f.path.substr(slash + 1),

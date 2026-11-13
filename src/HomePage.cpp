@@ -1,4 +1,5 @@
 #include "HomePage.hpp"
+#include "core/Home.hpp"
 #include "SelectList.hpp"
 #include "Log.hpp"
 #include "core/Archive.hpp"
@@ -253,7 +254,11 @@ void HomePage::fill() {
         [home, data, dirs] {
             Look l;
             const auto st = core::settings::parse(core::own::read(data, core::settings::kFile));
-            l.table = ho::table(st);
+            // s029: the Home design's plain rules; a slot folder offers its fixed part (Fonts).
+            for (auto r : core::home::design(core::home::load(data, st)).types) {
+                r.folder = core::home::fixed_part(r.folder);
+                l.table.push_back(r);
+            }
             l.projects = pj::find(home, pj::parse_left(core::own::read(data, pj::kFile)));
             std::sort(l.projects.begin(), l.projects.end(), [](const auto& a, const auto& b) { return a.rel < b.rel; });
             l.templates = core::templates::list(data);
@@ -292,7 +297,7 @@ void HomePage::show(Look look) {
         SelectList::Item it;
         it.title = name;
         it.line = shown(fs::path(b.file.path).parent_path().string()) + "   -- " + level +
-                  (r.type_folder.empty() ? "   -- no type for it (Settings: the type table) -- into a project"
+                  (r.type_folder.empty() ? "   -- no type for it (Design -> Types -> Home) -- into a project"
                                          : "   -- by type: ~/" + r.type_folder);
         if (!r.learned.folder.empty()) {   // s022: the proposal leads the line; the row starts selected
             it.title += "   -> ~/" + r.learned.folder;
@@ -377,7 +382,7 @@ void HomePage::on_set(std::size_t choice) {
     }
     if (picks.empty()) {
         m_status->set_text(untyped ? "No type for " + std::string(untyped == 1 ? "that file" : "those files") +
-                                         " (Settings: the type table) -- Set to a project instead."
+                                         " (Design -> Types -> Home) -- Set to a project instead."
                                    : "Select some files first.");
         return;
     }

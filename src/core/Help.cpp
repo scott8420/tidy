@@ -61,17 +61,16 @@ const std::vector<Topic>& topics() {
           "Preview -> Do it. Tidy learns from what you chose.", "When the work is finished, Close the purpose."},
          "purposes"},
         {"sort", "Every day", "Sort -- the whole home in one pass",
-         {"Sort gives every loose file in the home a level and a place at once. Kept files go home by type (Settings: "
-          "the type table; no type -> Documents) where you sent the same kind before (a learned route: "
-          "cover*.png -> ~/Pictures/Covers, or *.png from the Desktop -> wherever those went), else into a dated "
-          "folder named for where they came from: "
-          "~/Pictures/Desktop 2026-11, ~/Documents/Downloads 2026-11, ~/Pictures/Loose 2026-11 for one already "
-          "loose in Pictures. Old records (Historical) go to ~/Archive/<year>, fingerprinted. Ephemeral files and "
+         {"Sort gives every loose file in the home a level and a place at once. Kept files go where you sent the same kind before (a learned "
+          "route: cover*.png -> ~/Pictures/Covers), else where your Home design says (Design -> Types -> Home: "
+          "*.png -> Pictures, *.otf -> Fonts/<A-Z|OTHER>/<full name> -- a font is named from the font itself). A "
+          "file no Home rule fits stays where it is and waits in the Closet. Old records (Historical) go to ~/Archive/<year>, fingerprinted. Ephemeral files and "
           "your junk list stay where they are, labelled.",
           "Downloads: everything there arrives Ephemeral. Once you have opened it, Sort moves it on: a movie to "
           "~/Entertainment/Movies, an episode (Mobland_s01e02) to ~/Entertainment/Series/Mobland/Season 01, a book "
           "(.epub .mobi .azw3 .cbz .cbr .pdf) to ~/Entertainment/EBooks, music to ~/Entertainment/Music -- all of it "
-          "yours to change in Settings (the Entertainment table); a folder of them (a comic series and its "
+          "yours to change in the Home design (its Downloads/ rules: "
+          "Downloads/*.mkv -> Entertainment/Movies); a folder of them (a comic series and its "
           "sub-folders) moves whole. Not read yet but you want it moved: select it -> Move on now (it becomes Keep). "
           "Files home lists Downloads too: send one into a folder or a project and it becomes Keep. Anything "
           "else home by type. Unread 30 days (Settings), Due proposes the Trash.",
@@ -103,7 +102,7 @@ const std::vector<Topic>& topics() {
           "Look again after you adopt or sort to see the red shrink."},
          "map"},
         {"home", "Every day", "Files home",
-         {"Sends decided files to their folder: by type (pictures to Pictures, from the type table in Settings), into "
+         {"Sends decided files to their folder: by type (pictures to Pictures, from your Home design: Design -> Types -> Home), into "
           "a folder at home's top you name (a subfolder of it, never loose), into the project they serve, or into the "
           "archive (~/Archive/<year>, fingerprinted -- as Due archives). A name already taken becomes \"name (2)\" -- nothing is overwritten.",
           "Tidy remembers each send: the file's leading word (cover-final.png -> cover*.png) and its type + where it "
@@ -140,6 +139,11 @@ const std::vector<Topic>& topics() {
         {"templates", "Projects", "Templates",
          {"A template is a TYPE of project: its folders as a tree, like Files, and what goes in each (\u2190 *.odt). "
           "Organize as... and New project both use it. Drift shows where a project has wandered from its template.",
+          "Home (first in the list) is the type of your home itself: its folders and what goes in each (*.png -> "
+          "Pictures). Sort, What Tidy sees and Files home follow it; a file no rule fits waits in the Closet. A "
+          "folder named <A-Z|OTHER> or <full name> is filled from each file -- *.otf -> Fonts/<A-Z|OTHER>/<full name> "
+          "puts Garamond Premier Pro in ~/Fonts/G/Garamond Premier Pro. A rule Downloads/*.mkv is for a download "
+          "you have opened (Entertainment). Until you Save it, Home is made from Settings' old tables.",
           "Right-click a folder (or its \u22ef): New folder, Rename, This goes here... (a pattern, or a sample name: "
           "A0001.png means the numbered run), Remove. Drag a rule to another folder. Drop a file from Files on a folder: "
           "its type goes there. The particular rules always fit first (*cover*.png before *.png). A file no rule fits "
@@ -207,8 +211,8 @@ const std::vector<Topic>& topics() {
          {"Activity -> Undo \"...\"."},
          "activity"},
         {"settings", "Safety", "Settings",
-         {"The aging days, the rescan, Due's years and days, the proofs needed before removal, the junk list, the "
-          "type table, and your backup media. The sidebar -> Settings."},
+         {"The aging days, the rescan, Due's years and days, the proofs needed before removal, the junk list, "
+          "and your backup media. Where files live is the Home design (Design -> Types -> Home). The sidebar -> Settings."},
          {}, ""},
     };
     return t;

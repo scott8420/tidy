@@ -117,6 +117,7 @@ add_library(tidy_core STATIC
     src/core/Code.cpp        # code archive: git state, sizes, archive copy + RESTORE.txt, live trash, clean builds (s021)
     src/core/Backup.cpp      # the backup: copies of ~/Archive on media, read back + proved (s013b)
     src/core/Archive.cpp     # the archive: ~/Archive/<year>/<its folder>; tag + move plans; fingerprints (s013a)
+    src/core/Home.cpp        # s029: the Home design -- Home is a type; fonts named from the file
     src/core/Homing.cpp      # files home: by type (subfolder required) or into a project; "name (2)" (s011)
     src/core/Ebooks.cpp      # ebooks from files: title + author from inside, a shelf type per genre (s028)
 )

@@ -148,9 +148,12 @@ std::string month_now(std::int64_t now) { return month_of(now); }
 
 std::vector<Row> rows(const std::string& home, const birth::Report& rep, const settings::Settings& st,
                       std::int64_t now, const std::vector<projects::Project>& found,
-                      const std::vector<templates::Template>& ts, const routes::Book* learned) {
-    const auto table = homing::table(st);
-    const auto ent = ent_table(st);   // s023g
+                      const std::vector<templates::Template>& ts, const routes::Book* learned,
+                      const home::Design* design) {
+    // s029: the Home design -- its plain routes by name, its Downloads/ routes for a read download.
+    const home::Design dz = design ? *design : home::design(home::seed(st));
+    const auto& table = dz.types;
+    const auto& ent = dz.ent;
     const auto v = closet::view(rep, now, st);
     std::vector<Row> out;
     // s020a: the plain folders in Downloads and on the Desktop -- each ONE row.
@@ -195,10 +198,9 @@ std::vector<Row> rows(const std::string& home, const birth::Report& rep, const s
                     r.now_folder = e;
                     r.now_why = "moved on now -- " + what;
                 } else if (const auto* t = homing::type_of(table, name)) {
-                    std::string f;
-                    if (homing::by_type(t->folder, dated(r.born, t->folder, now), &f).empty()) {
+                    if (const auto f = home::expand(t->folder, r.born.file.path); !f.empty()) {
                         r.now_folder = f;
-                        r.now_why = "moved on now -- by type " + t->pattern + " -> ~/" + t->folder;
+                        r.now_why = "moved on now -- Home: " + t->pattern + " -> ~/" + f;
                     }
                 }
                 return;
@@ -242,17 +244,32 @@ std::vector<Row> rows(const std::string& home, const birth::Report& rep, const s
                 return;
             }
         }
+        // s029: the Home design names the folder; no rule fits -> it waits in the Closet.
         const auto* t = homing::type_of(table, name);
-        const std::string tf = t ? t->folder : "Documents";
-        std::string folder;
-        if (const auto why = homing::by_type(tf, dated(r.born, tf, now), &folder); !why.empty()) {
+        if (!t) {
             r.go = Go::Stays;
+            r.tag = false;
+            r.closet = true;
+            r.why = "no Home rule fits -- waits in the Closet (Design -> Types -> Home)";
+            return;
+        }
+        std::string why;
+        const std::string folder = home::expand(t->folder, r.born.file.path, &why);
+        if (folder.empty()) {
+            r.go = Go::Stays;
+            r.tag = false;
+            r.closet = true;
             r.why = "no home: " + why;
             return;
         }
+        if (fs::path(r.born.file.path).parent_path() == fs::path(home) / folder) {
+            r.go = Go::Stays;
+            r.why = "at home already (" + t->pattern + " -> ~/" + folder + ")";
+            return;
+        }
         r.folder = folder;
-        r.why = (t ? "by type " + t->pattern + " -> " + t->folder : std::string("no type -> Documents")) + ", " +
-                rt::title_of(r.level) + (was_read ? " (read since it arrived)" : "");
+        r.why = "Home: " + t->pattern + " -> ~/" + folder + ", " + rt::title_of(r.level) +
+                (was_read ? " (read since it arrived)" : "");
     };
     for (const auto& b : v.proposed) {   // undecided, a proposal to take
         if (in_folder(b)) continue;
@@ -341,12 +358,14 @@ std::vector<Row> rows(const std::string& home, const birth::Report& rep, const s
                 continue;
             }
         }
-        const std::string tf = most(types).empty() ? "Documents" : most(types);
-        std::string folder;
-        if (const auto why = homing::by_type(tf, dated(r.born, tf, now), &folder); !why.empty()) continue;
+        // s029: a folder goes whole to the Home folder most of its files have (a slot's
+        // fixed part: a folder of fonts -> ~/Fonts/<its name>); none -> it stays (the Closet).
+        if (most(types).empty()) continue;
+        const std::string folder = home::fixed_part(most(types));
+        if (!homing::folder_check(folder).empty()) continue;
         r.go = Go::Home;
         r.folder = folder;
-        r.why = "a folder (" + count + "), mostly " + tf + ", moved whole";
+        r.why = "a folder (" + count + "), mostly ~/" + folder + " (Home), moved whole";
         out.push_back(std::move(r));
     }
     // s020a: the <name>-projects not yet in a category.

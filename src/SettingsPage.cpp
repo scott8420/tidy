@@ -132,62 +132,13 @@ SettingsPage::SettingsPage(Gtk::Window& parent, const std::string& home_dir, Sav
     scroll->set_child(*m_junk);
     box->append(*scroll);
 
-    // s011: the type table Files home uses -- "*.png -> Pictures", one per line.
-    auto home = text("Files home: the type table", "heading");
-    home->set_margin_top(14);
-    box->append(*home);
-    box->append(*text("One per line: a file-name pattern -> a home folder (one or two deep). The first "
-                      "line a file fits names its folder; you pick the subfolder on the Files home page.", "dim"));
-    auto hscroll = Gtk::make_managed<Gtk::ScrolledWindow>();
-    hscroll->set_vexpand(true);
-    hscroll->set_has_frame(true);
-    hscroll->set_min_content_height(150);
-    m_home = Gtk::make_managed<Gtk::TextView>();
-    m_home->set_name("settings.home");
-    m_home->set_monospace(true);
-    m_home->set_top_margin(6);
-    m_home->set_left_margin(6);
-    hscroll->set_child(*m_home);
-    box->append(*hscroll);
-    auto reset = Gtk::make_managed<Gtk::Button>("Standard table");
-    reset->set_name("settings.home.reset");
-    reset->set_halign(Gtk::Align::START);
-    reset->set_tooltip_text("Put the standard table back in the box (Save keeps it)");
-    reset->signal_clicked().connect([this] {
-        std::string lines;
-        for (const auto& l : core::homing::lines_of(core::homing::defaults())) lines += l + "\n";
-        m_home->get_buffer()->set_text(lines);
-    });
-    box->append(*reset);
-
-    // s023g: the Entertainment table -- where a READ download goes (Sort), and
-    // "Move on now". "*.cbz -> Entertainment/EBooks", one per line.
-    auto ent = text("Downloads: the Entertainment table", "heading");
-    ent->set_margin_top(14);
-    box->append(*ent);
-    box->append(*text("One per line: a file-name pattern -> a folder (one or two deep). A download you have read -- "
-                      "or Move on now in Sort -- goes there; a folder of them moves whole (a comic series with its "
-                      "sub-folders). An episode (S01E02) of a video goes to Entertainment/Series/<Show>/Season NN.", "dim"));
-    auto escroll = Gtk::make_managed<Gtk::ScrolledWindow>();
-    escroll->set_has_frame(true);
-    escroll->set_min_content_height(120);
-    m_ent = Gtk::make_managed<Gtk::TextView>();
-    m_ent->set_name("settings.ent");
-    m_ent->set_monospace(true);
-    m_ent->set_top_margin(6);
-    m_ent->set_left_margin(6);
-    escroll->set_child(*m_ent);
-    box->append(*escroll);
-    auto ereset = Gtk::make_managed<Gtk::Button>("Standard table");
-    ereset->set_name("settings.ent.reset");
-    ereset->set_halign(Gtk::Align::START);
-    ereset->set_tooltip_text("Put the standard Entertainment table back in the box (Save keeps it)");
-    ereset->signal_clicked().connect([this] {
-        std::string lines;
-        for (const auto& l : core::homing::lines_of(core::sort::ent_defaults())) lines += l + "\n";
-        m_ent->get_buffer()->set_text(lines);
-    });
-    box->append(*ereset);
+    // s029: the type table and the Entertainment table are the Home design now -- one place to design.
+    auto homes = text("Where files live", "heading");
+    homes->set_margin_top(14);
+    box->append(*homes);
+    box->append(*text("Your Home design: Design -> Types -> Home -- the folders of your home and what goes in "
+                      "each (*.png -> Pictures, *.otf -> Fonts/<A-Z|OTHER>/<full name>, Downloads/*.mkv -> "
+                      "Entertainment/Movies). Sort, What Tidy sees and Files home follow it.", "dim"));
 
     // s013b: the backup media -- the SSD's folder, the Pi's mount.
     auto media = text("Backup media", "heading");
@@ -323,12 +274,6 @@ void SettingsPage::show(const st::Settings& current) {
     for (const auto& j : current.junk) lines += j + "\n";
     m_junk->get_buffer()->set_text(lines);
     lines.clear();
-    for (const auto& l : core::homing::lines_of(core::homing::table(current))) lines += l + "\n";
-    m_home->get_buffer()->set_text(lines);
-    lines.clear();
-    for (const auto& l : core::homing::lines_of(core::sort::ent_table(current))) lines += l + "\n";   // s023g
-    m_ent->get_buffer()->set_text(lines);
-    lines.clear();
     for (const auto& m : current.media) lines += st::media_line(m) + "\n";
     m_media->get_buffer()->set_text(lines);
     lines.clear();
@@ -353,56 +298,7 @@ void SettingsPage::on_save_clicked() {
     s.archive_days = m_archive->get_value_as_int();
     s.proofs_needed = m_proofs->get_value_as_int();
     s.junk = st::patterns_of(m_junk->get_buffer()->get_text());
-    // The type table: every line must read, or nothing is saved (says which).
-    std::vector<core::homing::TypeRoute> table;
-    int n = 0;
-    for (const auto& l : st::patterns_of(m_home->get_buffer()->get_text())) {
-        ++n;
-        core::homing::TypeRoute r;
-        if (!core::homing::parse_line(l, r)) {
-            const auto arrow = l.find("->");
-            std::string why = "write it \"*.png -> Pictures\"";
-            if (arrow != std::string::npos) {
-                r = {l.substr(0, arrow), l.substr(arrow + 2)};
-                for (auto* x : {&r.pattern, &r.folder}) {
-                    x->erase(0, x->find_first_not_of(' '));
-                    x->erase(x->find_last_not_of(' ') + 1);
-                }
-                if (auto w = core::homing::route_refusal(r); !w.empty()) why = w;
-            }
-            m_status->set_text("Type table, line " + std::to_string(n) + ": " + why);
-            return;
-        }
-        table.push_back(r);
-    }
-    // Still the standard table -> leave it unset, so a later standard table reaches you.
-    s.home_set = false;
-    s.home.clear();
-    if (table != core::homing::defaults()) {
-        s.home_set = true;
-        s.home = core::homing::lines_of(table);
-    }
-    // s023g: the Entertainment table -- every line must read, or nothing is saved.
-    {
-        std::vector<core::homing::TypeRoute> et;
-        int k = 0;
-        for (const auto& l : st::patterns_of(m_ent->get_buffer()->get_text())) {
-            ++k;
-            core::homing::TypeRoute r;
-            if (!core::homing::parse_line(l, r)) {
-                m_status->set_text("Entertainment table, line " + std::to_string(k) +
-                                   ": write it \"*.cbz -> Entertainment/EBooks\" (one or two deep)");
-                return;
-            }
-            et.push_back(r);
-        }
-        s.ent_set = false;
-        s.ent.clear();
-        if (et != core::sort::ent_defaults()) {
-            s.ent_set = true;
-            s.ent = core::homing::lines_of(et);
-        }
-    }
+    int n = 0;   // s029: the type + Entertainment tables live in the Home design (kept in the file, untouched)
     // s013b: the media -- every line must read, names unique.
     s.media.clear();
     n = 0;

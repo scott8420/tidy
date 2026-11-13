@@ -1,4 +1,5 @@
 #include "core/Recognise.hpp"
+#include "core/Home.hpp"
 
 #include "core/Archive.hpp"
 #include "core/Due.hpp"
@@ -512,8 +513,7 @@ void sets_and_kinds(Report& r, const std::vector<Loose>& loose, const std::vecto
         const auto& f = loose[i];
         std::string kind;
         if (fext_of(f.name) == ".kdbx") kind = kNever;   // a password database: never moved
-        else if (const auto* t = homing::type_of(table, f.name)) kind = t->folder;
-        else if (const auto* d = homing::type_of(homing::defaults(), f.name)) kind = d->folder;   // s026a: Graphics + Fonts defaults
+        else if (const auto* t = homing::type_of(table, f.name)) kind = home::fixed_part(t->folder);   // s029: the Home design
         if (kind.empty()) kind = sort::ent_folder(ent, f.name);
         if (kind.empty()) {
             const std::string e = fext_of(f.name);
@@ -662,7 +662,8 @@ Report scan(const std::string& home, const std::string& from, const std::string&
     Ctx cx{home, &r, &ts, &loose, &la};
     walk(cx, from, rel, at);
     propose(r, la);
-    sets_and_kinds(r, loose, homing::table(st), sort::ent_table(st));
+    const auto dz = home::design(home::load(data_dir, st));   // s029: the Home design
+    sets_and_kinds(r, loose, dz.types, dz.ent);
     std::vector<std::tuple<std::string, std::uint64_t, std::size_t>> code;
     if (rel.empty()) {
         const auto s = suspects::scan(home, home + "/" + suspects::kCodeRoot);
@@ -768,7 +769,7 @@ std::string format(const Report& r) {
     }
 
     // 4 Kinds
-    o << "\n4. Kinds -- what is left, by the type table: " << files_text(r.in_kinds) << "\n";
+    o << "\n4. Kinds -- what is left, by your Home design: " << files_text(r.in_kinds) << "\n";
     for (const auto& k : r.kinds) {
         if (k.kind == kNever) o << "  " << k.kind << ": " << num(k.count) << "\n";
         else
