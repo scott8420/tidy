@@ -85,6 +85,7 @@ add_library(tidy_core STATIC
     src/core/Routes.cpp      # s022: learned routes -- each send home remembered, proposed again
     src/core/Adopt.cpp       # s023: adopt -- picked folders cataloged in place, routes learned; catch-alls swept
     src/core/Suspects.cpp    # s025: the suspect scan -- folders that may be one thing, read-only
+    src/core/Recognise.cpp   # s026: the recognition report -- bundles, projects, sets, kinds, the Closet, read-only
     src/core/Quarantine.cpp  # s025b: the answers -- a bundle / an ordinary folder / not now; held folders
     src/core/Map.cpp         # s023f: the home map -- cataloged / loose / untracked per folder; the treemap layout
     src/core/Conform.cpp     # s023h: conform project folders to a template -- the rules once, every folder, one preview

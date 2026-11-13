@@ -72,6 +72,7 @@
 #include "core/Adopt.hpp"
 #include "core/Map.hpp"
 #include "core/Suspects.hpp"
+#include "core/Recognise.hpp"
 #include "core/Quarantine.hpp"
 #include "core/Conform.hpp"
 #include "core/Layout.hpp"
@@ -5033,6 +5034,123 @@ int main(int argc, char** argv) {
             check("quarantine: the door refuses to trash a don't-touch folder", !door.refusal(hof, m3, f3).empty());
             latch::protect::set_owned({});
         }
+        qu::set("", {});
+        latch::pkg::set_extra({});
+        core::projects::set_shelves({});
+        fs::remove_all(root);
+    }
+
+    // ── s026: the recognition report -- on a FIXTURE, read-only ─────────────
+    {
+        namespace rc = core::recognise;
+        namespace qu = core::quarantine;
+        check("recognise: version_base -- Backup, (2), -1, copy, OLD -> one name",
+              rc::version_base("Report Backup") == "report" && rc::version_base("Report (2)") == "report" &&
+              rc::version_base("Report-1") == "report" && rc::version_base("report_old") == "report" &&
+              rc::version_base("Report copy") == "report" && rc::version_base("A0001") == "a0001" &&
+              rc::version_base("Tapper(old)") == "tapper");
+        check("recognise: font_family -- Roboto-Bold.ttf -> roboto; a .png is not a font",
+              rc::font_family("Roboto-Bold.ttf") == "roboto" && rc::font_family("Gill_Sans.otf") == "gill" &&
+              rc::font_family("x.png").empty());
+        check("recognise: bundle homes -- .optik OCR, .curvz Design/Curvz, .jots none",
+              rc::bundle_home(".optik") == "Documents/OCR" && rc::bundle_home(".CURVZ") == "Documents/Design/Curvz" &&
+              rc::bundle_home(".jots").empty());
+        const fs::path root = fs::temp_directory_path() / ("tidy_selftest_recognise_" + std::to_string(::getpid()));
+        fs::remove_all(root);
+        const std::string H = (root / "home").string(), D = (root / "data").string();
+        const std::string big(70000, 'b'), big2(70000, 'c');
+        const std::string B = H + "/Documents/EBooks/Keene/12 Hollow Oak/Bookbinding-project";
+        for (const char* d : {"Body/Finals", "Body/Layout/Images", "Body/Layout/ODT", "Body/Layout/Workups",
+                              "Body/OCR/Scans/Archive", "Body/Print", "Cover/Layout/Workups", "Cover/Print"})
+            fs::create_directories(B + "/" + d);
+        put_file(B + "/Body/Layout/ODT/Hollow.odt", "o");
+        put_file(B + "/Body/Layout/Hollow.composix/c.json", "{}");
+        put_file(B + "/Body/Finals/Hollow.epub", "e");
+        put_file(B + "/Body/Layout/Hollow.epub", "misplaced");
+        put_file(H + "/Documents/EBooks/Keene/13 Ivory/Archive.optik/a.json", big);
+        put_file(H + "/Documents/EBooks/Keene/13 Ivory/Ivory.optik/a.json", big);
+        put_file(H + "/Documents/Design/Curvz/Home.curvz/a.json", "{}");
+        put_file(H + "/Graphics/Desk/Test.curvz/a.json", "{}");
+        put_file(H + "/Documents/DBs/test.sqlite", "db");
+        put_file(H + "/Writing/Scrivener-project/Tapper/Tapper.scriv/x.rtf", "r");
+        for (const char* b : {"01 Staircase", "02 Bungalow"})
+            for (const char* d : {"Archive", "Print", "Workups"}) put_file(H + "/Documents/Old/" + b + "/" + d + "/f.txt", "f");
+        for (int i = 1; i <= 6; ++i) put_file(H + "/Downloads/Scans/S000" + std::to_string(i) + ".jpg", "s");
+        put_file(H + "/Downloads/Mobland_s01e01.mkv", "m");
+        put_file(H + "/Entertainment/Movies/Mobland/Mobland_s01e02.mkv", "m");
+        put_file(H + "/Downloads/Roboto-Bold.ttf", "t");
+        put_file(H + "/Downloads/Roboto-Italic.ttf", "t");
+        put_file(H + "/Documents/Report.odt", "1");
+        put_file(H + "/Documents/Report Backup.odt", "2");
+        put_file(H + "/Pictures/Covers/a.png", "p");
+        put_file(H + "/Documents/b.png", "p");
+        put_file(H + "/Documents/weird.xyz", "w");
+        put_file(H + "/Develop/test/a.c", big2);
+        put_file(H + "/Develop/bashrunner/a.c", big2);
+        put_file(H + "/Keep/secret.png", "k");
+        put_file(H + "/Archive/2025/old.png", "a");
+        put_file(H + "/.hidden/h.png", "h");
+        core::own::write(D, qu::kFile, "held Documents/DBs\n");
+        core::projects::apply_places(D, H);
+        latch::protect::set_owned({"Keep"});
+        const auto before = tree_facts(H);
+        const auto r = rc::scan(H, H, D, true);
+        const auto bund = [&](const std::string& rel) -> const rc::Bundle* {
+            for (const auto& b : r.bundles) if (b.rel == rel) return &b;
+            return nullptr;
+        };
+        const auto proj = [&](const std::string& rel) -> const rc::Project* {
+            for (const auto& p : r.projects) if (p.rel == rel) return &p;
+            return nullptr;
+        };
+        const auto* hb = bund("Documents/DBs");
+        check("recognise: a held suspect is a bundle, held, not entered (its .sqlite not in the Closet)",
+              hb && hb->held && r.closet.count(".sqlite") == 0);
+        const auto* tc = bund("Graphics/Desk/Test.curvz");
+        const auto* hc = bund("Documents/Design/Curvz/Home.curvz");
+        check("recognise: a loose .curvz -> Documents/Design/Curvz; one already there is at home",
+              tc && tc->home == "Documents/Design/Curvz" && hc && hc->home == "=");
+        const auto* bc = bund(B.substr(H.size() + 1) + "/Body/Layout/Hollow.composix");
+        check("recognise: a bundle in a project is marked in it, no home of its own",
+              bc && !bc->project.empty() && bc->home.empty());
+        const auto* bp = proj(B.substr(H.size() + 1));
+        check("recognise: Bookbinding-project -- by name, bookbinding 14/14, off its shelf",
+              bp && bp->how == rc::Project::How::Name && bp->tpl == "bookbinding" && bp->have == 14 && bp->of == 14 &&
+              !bp->shelf.empty(), bp ? bp->tpl + " " + std::to_string(bp->have) : "none");
+        check("recognise: placement -- the misplaced .epub counted out",
+              bp && bp->routed >= 3 && bp->placed + 1 == bp->routed,
+              bp ? std::to_string(bp->placed) + "/" + std::to_string(bp->routed) : "");
+        const auto* sp = proj("Writing/Scrivener-project");
+        check("recognise: Scrivener-project -- one project, its .scriv counted inside", sp && sp->bundles == 1);
+        const auto* la = proj("Documents/Old/01 Staircase");
+        check("recognise: working folders -> looks like a project; siblings -> a proposed type",
+              la && la->how == rc::Project::How::LooksLike && la->working.size() == 3 && r.proposed.size() == 1 &&
+              r.proposed[0].parent == "Documents/Old" && r.proposed[0].members.size() == 2);
+        std::size_t runs = 0, eps = 0, fonts = 0, vers = 0;
+        for (const auto& s : r.sets) {
+            runs += s.kind == rc::Set::Kind::Run && s.count == 6;
+            eps += s.kind == rc::Set::Kind::Episodes && s.count == 2 && s.folders.size() == 2;
+            fonts += s.kind == rc::Set::Kind::Fonts && s.count == 2;
+            vers += s.kind == rc::Set::Kind::Versions && s.count == 2;
+        }
+        check("recognise: sets -- a run of 6, Mobland's 2 episodes across 2 folders, Roboto, Report's versions",
+              runs == 1 && eps == 1 && fonts == 1 && vers == 1, std::to_string(r.sets.size()));
+        const rc::KindRow* pics = nullptr;
+        for (const auto& k : r.kinds) if (k.kind == "Pictures") pics = &k;
+        check("recognise: kinds -- Pictures 2: 1 at home, 1 elsewhere (Hands off, ~/Archive, hidden not counted)",
+              pics && pics->count == 2 && pics->at_home == 1, pics ? std::to_string(pics->count) : "none");
+        check("recognise: the Closet -- .xyz", r.closet.count(".xyz") == 1 && r.in_closet == 1, std::to_string(r.in_closet));
+        std::size_t same = 0;
+        for (const auto& c : r.copies) same += c.same == 1 && c.rels.size() == 2;
+        check("recognise: --deep -- the two .optik the same, Develop's test + bashrunner the same", same == 2,
+              std::to_string(r.copies.size()));
+        check("recognise: code -- ~/Develop is 2 items, not walked", r.code_items == 2);
+        const std::string text = rc::format(r);
+        check("recognise: the report -- NOT ON ITS SHELF, Proposed types, THE SAME",
+              text.find("NOT ON ITS SHELF") != std::string::npos && text.find("Proposed types") != std::string::npos &&
+              text.find("THE SAME bytes") != std::string::npos);
+        check("recognise: READ-ONLY -- the tree is exactly as it was", tree_facts(H) == before);
+        latch::protect::set_owned({});
         qu::set("", {});
         latch::pkg::set_extra({});
         core::projects::set_shelves({});
