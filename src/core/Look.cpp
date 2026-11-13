@@ -60,6 +60,7 @@ std::vector<NavEntry> tidy_nav() {
         item("purposes",   "tidy-purposes-symbolic",   "Purposes",    "teal"),
         section("ORGANIZE"),
         item("organize",   "tidy-organize-symbolic",   "Start",       "green"),    // s027: the guided landing
+        item("sees",       "tidy-sees-symbolic",       "What Tidy sees", "green"), // s027a: a folder, read top down
         item("map",        "tidy-map-symbolic",        "Map",         "orange"),
         item("projects",   "tidy-projects-symbolic",   "Projects",    "amber"),
         item("sort",       "tidy-sort-symbolic",       "Sort",        "lime"),

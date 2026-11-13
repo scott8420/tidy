@@ -140,6 +140,13 @@ void SortPage::build_results() {
     again->set_name("sort.again");
     again->set_valign(Gtk::Align::CENTER);
     again->signal_clicked().connect([this] { fill(); });
+    m_whole = Gtk::make_managed<Gtk::Button>("Whole home");   // s027a: back from a folder's look
+    m_whole->set_name("sort.whole");
+    m_whole->set_valign(Gtk::Align::CENTER);
+    m_whole->set_visible(false);
+    m_whole->set_tooltip_text("Sort the whole home again, not just this folder");
+    m_whole->signal_clicked().connect([this] { look_in(""); });
+    head->append(*m_whole);
     head->append(*again);
     box->append(*head);
     m_list = Gtk::make_managed<SelectList>("sort.list");
@@ -218,19 +225,46 @@ void SortPage::refresh_if_shown() {
     if (get_visible_child_name() == "results") fill();
 }
 
+void SortPage::look_in(const std::string& rel, std::vector<std::string> skip) {   // s027a
+    m_scope = rel;
+    m_skip = std::move(skip);
+    m_rows.clear();
+    set_visible_child("results");
+    fill();
+}
+
 void SortPage::fill() {
     m_status->set_text(kLooking);
     if (m_rows.empty()) m_summary->set_text("Looking...");
     const std::string home = m_home, data = m_data_dir, dirs = m_user_dirs ? m_user_dirs() : "";
+    const std::string scope = m_scope;
+    const auto skip = m_skip;
+    if (m_whole) m_whole->set_visible(!scope.empty());
     m_look.start(
-        [home, data, dirs] {
+        [home, data, dirs, scope, skip] {
             Look l;
             l.now = static_cast<std::int64_t>(std::time(nullptr));
             const auto st = core::settings::parse(core::own::read(data, core::settings::kFile));
-            const auto rep = core::birth::report(home, core::birth::sweep(home, dirs, st.catch_all), l.now, st.old_years);
+            auto places = st.catch_all;
+            if (!scope.empty()) places.push_back(scope);   // s027a: swept like a catch-all, this look only
+            const auto rep = core::birth::report(home, core::birth::sweep(home, dirs, places), l.now, st.old_years);
             const auto found = core::projects::find(home, core::projects::parse_left(core::own::read(data, core::projects::kFile)));
             const auto book = core::routes::parse(core::own::read(data, core::routes::kFile));   // s022
             l.rows = so::rows(home, rep, st, l.now, found, core::templates::list(data), &book);
+            if (!scope.empty()) {   // s027a: only what is under the folder, nothing inside its projects / bundles
+                const auto under = [&](const std::string& path, const std::string& rel) {
+                    const std::string root = home + "/" + rel;
+                    return path == root || path.rfind(root + "/", 0) == 0;
+                };
+                std::vector<so::Row> kept;
+                for (auto& r : l.rows) {
+                    if (!under(r.born.file.path, scope)) continue;
+                    bool out = false;
+                    for (const auto& x : skip) out = out || under(r.born.file.path, x);
+                    if (!out) kept.push_back(std::move(r));
+                }
+                l.rows = std::move(kept);
+            }
             return l;
         },
         [this](Look l) { show(std::move(l)); });
@@ -274,7 +308,8 @@ void SortPage::show(Look look) {
     }
     m_list->set_items(items);
     m_list->select_all();
-    m_summary->set_text(plural(m_rows.size(), "loose file") + ": " + std::to_string(home) + " to go home, " +
+    m_summary->set_text((m_scope.empty() ? std::string() : "In ~/" + m_scope + ": ") +
+                        plural(m_rows.size(), "loose file") + ": " + std::to_string(home) + " to go home, " +
                         std::to_string(arch) + " to archive, " + std::to_string(stays) + " to stay, labelled" +
                         (m_fixture ? "   |   FIXTURE " + m_home : ""));
     if (m_status->get_text() == kLooking)

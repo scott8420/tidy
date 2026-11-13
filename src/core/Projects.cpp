@@ -183,7 +183,7 @@ dr::Plan create(const templates::Template& t, const std::string& name, const std
     if (const auto w = templates::part_refusal(name); !w.empty()) return no("name: " + w);
     if (!is_uuid(id)) return no("no id");
     if (t.category.empty()) return no("the template " + t.name + " has no category");
-    if (const auto w = templates::category_refusal(t.category); !w.empty()) return no("category: " + w);
+    if (const auto w = templates::category_refusal(t.category, t.by_place); !w.empty()) return no("category: " + w);
     const std::string top = t.category.substr(0, t.category.find('/'));
     if (top == "Desktop" || top == "Downloads") return no("a landing place is not a category");
     // s024: by place -- no suffix, under the group's folder (the author).

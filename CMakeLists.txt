@@ -16,6 +16,7 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(GTKMM REQUIRED gtkmm-4.0)
 find_package(spdlog REQUIRED)
 pkg_check_modules(SQLITE REQUIRED IMPORTED_TARGET sqlite3)   # Tidy's own catalog (s004)
+pkg_check_modules(GIO REQUIRED IMPORTED_TARGET gio-2.0)      # s028: an EPUB's OPF, inflated (GIO's zlib; comes with gtkmm)
 
 # ── latch -- the shared door (scott8420/latch) ───────────────────────────────
 # A workspace dependency, NOT part of this repo: cloned beside tidy/ at
@@ -117,9 +118,10 @@ add_library(tidy_core STATIC
     src/core/Backup.cpp      # the backup: copies of ~/Archive on media, read back + proved (s013b)
     src/core/Archive.cpp     # the archive: ~/Archive/<year>/<its folder>; tag + move plans; fingerprints (s013a)
     src/core/Homing.cpp      # files home: by type (subfolder required) or into a project; "name (2)" (s011)
+    src/core/Ebooks.cpp      # ebooks from files: title + author from inside, a shelf type per genre (s028)
 )
 target_include_directories(tidy_core PUBLIC include)
-target_link_libraries(tidy_core PUBLIC latch::latch PkgConfig::SQLITE)
+target_link_libraries(tidy_core PUBLIC latch::latch PkgConfig::SQLITE PkgConfig::GIO)
 
 # ── Headless selftest ─────────────────────────────────────────────────────────
 add_executable(tidy_selftest src/selftest.cpp)
@@ -167,6 +169,8 @@ add_executable(tidy
     src/IdListsWindow.cpp
     src/QuarantinePage.cpp   # s025b: the answers to the suspect scan; s027 a page
     src/OrganizeStart.cpp    # s027: Organize's guided landing
+    src/SeesPage.cpp         # s027a: What Tidy sees
+    src/EbooksWindow.cpp     # s028: ebooks from files
     src/AdoptWindow.cpp      # s023: adopt folders -- in place or catch-all
     src/MapPage.cpp          # s023f: the home map -- a treemap of cataloged / loose / untracked
     src/OrganizeWindow.cpp   # s024e: Organize as... -- THE way to put a folder in order

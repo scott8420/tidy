@@ -163,7 +163,7 @@ void TemplatesPage::build_start() {
 void TemplatesPage::build_list() {
     auto box = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::VERTICAL, 0);
     box->set_name("templates.list.page");
-    box->append(*head_box(&m_list_summary, "Templates", "templates.list.summary"));
+    box->append(*head_box(&m_list_summary, "Types", "templates.list.summary"));
     m_list = listbox("templates.list");
     box->append(*scrolled(*m_list));
     auto bar = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::HORIZONTAL, 10);
@@ -180,7 +180,7 @@ void TemplatesPage::build_list() {
     lift->set_name("templates.list.lift");
     lift->signal_clicked().connect([this] { on_lift(); });
     bar->append(*lift);
-    auto nw = Gtk::make_managed<Gtk::Button>("New template");
+    auto nw = Gtk::make_managed<Gtk::Button>("New type");
     nw->set_name("templates.list.new");
     nw->add_css_class("act");
     nw->signal_clicked().connect([this] { on_new(); });

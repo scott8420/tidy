@@ -29,6 +29,7 @@ public:
     MapPage(std::string home, bool fixture, Text user_dirs, CatchAll catch_all, Adopt adopt);
     void refresh_if_shown();
     void set_on_organize(std::function<void(const std::string& dir)> f) { m_organize = std::move(f); }   // s024e
+    void set_on_sees(std::function<void(const std::string& dir)> f) { m_sees = std::move(f); }           // s027a
 
 private:
     struct Box {
@@ -49,6 +50,7 @@ private:
     CatchAll m_catch_all;
     Adopt m_adopt;
     std::function<void(const std::string&)> m_organize;   // s024e: Organize as...
+    std::function<void(const std::string&)> m_sees;       // s027a: What Tidy sees
     bool m_busy = false;
     std::shared_ptr<core::map::Node> m_root;
     std::string m_rel;                       // the folder shown

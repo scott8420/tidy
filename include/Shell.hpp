@@ -75,6 +75,8 @@ class ProjectsPage;
 class IdListsWindow;
 class QuarantinePage;
 class OrganizeStart;
+class SeesPage;
+class EbooksWindow;
 class AdoptWindow;
 class OrganizeWindow;
 class TemplatesPage;
@@ -96,6 +98,8 @@ public:
     void build_ui();                               // category: glue
     // s012c: what the tile asks for (tidy --page / --new-project / --background).
     void go(const std::string& page);              // category: glue: a page, its sidebar row selected
+    void on_ebooks(const std::string& dir = "");    // s028: ebooks from files
+    void look_at(const std::string& dir);          // s027a: What Tidy sees, on that folder (abs or ~/rel)
     void new_project_from(const std::string& template_name);   // category: glue: Projects -> New project, that template
     void open_background();                        // category: glue: the Background scan window
 
@@ -206,12 +210,14 @@ private:
     SettingsPage*   m_settings_page = nullptr;   // s027: the Settings area (was a window)
     QuarantinePage* m_quarantine = nullptr;      // s027: Review's tab (was a window)
     OrganizeStart*  m_org_start = nullptr;       // s027: Organize's guided landing
+    SeesPage*       m_sees = nullptr;            // s027a: What Tidy sees
     DuePage*      m_due = nullptr;                // s012a the trigger (managed by the stack)          // s011 files home (managed by the stack)
 
     std::unique_ptr<AboutWindow>     m_about;
     std::unique_ptr<HelpWindow>      m_help;
     std::unique_ptr<IdListsWindow>   m_idlists_win;   // s010f2
     std::unique_ptr<AdoptWindow>     m_adopt_win;     // s023
+    std::unique_ptr<EbooksWindow>    m_ebooks_win;    // s028: ebooks from files
     std::unique_ptr<OrganizeWindow>  m_organize_win;  // s024e (replaces Conform, Shape, Layout, Books, Authors)
     std::unique_ptr<BackgroundWindow> m_background_win;   // s012b
     core::settings::Settings         m_settings;   // read at build_ui; written only by core::own

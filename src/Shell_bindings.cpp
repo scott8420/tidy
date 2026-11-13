@@ -14,6 +14,7 @@ void Shell::bind_actions() {  // bindings: win.* actions
     add_action("quarantine",    sigc::mem_fun(*this, &Shell::on_quarantine));   // s025b
     add_action("adopt",         sigc::mem_fun(*this, &Shell::on_adopt));   // s023
     add_action("organize",      [this] { on_organize(); });                // s024e
+    add_action("ebooks",        [this] { on_ebooks(); });                  // s028
     add_action("background",    sigc::mem_fun(*this, &Shell::on_background));
     add_action("shortcuts",     sigc::mem_fun(*this, &Shell::on_shortcuts));
     add_action("dump-registry", sigc::mem_fun(*this, &Shell::on_dump_registry));

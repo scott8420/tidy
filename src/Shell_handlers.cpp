@@ -16,6 +16,8 @@
 #include "IdListsWindow.hpp"
 #include "QuarantinePage.hpp"
 #include "OrganizeStart.hpp"
+#include "SeesPage.hpp"
+#include "EbooksWindow.hpp"
 #include "AdoptWindow.hpp"
 #include "OrganizeWindow.hpp"
 #include "TemplatesPage.hpp"
@@ -71,6 +73,7 @@ void Shell::on_nav(const std::string& page) {  // handler: a page shown -> its t
     }
     // s027: pages that read when shown.
     if (page == "organize" && m_org_start) m_org_start->refresh();
+    if (page == "templates" && m_templates_page && from_elsewhere) m_templates_page->refresh();   // s028a: a type saved elsewhere
     if (page == "quarantine" && m_quarantine) m_quarantine->open();   // looks the first time only
     if (page == "settings" && m_settings_page && from_elsewhere) m_settings_page->show(m_settings);
     if (auto lg = log::get(log::Area::Shell)) lg->debug("nav -> {} (tint {})", page, m_tint);
@@ -373,6 +376,29 @@ void Shell::go(const std::string& page) {  // glue
         }
     if (!selected) on_nav(page);       // the look off: GTK's own sidebar follows the stack
     present();
+}
+
+void Shell::on_ebooks(const std::string& dir) {  // glue: s028
+    if (!m_ebooks_win)
+        m_ebooks_win = std::make_unique<EbooksWindow>(*this, *m_door, m_home, m_data_dir, [this] {
+            refresh_activity();
+            if (m_templates_page) m_templates_page->refresh();   // s028a: the ebook-<genre> type it saved
+            if (m_projects) m_projects->refresh_if_shown();
+        });
+    std::string abs = dir;
+    if (abs == "~") abs = m_home;
+    else if (abs.rfind("~/", 0) == 0) abs = m_home + abs.substr(1);
+    else if (!abs.empty() && abs[0] != '/') abs = m_home + "/" + abs;
+    m_ebooks_win->open(abs);
+}
+
+void Shell::look_at(const std::string& dir) {  // glue: s027a
+    std::string abs = dir;
+    if (abs == "~") abs = m_home;
+    else if (abs.rfind("~/", 0) == 0) abs = m_home + abs.substr(1);
+    else if (!abs.empty() && abs[0] != '/') abs = m_home + "/" + abs;
+    go("sees");
+    if (m_sees) m_sees->look_at(abs);
 }
 
 void Shell::new_project_from(const std::string& name) {  // glue

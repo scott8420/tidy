@@ -104,6 +104,8 @@
 #include "core/Removal.hpp"
 #include "core/Help.hpp"
 #include "core/Code.hpp"
+#include "core/Ebooks.hpp"
+#include <gio/gio.h>
 #include <latch/Vcs.hpp>
 
 #include <latch/Door.hpp>
@@ -112,6 +114,7 @@
 #include <latch/Protect.hpp>
 
 #include <algorithm>
+#include <tuple>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -219,6 +222,38 @@ std::vector<std::string> gate_hits(const std::string& file, const std::string& t
         if (std::regex_search(code, f.re)) hits.push_back(file + ": " + f.name);
     }
     return hits;
+}
+
+// ── s028: a tiny zip writer for EPUB fixtures (stored, or raw deflate via GIO) ──
+std::string deflate_raw(const std::string& in) {
+    GZlibCompressor* z = g_zlib_compressor_new(G_ZLIB_COMPRESSOR_FORMAT_RAW, 6);
+    std::string out(in.size() + 1024, '\0');
+    gsize r = 0, w = 0;
+    g_converter_convert(G_CONVERTER(z), in.data(), in.size(), out.data(), out.size(), G_CONVERTER_INPUT_AT_END, &r, &w, nullptr);
+    g_object_unref(z);
+    out.resize(w);
+    return out;
+}
+std::string make_zip(const std::vector<std::tuple<std::string, std::string, bool>>& members) {
+    auto le = [](std::string& o, std::uint32_t v, int n) { for (int i = 0; i < n; ++i) o += static_cast<char>((v >> (8 * i)) & 0xFF); };
+    std::string out, cd;
+    for (const auto& [name, body, deflate] : members) {
+        const std::string data = deflate ? deflate_raw(body) : body;
+        const std::uint32_t off = static_cast<std::uint32_t>(out.size());
+        const std::uint32_t crc = 0;   // our reader does not check it
+        le(out, 0x04034b50, 4); le(out, 20, 2); le(out, 0, 2); le(out, deflate ? 8 : 0, 2); le(out, 0, 4);
+        le(out, crc, 4); le(out, data.size(), 4); le(out, body.size(), 4); le(out, name.size(), 2); le(out, 0, 2);
+        out += name + data;
+        le(cd, 0x02014b50, 4); le(cd, 20, 2); le(cd, 20, 2); le(cd, 0, 2); le(cd, deflate ? 8 : 0, 2); le(cd, 0, 4);
+        le(cd, crc, 4); le(cd, data.size(), 4); le(cd, body.size(), 4); le(cd, name.size(), 2); le(cd, 0, 2); le(cd, 0, 2);
+        le(cd, 0, 2); le(cd, 0, 2); le(cd, 0, 4); le(cd, off, 4);
+        cd += name;
+    }
+    const std::uint32_t cd_off = static_cast<std::uint32_t>(out.size());
+    out += cd;
+    le(out, 0x06054b50, 4); le(out, 0, 2); le(out, 0, 2); le(out, members.size(), 2); le(out, members.size(), 2);
+    le(out, cd.size(), 4); le(out, cd_off, 4); le(out, 0, 2);
+    return out;
 }
 
 // ── s004 fixtures ─────────────────────────────────────────────────────────────
@@ -439,6 +474,8 @@ int main(int argc, char** argv) {
               lk::area_of(ar, "quarantine") == "review" && lk::area_of(ar, "templates") == "design" &&
               lk::area_of(ar, "purposes") == "design" && lk::area_of(ar, "settings") == "settings" &&
               lk::area_of(ar, "closet") == "organize" && lk::area_of(ar, "nowhere").empty());
+        check("look: What Tidy sees is Organize's, right after Start (s027a)",
+              ar.size() > 1 && ar[1].tabs.size() > 1 && ar[1].tabs[1] == "sees");
         std::size_t tabs = 0;
         for (const auto& a : ar) tabs += a.tabs.size();
         std::size_t items = 0;
@@ -5210,6 +5247,117 @@ int main(int argc, char** argv) {
         qu::set("", {});
         latch::pkg::set_extra({});
         core::projects::set_shelves({});
+        fs::remove_all(root);
+    }
+
+
+    // ── s028: ebooks from files -- the names, the metadata, the type, the plan ──
+    {
+        namespace eb = core::ebooks;
+        namespace tp = core::templates;
+        check("ebooks: last_first -- Keene, Van Vogt, Jr., a comma kept, one name, the first of two",
+              eb::last_first("Carolyn Keene") == "Keene, Carolyn" && eb::last_first("A. E. Van Vogt") == "Van Vogt, A. E." &&
+              eb::last_first("Martin Luther King Jr.") == "King, Martin Luther, Jr." &&
+              eb::last_first("Keene, Carolyn") == "Keene, Carolyn" && eb::last_first("Homer") == "Homer" &&
+              eb::last_first("Walter de la Mare") == "de la Mare, Walter" &&
+              eb::last_first("Carolyn Keene; Mildred Wirt") == "Keene, Carolyn" && eb::last_first("").empty(),
+              eb::last_first("A. E. Van Vogt") + " | " + eb::last_first("Walter de la Mare"));
+        {
+            const auto a = eb::from_name("The Hidden Staircase - Carolyn Keene.epub");
+            const auto b = eb::from_name("Keene, Carolyn - The Hidden Staircase.pdf");
+            const auto c = eb::from_name("Hidden_Staircase.epub");
+            check("ebooks: from the name -- Title - Author, Last, First - Title, title only",
+                  a.title == "The Hidden Staircase" && a.author == "Carolyn Keene" && b.author == "Keene, Carolyn" &&
+                  b.title == "The Hidden Staircase" && c.title == "Hidden Staircase" && c.author.empty() && a.from == "the name");
+        }
+        check("ebooks: folder names -- '/' and ':' made safe, no leading dot",
+              eb::folder_name("Star Wars: A/B") == "Star Wars - A-B" && eb::folder_name(".hidden") == "hidden" &&
+              eb::folder_name("  x  ") == "x" && eb::folder_name("Van Vogt, A. E.") == "Van Vogt, A. E.",
+              eb::folder_name("Star Wars: A/B"));
+        check("ebooks: is_ebook -- .epub .PDF .cbz yes, .odt no",
+              eb::is_ebook("a.epub") && eb::is_ebook("b.PDF") && eb::is_ebook("c.cbz") && !eb::is_ebook("d.odt"));
+        const auto t = eb::type_for("Fiction");
+        check("ebooks: the type -- ebook-fiction, by place, Entertainment/EBooks/Fiction, Author group, no folders, valid",
+              t.name == "ebook-fiction" && t.by_place && t.category == "Entertainment/EBooks/Fiction" &&
+              t.group == eb::kGroup && t.folders.empty() && tp::problems(t).empty() && tp::place_depth(t) == 2 &&
+              eb::type_name("Science Fiction") == "ebook-science-fiction");
+        check("ebooks: a shelf may be 3 deep, a -project category still 2, never 4",
+              !tp::category_refusal("a/b/c").empty() && tp::category_refusal("a/b/c", true).empty() &&
+              !tp::category_refusal("a/b/c/d", true).empty());
+
+        const fs::path root = fs::temp_directory_path() / ("tidy_selftest_ebooks_" + std::to_string(::getpid()));
+        fs::remove_all(root);
+        const std::string H = (root / "home").string(), D = (root / "data").string();
+        fs::create_directories(D);
+        const std::string container = R"(<?xml version="1.0"?><container><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>)";
+        const std::string opf = R"(<package><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>The Secret of the Old Clock</dc:title><dc:creator opf:file-as="Keene, Carolyn" opf:role="aut">Carolyn Keene</dc:creator></metadata></package>)";
+        put_file(H + "/Downloads/random_name.epub", make_zip({{"mimetype", "application/epub+zip", false},
+                                                              {"META-INF/container.xml", container, false},
+                                                              {"OEBPS/content.opf", opf, true}}));
+        put_file(H + "/Downloads/Space Gypsies - Murray Leinster.epub", "not a zip at all");
+        put_file(H + "/Downloads/scan.pdf", "%PDF-1.4\n1 0 obj << /Title (Slan) /Author <FEFF0041002E00200045002E002000560061006E00200056006F00670074> >> endobj\n%%EOF");
+        put_file(H + "/Downloads/.hidden.epub", "h");
+        put_file(H + "/Downloads/notes.odt", "o");
+        put_file(H + "/Downloads/Old-project/inside.epub", "i");
+        put_file(H + "/Downloads/Old Book/Images/p.png", "p");                 // looks like a project: left whole
+        put_file(H + "/Downloads/Old Book/Finals/old.epub", "e");
+        put_file(H + "/Documents/EBooks/Fiction/Keene/Clock/clock.epub", "c");  // the EBooks library: Organize as...
+        {
+            const auto m = eb::read(H + "/Downloads/random_name.epub");
+            check("ebooks: an EPUB's own title + author (file-as), the OPF deflated",
+                  m.from == "epub" && m.title == "The Secret of the Old Clock" && m.author == "Keene, Carolyn",
+                  m.from + " | " + m.title + " | " + m.author);
+            const auto p = eb::read(H + "/Downloads/scan.pdf");
+            check("ebooks: a PDF's Info -- (Slan) and UTF-16 <FEFF...> author",
+                  p.from == "pdf" && p.title == "Slan" && p.author == "A. E. Van Vogt", p.title + " | " + p.author);
+            const auto n = eb::read(H + "/Downloads/Space Gypsies - Murray Leinster.epub");
+            check("ebooks: an unreadable EPUB falls back to its name", n.from == "the name" && n.title == "Space Gypsies" &&
+                  n.author == "Murray Leinster");
+        }
+        const auto rows = eb::find(H, H + "/Downloads");
+        std::map<std::string, eb::Row> by;
+        for (const auto& r : rows) by[fs::path(r.path).filename().string()] = r;
+        check("ebooks: the EBooks library and a project-like folder are never picked apart",
+              eb::find(H, H + "/Documents").empty() && eb::find(H, H + "/Downloads/Old Book").size() <= 1);
+        check("ebooks: find -- 3 ebooks; hidden, .odt, a -project's inside, an old book's Finals left out",
+              rows.size() == 3 && by.count("random_name.epub") && by.count("scan.pdf") &&
+              by.count("Space Gypsies - Murray Leinster.epub"), std::to_string(rows.size()));
+        check("ebooks: find -- Last, First; a .pdf starts unpicked; Fiction by default",
+              by["random_name.epub"].author == "Keene, Carolyn" && by["scan.pdf"].author == "Van Vogt, A. E." &&
+              by["Space Gypsies - Murray Leinster.epub"].author == "Leinster, Murray" && !by["scan.pdf"].pick &&
+              by["random_name.epub"].pick && by["random_name.epub"].genre == "Fiction");
+        check("ebooks: target -- Entertainment/EBooks/Fiction/Keene, Carolyn/The Secret of the Old Clock",
+              eb::target_of(by["random_name.epub"]) == "Entertainment/EBooks/Fiction/Keene, Carolyn/The Secret of the Old Clock");
+        {
+            eb::Row bad = by["random_name.epub"];
+            bad.author.clear();
+            check("ebooks: no author -> a problem, not planned", !eb::row_problem(bad).empty() && eb::plan(H, {bad}).plan.actions.empty());
+        }
+        {
+            latch::door::Door door(H, D);
+            door.load();
+            auto pl = eb::plan(H, rows);
+            std::size_t moves = 0;
+            for (const auto& a : pl.plan.actions) moves += a.verb == latch::door::Verb::Move;
+            check("ebooks: plan -- 2 moves (the .pdf unpicked), folders made", moves == 2, std::to_string(moves));
+            pl.plan.label = "Ebooks";
+            pl.plan.previewed = true;
+            const auto r = door.run(pl.plan);
+            const std::string at = H + "/Entertainment/EBooks/Fiction/Keene, Carolyn/The Secret of the Old Clock/random_name.epub";
+            check("ebooks: run -- on the shelf, in its title folder", r.ok && fs::exists(at) && fs::exists(H + "/Downloads/scan.pdf"));
+            // Saved, the type makes the title folder a project by its place.
+            const auto saved = tp::save(D, t);
+            core::projects::set_shelves(core::projects::shelves_of(tp::list(D)));
+            check("ebooks: the saved type -- in Types; a title folder is ONE project by its place",
+                  saved.empty() && tp::list(D).size() == 1 &&
+                  core::projects::is_whole_at("Entertainment/EBooks/Fiction/Keene, Carolyn/The Secret of the Old Clock") &&
+                  !core::projects::is_whole_at("Entertainment/EBooks/Fiction/Keene, Carolyn"), saved);
+            check("ebooks: found again -- the book on its shelf is not loose",
+                  eb::find(H, H + "/Entertainment").empty());
+            const auto u = door.undo();
+            check("ebooks: one undo -- back in Downloads", u.ok && fs::exists(H + "/Downloads/random_name.epub") && !fs::exists(at));
+            core::projects::set_shelves({});
+        }
         fs::remove_all(root);
     }
 

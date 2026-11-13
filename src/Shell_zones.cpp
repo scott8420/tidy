@@ -1,5 +1,6 @@
 #include "Shell.hpp"
 #include "OrganizeStart.hpp"
+#include "SeesPage.hpp"
 #include "QuarantinePage.hpp"
 #include "SettingsPage.hpp"
 #include "Log.hpp"
@@ -147,6 +148,19 @@ void Shell::build_page(const std::string& id) {  // zone: a page's hero
         m_stack.add(*m_org_start, id, "Organize");
         return;
     }
+    if (id == "sees") {                                    // s027a: What Tidy sees
+        m_sees = Gtk::make_managed<SeesPage>(*this, *m_door, m_home, m_data_dir,
+            [this](const std::string& page) { go(page); },
+            [this](const std::string& dir, const std::string& type) { on_organize(dir, type); },
+            [this](const std::string& rel, std::vector<std::string> skip) {
+                go("sort");
+                if (m_sort_page) m_sort_page->look_in(rel, std::move(skip));
+            },
+            [this] { refresh_activity(); });
+        m_sees->set_on_ebooks([this](const std::string& dir) { on_ebooks(dir); });   // s028
+        m_stack.add(*m_sees, id, "What Tidy sees");
+        return;
+    }
     if (id == "quarantine") {                              // s027: was the Quarantine window (s025b)
         m_quarantine = Gtk::make_managed<QuarantinePage>(*this, *m_door, m_home, m_data_dir, [this] { refresh_activity(); });
         m_stack.add(*m_quarantine, id, "Quarantine");
@@ -173,6 +187,10 @@ void Shell::build_page(const std::string& id) {  // zone: a page's hero
                                                 [this] { return m_settings.catch_all; },
                                                 [this](const std::string& rel, bool ca) { on_adopt_folder(rel, ca); });
         m_map_page->set_on_organize([this](const std::string& dir) { on_organize(dir); });   // s024e
+        m_map_page->set_on_sees([this](const std::string& dir) {                             // s027a
+            go("sees");
+            if (m_sees) m_sees->look_at(dir);
+        });
         m_stack.add(*m_map_page, id, pp ? pp->title : "Map");
         return;
     }
@@ -516,6 +534,7 @@ Glib::RefPtr<Gio::Menu> Shell::build_menu() {  // zone: hamburger model
     auto prefs = Gio::Menu::create();
     prefs->append("Adopt folders\u2026", "win.adopt");   // s023
     prefs->append("Organize as\u2026", "win.organize");   // s024e
+    prefs->append("Ebooks from files\u2026", "win.ebooks");   // s028
     prefs->append("Id lists\u2026", "win.id-lists");
     prefs->append("Background scan\u2026", "win.background");
     menu->append_section(prefs);

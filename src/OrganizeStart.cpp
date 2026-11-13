@@ -22,7 +22,7 @@ Gtk::Label* text(const std::string& s, const char* css = nullptr, float x = 0.0f
 int OrganizeStart::next_step(int types, int held) {
     (void)types;            // bookbinding is built in: there is always one type to organize by
     if (held > 0) return 1; // answer the Quarantine first -- held folders are skipped whole
-    return 2;               // pick a folder on the Map
+    return 2;               // pick a folder: What Tidy sees
 }
 
 OrganizeStart::OrganizeStart(std::string data_dir, Go go, Act organize)
@@ -66,10 +66,10 @@ OrganizeStart::OrganizeStart(std::string data_dir, Go go, Act organize)
                       "Folders that may be one thing (an app's bundle) are held whole in Quarantine. Tidy will "
                       "not go inside them until you say what they are.",
                       {{"Open Quarantine", to("quarantine")}}, "organize.step.quarantine"));
-    col->append(*step(3, "Pick a folder",
-                      "The Map shows your home as boxes: red is not tracked yet. Find a messy folder and "
-                      "right-click it.",
-                      {{"Open the Map", to("map")}}, "organize.step.map"));
+    col->append(*step(3, "Pick a folder and see what Tidy sees",
+                      "Tidy reads it top down: bundles, projects, sets, kinds, the Closet -- each with what you can "
+                      "do. Not sure where the mess is? The Map shows your home as boxes; red is not tracked yet.",
+                      {{"Look at a folder\u2026", to("sees")}, {"Open the Map", to("map")}}, "organize.step.map"));
     col->append(*step(4, "Organize it as a type",
                       "Pick its type; Tidy lays it out and moves it where that type lives. You see the whole "
                       "plan first, then Do it.",
@@ -139,7 +139,7 @@ void OrganizeStart::refresh() {
         m_steps[i].state->set_text(lit ? "Start here" : "");
     }
     m_summary->set_text(held ? "Start with the Quarantine: the folders it holds are skipped until you answer."
-                             : "Your types are ready and nothing is held -- pick a folder on the Map.");
+                             : "Your types are ready and nothing is held -- pick a folder and see what Tidy sees.");
 }
 
 }  // namespace tidy

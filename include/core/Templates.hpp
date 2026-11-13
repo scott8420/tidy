@@ -75,7 +75,7 @@ std::string path_refusal(const std::string& path);       // 1..kDepth parts
 // s024: how deep under ~/<category> a by-place project sits (1, or 2 with a group); 0 = not by place.
 int place_depth(const Template& t);
 // A category: one or two folders under home ("Writing", "Develop/gtk" -- s010c).
-std::string category_refusal(const std::string& category);
+std::string category_refusal(const std::string& category, bool by_place = false);   // s028: a shelf may be 3 deep
 // Everything wrong with a template, each a sentence ("" list = fine).
 std::vector<std::string> problems(const Template& t);
 

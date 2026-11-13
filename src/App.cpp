@@ -43,6 +43,8 @@ int App::on_command_line(const Glib::RefPtr<Gio::ApplicationCommandLine>& cl) {
         const auto& a = args[i];
         const bool more = i + 1 < args.size();
         if (a == "--page" && more) m_shell->go(args[++i]);
+        else if (a == "--look-at" && more) m_shell->look_at(args[++i]);   // s027a: What Tidy sees, on a folder
+        else if (a == "--ebooks" && more) m_shell->on_ebooks(args[++i]);    // s028: ebooks from files, on a folder
         else if (a == "--new-project" && more) m_shell->new_project_from(args[++i]);
         else if (a == "--background") m_shell->open_background();
         else if (auto lg = log::get(log::Area::App)) lg->warn("command line: '{}' not known", a);

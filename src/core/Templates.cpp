@@ -143,10 +143,13 @@ std::string path_refusal(const std::string& path) {
     return "";
 }
 
-std::string category_refusal(const std::string& category) {
+std::string category_refusal(const std::string& category, bool by_place) {
     // Two deep at most (Scott, s010c): ~/Develop holds plain GitHub repos,
-    // ~/Develop/gtk our workspaces.
-    if (parts_of(category).size() > 2) return "\"" + category + "\" -- a category is one or two folders under home";
+    // ~/Develop/gtk our workspaces. s028 (Scott: "b"): a shelf -- a type known
+    // by its place -- may be one deeper: Entertainment/EBooks/Fiction.
+    const std::size_t most = by_place ? 3 : 2;
+    if (parts_of(category).size() > most)
+        return "\"" + category + "\" -- a category is " + (by_place ? "one to three" : "one or two") + " folders under home";
     return path_refusal(category);
 }
 
@@ -159,8 +162,9 @@ std::vector<std::string> problems(const Template& t) {
     std::vector<std::string> out;
     if (auto w = name_refusal(t.name); !w.empty()) out.push_back(w);
     if (t.category.empty()) out.push_back("a template needs a category (the home folder its projects live in)");
-    else if (auto w = category_refusal(t.category); !w.empty()) out.push_back("category: " + w);
-    if (t.folders.empty()) out.push_back("a template needs at least one folder");
+    else if (auto w = category_refusal(t.category, t.by_place); !w.empty()) out.push_back("category: " + w);
+    // s028: a shelf type may be just its title folder (an ebook: the file at its top).
+    if (t.folders.empty() && !t.by_place) out.push_back("a template needs at least one folder");
     if (!t.by_place && !t.group.empty()) out.push_back("a group level is only for projects known by their place");
     if (t.group.find('\n') != std::string::npos) out.push_back("the group's label is one line");
     std::set<std::string> seen;
@@ -416,7 +420,7 @@ std::string Builder::set_name(const std::string& name) {
     return apply(std::move(d));
 }
 std::string Builder::set_category(const std::string& category) {
-    if (auto w = category_refusal(category); !w.empty()) return "category: " + w;
+    if (auto w = category_refusal(category, m_now.t.by_place); !w.empty()) return "category: " + w;
     Draft d = m_now;
     d.t.category = category;
     return apply(std::move(d));

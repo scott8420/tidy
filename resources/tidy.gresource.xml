@@ -7,6 +7,8 @@
 <gresources>
   <gresource prefix="/io/github/scott8420/Tidy/icons/scalable/apps">
     <file preprocess="xml-stripblanks" alias="tidy-activity-symbolic.svg">icons/scalable/apps/tidy-activity-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="tidy-sees-symbolic.svg">icons/scalable/apps/tidy-sees-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="tidy-hero-sees.svg">icons/scalable/apps/tidy-hero-sees.svg</file>
     <file preprocess="xml-stripblanks" alias="tidy-quarantine-symbolic.svg">icons/scalable/apps/tidy-quarantine-symbolic.svg</file>
     <file preprocess="xml-stripblanks" alias="tidy-hero-organize.svg">icons/scalable/apps/tidy-hero-organize.svg</file>
     <file preprocess="xml-stripblanks" alias="tidy-hero-quarantine.svg">icons/scalable/apps/tidy-hero-quarantine.svg</file>

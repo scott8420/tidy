@@ -357,6 +357,8 @@ void MapPage::menu_for(const Box& b, double x, double y) {
         item("Adopt in place...", "map.menu.adopt", [this, rel] { if (m_adopt) m_adopt(rel, false); });
         item("Make it a catch-all...", "map.menu.catchall", [this, rel] { if (m_adopt) m_adopt(rel, true); });
     }
+    if (m_sees && b.node->what != "~/Archive")       // s027a: the recognise report, on screen
+        item("What Tidy sees", "map.menu.sees", [this, rel] { m_sees(m_home + "/" + rel); });
     if (m_organize && b.node->what != "~/Archive")   // s024e: the one way -- a loose folder, a series, a book in place
         item("Organize as...", "map.menu.organize", [this, rel] { m_organize(m_home + "/" + rel); });
     item("Open in Files", "map.menu.open", [this, rel] {

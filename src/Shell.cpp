@@ -7,6 +7,7 @@
 #include "SettingsPage.hpp"
 #include "IdListsWindow.hpp"
 #include "QuarantinePage.hpp"
+#include "EbooksWindow.hpp"
 #include "AdoptWindow.hpp"
 #include "OrganizeWindow.hpp"
 #include "BackgroundWindow.hpp"

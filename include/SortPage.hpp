@@ -31,6 +31,10 @@ public:
              Changed changed);
     void refresh_if_shown();
     void set_on_adopt(std::function<void()> f) { m_on_adopt = std::move(f); }   // s023: the Adopt folders window
+    // s027a: Sort only the loose files under `rel` (swept there even if it is
+    // not a catch-all), leaving out anything inside `skip` (its projects,
+    // bundles). "" = the whole home again.
+    void look_in(const std::string& rel, std::vector<std::string> skip = {});
 
 private:
     struct Look {
@@ -55,6 +59,9 @@ private:
     Changed m_changed;
     std::function<void()> m_on_adopt;   // s023
     OffThread<Look> m_look;
+    std::string m_scope;                       // s027a: "" = the whole home
+    std::vector<std::string> m_skip;           // s027a: rels left out of a scoped look
+    Gtk::Button* m_whole = nullptr;
     std::vector<core::sort::Row> m_rows;   // the list's rows, by index
     std::optional<latch::door::Plan> m_plan;
     bool m_archiving = false;

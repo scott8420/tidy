@@ -7,6 +7,8 @@ const std::vector<Page>& all() {
     static const std::vector<Page> p = {
         {"organize", "Organize",
          "Put a folder in order: pick it, see what Tidy recognises, preview, Do it.", "s027"},
+        {"sees", "What Tidy sees",
+         "One folder read top down -- bundles, projects, sets, kinds, the Closet -- each with its action.", "s027"},
         {"quarantine", "Quarantine",
          "Folders that may be one thing: held whole until you answer.", "s025"},
         {"settings", "Settings",
