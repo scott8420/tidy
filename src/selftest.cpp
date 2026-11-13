@@ -5067,14 +5067,30 @@ int main(int argc, char** argv) {
         put_file(B + "/Body/Layout/Hollow.composix/c.json", "{}");
         put_file(B + "/Body/Finals/Hollow.epub", "e");
         put_file(B + "/Body/Layout/Hollow.epub", "misplaced");
-        put_file(H + "/Documents/EBooks/Keene/13 Ivory/Archive.optik/a.json", big);
-        put_file(H + "/Documents/EBooks/Keene/13 Ivory/Ivory.optik/a.json", big);
+        put_file(H + "/Documents/EBooks/Fiction/Keene/13 Ivory/Archive.optik/a.json", big);
+        put_file(H + "/Documents/EBooks/Fiction/Keene/13 Ivory/Ivory.optik/a.json", big);
         put_file(H + "/Documents/Design/Curvz/Home.curvz/a.json", "{}");
         put_file(H + "/Graphics/Desk/Test.curvz/a.json", "{}");
         put_file(H + "/Documents/DBs/test.sqlite", "db");
         put_file(H + "/Writing/Scrivener-project/Tapper/Tapper.scriv/x.rtf", "r");
         for (const char* b : {"01 Staircase", "02 Bungalow"})
-            for (const char* d : {"Archive", "Print", "Workups"}) put_file(H + "/Documents/Old/" + b + "/" + d + "/f.txt", "f");
+            for (const char* d : {"Drafts", "Assets"}) put_file(H + "/Documents/Old/" + b + "/" + d + "/f.txt", "f");
+        put_file(H + "/Documents/Older/Lilac Inn/Archive/A1.txt", "f");          // bookbinding's folders: maybe an old one
+        put_file(H + "/Documents/Older/Lilac Inn/Images/i.txt", "f");
+        put_file(H + "/Documents/Older/Shadow Ranch/Archive/A1.txt", "f");
+        put_file(H + "/Documents/Older/Shadow Ranch/Images/i.txt", "f");
+        put_file(H + "/Documents/EBooks/Fiction/Keene/Nancy - Wikipedia.html", "h");      // a saved page + its folder
+        put_file(H + "/Documents/EBooks/Fiction/Keene/Nancy - Wikipedia_files/load.php", "1");
+        put_file(H + "/Documents/EBooks/Fiction/Keene/Nancy - Wikipedia_files/load(1).php", "2");
+        put_file(H + "/Documents/EBooks/Fiction/Silverberg/Archive/A0001.png", "s");     // a title at the genre level
+        for (int i = 1; i <= 12; ++i) put_file(H + "/Pictures/Pages/" + std::to_string(i) + ".png", "p");   // 1..12: one run
+        put_file(H + "/Entertainment/Open Range (2003)/Open.Range.mp4", "v");    // a movie folder
+        put_file(H + "/Entertainment/Open Range (2003)/Subs/en.srt", "s");
+        put_file(H + "/Entertainment/Open Range (2003)/x.nfo", "n");
+        put_file(H + "/Entertainment/Foundation/Foundation.2021.S02E01.mkv", "f");   // one show, years or not
+        put_file(H + "/Entertainment/Foundation/Foundation.S01E01.mkv", "f");
+        put_file(H + "/Documents/KeePassXC/pw.kdbx", "k");
+        put_file(H + "/Documents/Stale/x.txt", "t");                            // held by a stale list: walked
         for (int i = 1; i <= 6; ++i) put_file(H + "/Downloads/Scans/S000" + std::to_string(i) + ".jpg", "s");
         put_file(H + "/Downloads/Mobland_s01e01.mkv", "m");
         put_file(H + "/Entertainment/Movies/Mobland/Mobland_s01e02.mkv", "m");
@@ -5090,7 +5106,7 @@ int main(int argc, char** argv) {
         put_file(H + "/Keep/secret.png", "k");
         put_file(H + "/Archive/2025/old.png", "a");
         put_file(H + "/.hidden/h.png", "h");
-        core::own::write(D, qu::kFile, "held Documents/DBs\n");
+        core::own::write(D, qu::kFile, "held Documents/DBs\nheld Documents/Stale\n");
         core::projects::apply_places(D, H);
         latch::protect::set_owned({"Keep"});
         const auto before = tree_facts(H);
@@ -5124,25 +5140,48 @@ int main(int argc, char** argv) {
         check("recognise: Scrivener-project -- one project, its .scriv counted inside", sp && sp->bundles == 1);
         const auto* la = proj("Documents/Old/01 Staircase");
         check("recognise: working folders -> looks like a project; siblings -> a proposed type",
-              la && la->how == rc::Project::How::LooksLike && la->working.size() == 3 && r.proposed.size() == 1 &&
-              r.proposed[0].parent == "Documents/Old" && r.proposed[0].members.size() == 2);
-        std::size_t runs = 0, eps = 0, fonts = 0, vers = 0;
+              la && la->how == rc::Project::How::LooksLike && la->working.size() == 2 && r.proposed.size() == 1 &&
+              r.proposed[0].parent == "Documents/Old" && r.proposed[0].members.size() == 2, std::to_string(r.proposed.size()));
+        const auto* li = proj("Documents/Older/Lilac Inn");
+        check("recognise: Archive/ + Images/ -> maybe an old bookbinding, not a proposed type",
+              li && li->maybe == "bookbinding" && li->tpl.empty());
+        const auto* iv = proj("Documents/EBooks/Fiction/Keene/13 Ivory");
+        const auto* sv = proj("Documents/EBooks/Fiction/Silverberg");
+        check("recognise: the EBooks library -- a title is one book (its .optik inside); a title at the genre level",
+              iv && iv->how == rc::Project::How::Book && iv->bundles == 2 && sv && sv->how == rc::Project::How::Book &&
+              !proj("Documents/EBooks/Fiction/Keene"));
+        check("recognise: a stale held list -- the folder is walked, not held",
+              !bund("Documents/Stale") && bund("Documents/DBs"));
+        std::size_t runs = 0, run12 = 0, eps = 0, found = 0, vers = 0, page = 0, movie = 0;
         for (const auto& s : r.sets) {
             runs += s.kind == rc::Set::Kind::Run && s.count == 6;
-            eps += s.kind == rc::Set::Kind::Episodes && s.count == 2 && s.folders.size() == 2;
-            fonts += s.kind == rc::Set::Kind::Fonts && s.count == 2;
+            run12 += s.kind == rc::Set::Kind::Run && s.count == 12;
+            eps += s.kind == rc::Set::Kind::Episodes && s.count == 2 && s.title == "Mobland";
+            found += s.kind == rc::Set::Kind::Episodes && s.count == 2 && s.title == "Foundation";
             vers += s.kind == rc::Set::Kind::Versions && s.count == 2;
+            page += s.kind == rc::Set::Kind::WebPage && s.count == 3;
+            movie += s.kind == rc::Set::Kind::Movie && s.count == 3;
         }
-        check("recognise: sets -- a run of 6, Mobland's 2 episodes across 2 folders, Roboto, Report's versions",
-              runs == 1 && eps == 1 && fonts == 1 && vers == 1, std::to_string(r.sets.size()));
+        check("recognise: sets -- a run of 6, 1..12 one run, Mobland across 2 folders, Foundation with its 2021, versions",
+              runs == 1 && run12 == 1 && eps == 1 && found == 1 && vers == 1, std::to_string(r.sets.size()));
+        check("recognise: a saved web page (html + _files) and a movie folder -- one set each, not versions / Closet",
+              page == 1 && movie == 1 && r.closet.count(".srt") == 0 && r.closet.count(".php") == 0);
+        const rc::KindRow* fk = nullptr;
+        const rc::KindRow* pw = nullptr;
+        for (const auto& k : r.kinds) {
+            if (k.kind == "Fonts") fk = &k;
+            if (k.kind.find("password") != std::string::npos) pw = &k;
+        }
+        check("recognise: fonts are a kind -> Fonts; a .kdbx is never moved", fk && fk->count == 2 && pw && pw->count == 1);
         const rc::KindRow* pics = nullptr;
         for (const auto& k : r.kinds) if (k.kind == "Pictures") pics = &k;
         check("recognise: kinds -- Pictures 2: 1 at home, 1 elsewhere (Hands off, ~/Archive, hidden not counted)",
               pics && pics->count == 2 && pics->at_home == 1, pics ? std::to_string(pics->count) : "none");
+        // (Pictures/Pages 1..12 are a run; the books' scans are inside books)
         check("recognise: the Closet -- .xyz", r.closet.count(".xyz") == 1 && r.in_closet == 1, std::to_string(r.in_closet));
         std::size_t same = 0;
         for (const auto& c : r.copies) same += c.same == 1 && c.rels.size() == 2;
-        check("recognise: --deep -- the two .optik the same, Develop's test + bashrunner the same", same == 2,
+        check("recognise: --deep -- the two .optik (inside a book) the same, Develop's test + bashrunner the same", same == 2,
               std::to_string(r.copies.size()));
         check("recognise: code -- ~/Develop is 2 items, not walked", r.code_items == 2);
         const std::string text = rc::format(r);

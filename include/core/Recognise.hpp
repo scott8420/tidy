@@ -17,9 +17,15 @@
 //               files sit against that type's routes, its working folders.
 //               A type with a shelf, found off it -> "not on its shelf".
 //               Sibling look-alikes sharing folder names -> a proposed type.
-//   3 Sets      loose files that belong together: a numbered run (5+), a
-//               series' episodes (wherever they are), a font family, versions
-//               of one name (X, X Backup, X-1, X copy, X OLD).
+//   3 Sets      loose files that belong together: a numbered run (5+; 1..9
+//               and 10..56 one run), a series' episodes (wherever they are;
+//               "Foundation 2021" is Foundation), versions of one name (X, X
+//               Backup, X-1, X copy, X OLD), a saved web page (X.html + X_files/),
+//               a movie folder in Entertainment (one video + its subs / nfo).
+//   s026a (Scott): Documents/EBooks/<genre>/<Author>/<Title> -- each title is
+//               ONE book (a folder of working folders or none at <genre>/ is a
+//               title itself); fonts are a kind (-> ~/Fonts, resources); a .kdbx
+//               is never moved (a password database).
 //   4 Kinds     what is left, by the type table (+ the Entertainment table):
 //               at home under its kind folder, or elsewhere.
 //   5 Closet    nothing claims it.
@@ -45,7 +51,7 @@ struct Bundle {
 };
 
 struct Project {
-    enum class How { Name = 0, Place, LooksLike };
+    enum class How { Name = 0, Place, Book, LooksLike };   // Book: a title in the EBooks library (s026a)
     std::string rel;
     How how = How::Name;
     std::string tpl;              // the type its tree fits best ("" = none fits half)
@@ -53,6 +59,7 @@ struct Project {
     std::size_t placed = 0, routed = 0;   // items where the type's routes say / items a route names
     std::vector<std::string> working;     // working-folder names at its top
     std::size_t bundles = 0;      // bundles inside
+    std::string maybe;            // no type fits, but its working folders are all a type's: "maybe an old <maybe>"
     std::string shelf;            // a shelf type found off its shelf: "Documents/Bookbinding/<Author (Last, First)>/<Title>"
     std::uint64_t bytes = 0;
     std::size_t files = 0;
@@ -66,7 +73,7 @@ struct Proposed {                 // sibling look-alikes: a new type?
 };
 
 struct Set {
-    enum class Kind { Run = 0, Episodes, Fonts, Versions };
+    enum class Kind { Run = 0, Episodes, Versions, WebPage, Movie };   // s026a: font families -> the Fonts kind; + saved pages, movies
     Kind kind = Kind::Run;
     std::string title;            // "A0001.png .. A0220.png", "Mobland", "Roboto", "Report"
     std::vector<std::string> folders;     // where its members are (most first)
@@ -102,6 +109,8 @@ struct Report {
     std::size_t repos = 0, build = 0, shut = 0, folders = 0;
     long ms = 0;
 };
+
+inline constexpr const char* kLibrary = "Documents/EBooks";   // s026a: the EBooks library
 
 // The home of a loose bundle's kind (Scott, s025 + s026): .optik ->
 // Documents/OCR, .curvz -> Documents/Design/Curvz, .composix ->

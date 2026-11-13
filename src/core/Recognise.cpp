@@ -58,9 +58,31 @@ std::string fext_of(const std::string& name) {   // file extension, lower case, 
     return d == std::string::npos || d == 0 || d + 1 == name.size() ? "" : lower(name.substr(d));
 }
 
+constexpr const char* kNever = "(never moved -- a password database)";
+
 std::set<std::string>& vocabulary() {   // the working-folder names (lower case)
     static std::set<std::string> v = {"workups", "images", "fonts", "assets", "drafts", "archive", "print", "layout"};
     return v;
+}
+
+// s026a: held is worked out NOW (the suspect scan's held list), not read
+// from the last Quarantine Save -- a stale "held" folder is walked as answered.
+std::set<std::string> g_live;
+std::string g_home;
+std::string rel_in_home(const std::string& abs) {
+    return abs.size() > g_home.size() + 1 && starts(abs, g_home + "/") ? abs.substr(g_home.size() + 1) : abs;
+}
+bool is_held(const std::string& abs) { return g_live.count(rel_in_home(abs)) > 0; }
+bool is_one(const std::string& abs) {
+    if (is_held(abs)) return true;
+    if (!quarantine::one(abs)) return false;
+    // one only because a stale held list says so -> not one
+    return !(quarantine::held(abs) && !latch::pkg::is_package_name(fs::path(abs).filename().string()));
+}
+bool is_video(const std::string& name) {
+    static const std::set<std::string> v = {".mp4", ".mkv", ".webm", ".mov", ".avi", ".m4v"};
+    const auto d = name.rfind('.');
+    return d != std::string::npos && v.count(lower(name.substr(d))) > 0;
 }
 
 void measure(const std::string& dir, std::uint64_t& bytes, std::size_t& files) {
@@ -151,7 +173,7 @@ void placement(const templates::Template& t, const std::string& dir, Project& p)
         for (const auto& f : k.files) check(f);
         for (const auto& d : k.dirs) {
             const std::string abs = at + "/" + d;
-            if (quarantine::one(abs)) { check(d); continue; }   // a bundle: one item
+            if (is_one(abs)) { check(d); continue; }   // a bundle: one item
             self(abs, rel.empty() ? d : rel + "/" + d, self);
         }
     };
@@ -163,7 +185,7 @@ std::size_t count_bundles(const std::string& dir) {
     const auto walk = [&](const std::string& at, auto& self) -> void {
         for (const auto& d : kids_of(at).dirs) {
             const std::string abs = at + "/" + d;
-            if (quarantine::one(abs)) { ++n; continue; }
+            if (is_one(abs)) { ++n; continue; }
             self(abs, self);
         }
     };
@@ -185,8 +207,43 @@ struct Ctx {
 
 void walk(const Ctx& cx, const std::string& dir, const std::string& rel, const std::string& project);
 
+// The bundles inside a whole thing (a project, a book): listed, marked in it.
+void bundles_in(const Ctx& cx, const std::string& path, const std::string& crel) {
+    const auto in = [&](const std::string& at, const std::string& r, auto& self) -> void {
+        for (const auto& d : kids_of(at).dirs) {
+            const std::string abs = at + "/" + d, rr = r + "/" + d;
+            if (is_one(abs)) {
+                Bundle b;
+                b.rel = rr;
+                b.ext = suspects::ext_of(d);
+                b.project = crel;
+                b.held = is_held(abs);
+                measure(abs, b.bytes, b.files);
+                cx.r->bundles.push_back(std::move(b));
+                continue;
+            }
+            self(abs, rr, self);
+        }
+    };
+    in(path, crel, in);
+}
+
+// No type fits half, but every working folder is one of a type's folder
+// names -> "maybe an old <type>" (the Carolyn Keene books: Archive/ Images/).
+std::string maybe_of(const std::vector<templates::Template>& ts, const std::vector<std::string>& working) {
+    if (working.empty()) return "";
+    for (const auto& t : ts) {
+        std::set<std::string> leaves;
+        for (const auto& f : t.folders) leaves.insert(lower(name_of(f.path)));
+        bool all = true;
+        for (const auto& w : working) all = all && leaves.count(lower(w));
+        if (all) return t.name;
+    }
+    return "";
+}
+
 void add_project(const Ctx& cx, const std::string& path, const std::string& crel, Project::How how,
-                 const Kids& k) {
+                 const Kids& k, const std::string& project) {
     Project p;
     p.rel = crel;
     p.how = how;
@@ -208,20 +265,57 @@ void add_project(const Ctx& cx, const std::string& path, const std::string& crel
                     p.shelf = s.category + "/" + (s.depth >= 2 ? "<" + (g.empty() ? std::string("group") : g) + ">/" : "") +
                               "<Title>";
                 }
-    }
+    } else
+        p.maybe = maybe_of(*cx.ts, p.working);
     p.bundles = count_bundles(path);
     measure(path, p.bytes, p.files);
     cx.r->projects.push_back(std::move(p));
+    if (project.empty()) bundles_in(cx, path, crel);
+}
+
+// s026a: a title in the EBooks library -- no sub-folders, or a working folder
+// (Archive/ Images/ Print/ ...) among them. Else it is an author's folder.
+bool is_title(const std::string& path, const Kids& k) {
+    std::size_t plain = 0;
+    for (const auto& d : k.dirs) {
+        if (is_one(path + "/" + d)) continue;     // a bundle (.optik) is a part, not a book
+        if (vocabulary().count(lower(d))) return true;
+        ++plain;
+    }
+    return plain == 0;
 }
 
 void walk(const Ctx& cx, const std::string& dir, const std::string& rel, const std::string& project) {
     const Kids k = kids_of(dir);
-    for (const auto& f : k.files) cx.loose->push_back({rel, f});
+    // s026a: a saved web page -- X.html + X_files/ -- one item.
+    std::set<std::string> pages;   // the X_files folder names
+    for (const auto& f : k.files) {
+        const std::string e = fext_of(f);
+        if (e != ".html" && e != ".htm") continue;
+        const std::string fd = stem_of(f) + "_files";
+        if (std::binary_search(k.dirs.begin(), k.dirs.end(), fd)) {
+            pages.insert(fd);
+            Set s;
+            s.kind = Set::Kind::WebPage;
+            s.title = f;
+            s.folders.push_back(rel);
+            std::uint64_t b = 0;
+            measure(dir + "/" + fd, b, s.count);
+            ++s.count;
+            cx.r->sets.push_back(std::move(s));
+        }
+    }
+    for (const auto& f : k.files) {
+        if (pages.count(stem_of(f) + "_files") && (fext_of(f) == ".html" || fext_of(f) == ".htm")) continue;
+        cx.loose->push_back({rel, f});
+    }
+    const std::string lib = kLibrary;
     for (const auto& name : k.dirs) {
         const std::string path = dir + "/" + name;
         const std::string crel = rel.empty() ? name : rel + "/" + name;
         if (latch::protect::here(crel) || protection::under(crel)) { ++cx.r->shut; continue; }
         if (rel.empty() && name == archive::kFolder) { ++cx.r->shut; continue; }
+        if (pages.count(name)) continue;                          // a saved page's folder: with its page
         ++cx.r->folders;
         if (rel.empty() && name == suspects::kCodeRoot) {        // code: one line
             const auto s = suspects::scan(cx.home, path);
@@ -232,9 +326,9 @@ void walk(const Ctx& cx, const std::string& dir, const std::string& rel, const s
         if (suspects::is_build_output(path)) { ++cx.r->build; continue; }
         if (fs::exists(fs::symlink_status(path + "/.git"))) { ++cx.r->repos; continue; }
         // 1 Bundles
-        const bool held = quarantine::held(path);
+        const bool held = is_held(path);
         const bool head = projects::is_project_name(name) || projects::is_whole_at(crel);
-        if (held || (!head && quarantine::one(path))) {
+        if (held || (!head && is_one(path))) {
             Bundle b;
             b.rel = crel;
             b.ext = suspects::ext_of(name);
@@ -250,43 +344,46 @@ void walk(const Ctx& cx, const std::string& dir, const std::string& rel, const s
         }
         // 2 Projects
         if (head) {
-            Kids pk = kids_of(path);
             projects::Shelf sh;
             const bool place = !projects::is_project_name(name) && projects::is_whole_at(crel, &sh);
-            add_project(cx, path, crel, place ? Project::How::Place : Project::How::Name, pk);
-            if (project.empty()) {
-                // bundles inside are listed under their project
-                const auto in = [&](const std::string& at, const std::string& r, auto& self) -> void {
-                    for (const auto& d : kids_of(at).dirs) {
-                        const std::string abs = at + "/" + d, rr = r + "/" + d;
-                        if (quarantine::one(abs)) {
-                            Bundle b;
-                            b.rel = rr;
-                            b.ext = suspects::ext_of(d);
-                            b.project = crel;
-                            b.held = quarantine::held(abs);
-                            measure(abs, b.bytes, b.files);
-                            cx.r->bundles.push_back(std::move(b));
-                            continue;
-                        }
-                        self(abs, rr, self);
-                    }
-                };
-                in(path, crel, in);
-            }
+            add_project(cx, path, crel, place ? Project::How::Place : Project::How::Name, kids_of(path), project);
             continue;
         }
+        const Kids ck = kids_of(path);
+        bool holds = false;                                       // holds projects -> a folder of them, not one
+        for (const auto& d : ck.dirs)
+            if (projects::is_project_name(d)) holds = true;
+        // s026a: the EBooks library -- <lib>/<genre>/<Author>/<Title>, or a title at <genre>/.
+        if (project.empty() && starts(crel, lib + "/") && !holds) {
+            const auto depth = std::count(crel.begin(), crel.end(), '/');   // lib = 1 slash
+            if (depth == 4 || (depth == 3 && is_title(path, ck))) {
+                add_project(cx, path, crel, Project::How::Book, ck, project);
+                continue;
+            }
+        }
+        // s026a: a movie folder -- one video + its subs / nfo -> one set, whole.
+        if (starts(crel, std::string(sort::kEntertainment) + "/")) {
+            std::size_t videos = 0;
+            for (const auto& f : ck.files) videos += is_video(f);
+            if (videos == 1 && ck.files.size() + ck.dirs.size() > 1) {
+                Set s;
+                s.kind = Set::Kind::Movie;
+                s.title = name;
+                s.folders.push_back(rel);
+                std::uint64_t b = 0;
+                measure(path, b, s.count);
+                cx.r->sets.push_back(std::move(s));
+                continue;
+            }
+        }
         if (!rel.empty()) {                                       // never a top folder of home
-            const Kids ck = kids_of(path);
-            bool holds = false;                                   // holds projects -> a folder of them, not one
-            for (const auto& d : ck.dirs)
-                if (projects::is_project_name(d)) holds = true;
             std::size_t working = 0;
             for (const auto& d : ck.dirs) working += vocabulary().count(lower(d));
             const Fit f = holds ? Fit{} : best_fit(*cx.ts, path);
             if (!holds && (working >= 2 || (!f.tpl.empty() && f.have >= 3))) {
-                add_project(cx, path, crel, Project::How::LooksLike, ck);
-                if (cx.r->projects.back().tpl.empty()) cx.lookalikes->push_back({crel, ck.dirs});
+                add_project(cx, path, crel, Project::How::LooksLike, ck, project);
+                const auto& p = cx.r->projects.back();
+                if (p.tpl.empty() && p.maybe.empty()) cx.lookalikes->push_back({crel, ck.dirs});
                 continue;
             }
         }
@@ -336,25 +433,28 @@ void sets_and_kinds(Report& r, const std::vector<Loose>& loose, const std::vecto
                     const std::vector<homing::TypeRoute>& ent) {
     r.loose_files = loose.size();
     std::vector<bool> claimed(loose.size(), false);
-    // Runs: per folder, (prefix, width, ext), 5+.
+    // Runs: per folder, (prefix, ext); zero-padded ones by width, unpadded
+    // ones together (1.png .. 9.png and 10.png .. 56.png are one run). 5+.
     {
         std::map<std::tuple<std::string, std::string, int, std::string>, std::vector<std::size_t>> g;
         for (std::size_t i = 0; i < loose.size(); ++i) {
-            const auto [pre, w] = shape::numbered(stem_of(loose[i].name));
+            const std::string st = stem_of(loose[i].name);
+            const auto [pre, w] = shape::numbered(st);
             if (w == 0) continue;
-            g[{loose[i].folder, pre, w, fext_of(loose[i].name)}].push_back(i);
+            const bool padded = w > 1 && st[st.size() - static_cast<std::size_t>(w)] == '0';
+            g[{loose[i].folder, pre, padded ? w : 0, fext_of(loose[i].name)}].push_back(i);
         }
-        for (const auto& [key, v] : g) {
+        const auto numof = [&](std::size_t i) {
+            const std::string st = stem_of(loose[i].name);
+            const auto w = static_cast<std::size_t>(shape::numbered(st).second);
+            return std::stoull(st.substr(st.size() - w));
+        };
+        for (auto& [key, v] : g) {
             if (v.size() < shape::kRunMin) continue;
+            std::sort(v.begin(), v.end(), [&](auto a, auto b) { return numof(a) < numof(b); });
             std::vector<const Loose*> m;
-            std::string first, last;
-            for (auto i : v) {
-                claimed[i] = true;
-                m.push_back(&loose[i]);
-                if (first.empty() || loose[i].name < first) first = loose[i].name;
-                if (last.empty() || loose[i].name > last) last = loose[i].name;
-            }
-            add_set(r, Set::Kind::Run, first + " .. " + last, m);
+            for (auto i : v) { claimed[i] = true; m.push_back(&loose[i]); }
+            add_set(r, Set::Kind::Run, loose[v.front()].name + " .. " + loose[v.back()].name, m);
         }
     }
     // Episodes: by show, wherever they are.
@@ -365,8 +465,18 @@ void sets_and_kinds(Report& r, const std::vector<Loose>& loose, const std::vecto
             std::string show;
             int season = 0;
             if (!sort::episode(loose[i].name, &show, &season) || show.empty()) continue;
-            auto& e = g[lower(show)];
-            e.first = show;
+            std::string key = lower(show);   // s026a: "Foundation 2021", "Mayor Of Kingstown (2021)" -> the show
+            for (bool cut = true; cut;) {
+                cut = false;
+                while (!key.empty() && (key.back() == ' ' || key.back() == ')' || key.back() == '(')) { key.pop_back(); cut = true; }
+                if (key.size() > 5 && std::all_of(key.end() - 4, key.end(), [](unsigned char c) { return std::isdigit(c); }) &&
+                    (key[key.size() - 5] == ' ' || key[key.size() - 5] == '(') && (starts(key.substr(key.size() - 4), "19") || starts(key.substr(key.size() - 4), "20"))) {
+                    key.erase(key.size() - 4);
+                    cut = true;
+                }
+            }
+            auto& e = g[key];
+            if (e.first.empty() || show.size() < e.first.size()) e.first = show;
             e.second.push_back(i);
         }
         for (const auto& [k, e] : g) {
@@ -374,21 +484,6 @@ void sets_and_kinds(Report& r, const std::vector<Loose>& loose, const std::vecto
             std::vector<const Loose*> m;
             for (auto i : e.second) { claimed[i] = true; m.push_back(&loose[i]); }
             add_set(r, Set::Kind::Episodes, e.first, m);
-        }
-    }
-    // Font families: per folder.
-    {
-        std::map<std::pair<std::string, std::string>, std::vector<std::size_t>> g;
-        for (std::size_t i = 0; i < loose.size(); ++i) {
-            if (claimed[i]) continue;
-            const std::string fam = font_family(loose[i].name);
-            if (!fam.empty()) g[{loose[i].folder, fam}].push_back(i);
-        }
-        for (const auto& [k, v] : g) {
-            if (v.size() < 2) continue;
-            std::vector<const Loose*> m;
-            for (auto i : v) { claimed[i] = true; m.push_back(&loose[i]); }
-            add_set(r, Set::Kind::Fonts, stem_of(loose[v.front()].name).substr(0, k.second.size()), m);
         }
     }
     // Versions of one name: per folder, same base + extension, 2+ different stems.
@@ -416,7 +511,9 @@ void sets_and_kinds(Report& r, const std::vector<Loose>& loose, const std::vecto
         if (claimed[i]) continue;
         const auto& f = loose[i];
         std::string kind;
-        if (const auto* t = homing::type_of(table, f.name)) kind = t->folder;
+        if (fext_of(f.name) == ".kdbx") kind = kNever;   // a password database: never moved
+        else if (const auto* t = homing::type_of(table, f.name)) kind = t->folder;
+        else if (const auto* d = homing::type_of(homing::defaults(), f.name)) kind = d->folder;   // s026a: Graphics + Fonts defaults
         if (kind.empty()) kind = sort::ent_folder(ent, f.name);
         if (kind.empty()) {
             const std::string e = fext_of(f.name);
@@ -481,6 +578,7 @@ std::string num(std::size_t n) {
 std::string files_text(std::size_t n) { return num(n) + (n == 1 ? " file" : " files"); }
 std::string sz(std::uint64_t b, std::size_t f) { return suspects::size_text(b) + ", " + files_text(f); }
 constexpr std::size_t kCap = 20;
+
 void more(std::ostringstream& o, std::size_t shown, std::size_t all) {
     if (all > shown) o << "      ... and " << num(all - shown) << " more\n";
 }
@@ -553,6 +651,9 @@ Report scan(const std::string& home, const std::string& from, const std::string&
             vocabulary().insert(lower(p == std::string::npos ? f.path : f.path.substr(p + 1)));
         }
     const auto st = settings::parse(own::read(data_dir, settings::kFile));
+    g_home = home;
+    g_live.clear();
+    for (const auto& h : suspects::held_of(suspects::scan(home, from))) g_live.insert(h);
     std::vector<Loose> loose;
     std::vector<std::pair<std::string, std::vector<std::string>>> la;
     std::string at;
@@ -606,9 +707,10 @@ std::string format(const Report& r) {
     }
 
     // 2 Projects
-    const char* hows[] = {"By name (-project)", "By place (a shelf)", "Looks like a project (no -project, no shelf)"};
+    const char* hows[] = {"By name (-project)", "By place (a shelf)", "Books in the EBooks library (Documents/EBooks/<genre>/<Author>/<Title>)",
+                          "Looks like a project (no -project, no shelf)"};
     o << "\n2. Projects -- trees kept whole: " << r.projects.size() << "\n";
-    for (int h = 0; h < 3; ++h) {
+    for (int h = 0; h < 4; ++h) {
         std::vector<const Project*> v;
         for (const auto& p : r.projects)
             if (static_cast<int>(p.how) == h) v.push_back(&p);
@@ -624,7 +726,9 @@ std::string format(const Report& r) {
                 clues += "tree: " + p->tpl + " " + std::to_string(p->have) + "/" + std::to_string(p->of) + " folders";
                 if (p->routed)
                     clues += "; placed: " + num(p->placed) + " of " + num(p->routed) + " where " + p->tpl + " says";
-            } else
+            } else if (!p->maybe.empty())
+                clues += "maybe an old " + p->maybe + " (its folders are " + p->maybe + "'s)";
+            else
                 clues += "tree: no type fits half";
             if (!p->working.empty()) {
                 clues += "; working folders:";
@@ -645,9 +749,10 @@ std::string format(const Report& r) {
     }
 
     // 3 Sets
-    const char* kinds[] = {"Numbered runs", "Series episodes", "Font families", "Versions of one name"};
+    const char* kinds[] = {"Numbered runs", "Series episodes", "Versions of one name", "Saved web pages (X.html + X_files/)",
+                           "Movie folders (one video + its subs / nfo)"};
     o << "\n3. Sets -- loose files that belong together: " << r.sets.size() << " (" << files_text(r.in_sets) << ")\n";
-    for (int k = 0; k < 4; ++k) {
+    for (int k = 0; k < 5; ++k) {
         std::vector<const Set*> v;
         for (const auto& s : r.sets)
             if (static_cast<int>(s.kind) == k) v.push_back(&s);
@@ -665,8 +770,10 @@ std::string format(const Report& r) {
     // 4 Kinds
     o << "\n4. Kinds -- what is left, by the type table: " << files_text(r.in_kinds) << "\n";
     for (const auto& k : r.kinds) {
-        o << "  " << k.kind << ": " << num(k.count) << " -- " << num(k.at_home) << " at home, "
-          << num(k.count - k.at_home) << " elsewhere\n";
+        if (k.kind == kNever) o << "  " << k.kind << ": " << num(k.count) << "\n";
+        else
+            o << "  " << k.kind << ": " << num(k.count) << " -- " << num(k.at_home) << " at home, "
+              << num(k.count - k.at_home) << " elsewhere\n";
         std::vector<std::pair<std::string, std::size_t>> v(k.elsewhere.begin(), k.elsewhere.end());
         std::stable_sort(v.begin(), v.end(), [](const auto& a, const auto& b) { return a.second > b.second; });
         for (std::size_t i = 0; i < v.size() && i < 5; ++i)

@@ -56,7 +56,8 @@ const std::vector<TypeRoute>& defaults() {
             for (const char* e : exts) v.push_back({std::string("*.") + e, folder});
         };
         add({"png", "jpg", "jpeg", "gif", "webp", "heic", "tif", "tiff", "bmp", "raw", "cr2", "nef"}, "Pictures");
-        add({"curvz", "svg"}, "Graphics");
+        add({"curvz", "svg", "xcf", "kra", "afphoto", "afdesign", "psd"}, "Graphics");   // s026a: + the editors' files (Scott)
+        add({"otf", "ttf", "woff", "woff2", "pfb", "sfd"}, "Fonts");                     // s026a: fonts are resources -> ~/Fonts (Scott)
         add({"pdf", "odt", "ods", "odp", "docx", "doc", "xlsx", "xls", "pptx", "rtf", "txt", "md", "epub"}, "Documents");
         add({"mp3", "flac", "ogg", "opus", "wav", "m4a", "aac"}, "Music");
         add({"mp4", "mkv", "webm", "mov", "avi", "m4v"}, "Videos");
