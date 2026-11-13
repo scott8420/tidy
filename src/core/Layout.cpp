@@ -1,5 +1,6 @@
 // core::layout -- see Layout.hpp.
 #include "core/Layout.hpp"
+#include "core/Quarantine.hpp"
 #include "core/Conform.hpp"
 #include "core/Homing.hpp"
 #include "core/Archive.hpp"
@@ -38,7 +39,7 @@ bool remains(const fs::path& d, const std::set<std::string>& moved, const std::s
         if (moved.count(p)) { touched = true; continue; }
         std::error_code e2;
         const auto st = it->symlink_status(e2);
-        if (!e2 && fs::is_directory(st) && !latch::pkg::is_package_name(name)) {
+        if (!e2 && fs::is_directory(st) && !quarantine::one(p)) {
             bool t = false;
             const bool r = remains(it->path(), moved, keep, t, out);
             if (t) touched = true;

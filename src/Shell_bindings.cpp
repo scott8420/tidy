@@ -11,9 +11,9 @@ void Shell::bind_actions() {  // bindings: win.* actions
     add_action("about",         sigc::mem_fun(*this, &Shell::on_about));
     add_action("settings",      sigc::mem_fun(*this, &Shell::on_settings));
     add_action("id-lists",      sigc::mem_fun(*this, &Shell::on_id_lists));
+    add_action("quarantine",    sigc::mem_fun(*this, &Shell::on_quarantine));   // s025b
     add_action("adopt",         sigc::mem_fun(*this, &Shell::on_adopt));   // s023
-    add_action("conform",       [this] { on_conform(); });                 // s023h
-    add_action("shape",         [this] { on_shape(); });                   // s023i
+    add_action("organize",      [this] { on_organize(); });                // s024e
     add_action("background",    sigc::mem_fun(*this, &Shell::on_background));
     add_action("shortcuts",     sigc::mem_fun(*this, &Shell::on_shortcuts));
     add_action("dump-registry", sigc::mem_fun(*this, &Shell::on_dump_registry));

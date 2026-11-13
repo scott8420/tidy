@@ -1,4 +1,5 @@
 #include "core/Projects.hpp"
+#include "core/Quarantine.hpp"
 
 #include "core/Starters.hpp"
 
@@ -62,12 +63,15 @@ std::vector<templates::Template> known_templates(const std::string& data_dir) {
     return ts;
 }
 
-void apply_places(const std::string& data_dir) {
+void apply_places(const std::string& data_dir, const std::string& home) {
     auto ts = known_templates(data_dir);
     if (const auto* b = starters::find("bookbinding")) ts.push_back(b->t);   // a book stays whole whatever was saved
     set_shelves(shelves_of(ts));
     auto extra = latch::pkg::load_extra(data_dir);
     for (const auto& e : own_bundles())
+        if (std::find(extra.begin(), extra.end(), e) == extra.end()) extra.push_back(e);
+    if (!home.empty()) quarantine::set(home, quarantine::load(data_dir));   // s025b
+    for (const auto& e : quarantine::bundle_exts(quarantine::current()))
         if (std::find(extra.begin(), extra.end(), e) == extra.end()) extra.push_back(e);
     latch::pkg::set_extra(std::move(extra));
 }

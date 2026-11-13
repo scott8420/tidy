@@ -134,9 +134,7 @@ void Shell::build_page(const std::string& id) {  // zone: a page's hero
     if (id == "projects") {                                // s008: found, placed, fixed -- through the door
         const auto* pp = core::pages::find(id);
         m_projects = Gtk::make_managed<ProjectsPage>(*m_door, m_home, m_data_dir, m_fixture, [this] { refresh_activity(); });
-        m_projects->set_on_books([this] { on_books(); });   // s024b
-        m_projects->set_on_authors([this] { on_authors(); });   // s024c
-        m_projects->set_on_layout([this](const std::string& dir, const core::templates::Template& t) { on_layout(dir, t); });   // s024a
+        m_projects->set_on_organize([this](const std::string& dir, const std::string& type) { on_organize(dir, type); });   // s024e
         m_stack.add(*m_projects, id, pp ? pp->title : "Projects");
         return;
     }
@@ -145,11 +143,7 @@ void Shell::build_page(const std::string& id) {  // zone: a page's hero
         m_map_page = Gtk::make_managed<MapPage>(m_home, m_fixture, [this] { return user_dirs_text(); },
                                                 [this] { return m_settings.catch_all; },
                                                 [this](const std::string& rel, bool ca) { on_adopt_folder(rel, ca); });
-        m_map_page->set_on_conform([this](const std::string& dir) { on_conform(dir); });   // s023h
-        m_map_page->set_on_scan([this](const std::string& dir) { on_shape(dir); });        // s023i
-        m_map_page->set_on_book([this](const std::string& dir) { on_books(dir); });       // s024b
-        m_map_page->set_on_authors([this](const std::string& dir) { on_authors(dir); });  // s024c
-        m_map_page->set_on_layout([this](const std::string& dir) { on_layout_at(dir); });  // s024b
+        m_map_page->set_on_organize([this](const std::string& dir) { on_organize(dir); });   // s024e
         m_stack.add(*m_map_page, id, pp ? pp->title : "Map");
         return;
     }
@@ -192,8 +186,6 @@ void Shell::build_page(const std::string& id) {  // zone: a page's hero
     if (id == "templates") {                               // s007: the tree builder
         const auto* tp = core::pages::find(id);
         auto* tpage = Gtk::make_managed<TemplatesPage>(*this, m_home, m_data_dir, m_fixture);
-        tpage->set_on_conform([this] { on_conform(); });   // s023h
-        tpage->set_on_scan([this] { on_shape(); });        // s023i
         m_templates_page = tpage;
         m_stack.add(*tpage, id,
                     tp ? tp->title : "Templates");
@@ -475,9 +467,9 @@ Glib::RefPtr<Gio::Menu> Shell::build_menu() {  // zone: hamburger model
     auto prefs = Gio::Menu::create();
     prefs->append("Settings\u2026", "win.settings");
     prefs->append("Adopt folders\u2026", "win.adopt");   // s023
-    prefs->append("Template from a scan\u2026", "win.shape");   // s023i
-    prefs->append("Conform folders\u2026", "win.conform");   // s023h
+    prefs->append("Organize as\u2026", "win.organize");   // s024e
     prefs->append("Id lists\u2026", "win.id-lists");
+    prefs->append("Quarantine\u2026", "win.quarantine");   // s025b
     prefs->append("Background scan\u2026", "win.background");
     menu->append_section(prefs);
     auto diag = Gio::Menu::create();

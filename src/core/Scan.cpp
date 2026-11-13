@@ -1,4 +1,5 @@
 #include "core/Scan.hpp"
+#include "core/Quarantine.hpp"
 
 #include "core/Projects.hpp"
 
@@ -36,7 +37,8 @@ void walk_dir(const std::string& home, const fs::path& dir, std::vector<facts::F
         std::error_code e2;
         const auto st = e.symlink_status(e2);
         if (e2 || fs::is_symlink(st)) continue;
-        if (fs::is_directory(st) && !latch::pkg::is_package_name(name)) {
+        if (fs::is_directory(st) && quarantine::held(abs)) continue;   // s025b: quarantined -- untouched until answered
+        if (fs::is_directory(st) && !quarantine::one(abs)) {
             if (deep && !(loose && whole_tree(rel, e.path()))) walk_dir(home, e.path(), out, true, loose);
             continue;
         }

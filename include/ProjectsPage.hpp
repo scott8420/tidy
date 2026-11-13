@@ -47,10 +47,8 @@ public:
     void new_from(const std::string& template_name);
     // s021: the Code projects view (git state, sizes, archive, clean).
     void show_code();
-    // s024a: a book's "Layout..." -> the window that puts it in the layout (Shell owns it).
-    void set_on_books(std::function<void()> f) { m_on_books = std::move(f); }   // s024b: Make books...
-    void set_on_authors(std::function<void()> f) { m_on_authors = std::move(f); }   // s024c: Bookbinding authors...
-    void set_on_layout(std::function<void(const std::string& dir, const core::templates::Template& t)> f) { m_on_layout = std::move(f); }
+    // s024e: Organize as... (Shell owns the window): a folder ("" = pick one) and the type when known.
+    void set_on_organize(std::function<void(const std::string& dir, const std::string& type)> f) { m_on_organize = std::move(f); }
 
 private:
     void build_start();
@@ -95,9 +93,7 @@ private:
     Gtk::Label*    m_new_group_label = nullptr;   // s024: a by-place template's middle level (the author)
     Gtk::Entry*    m_new_group = nullptr;
     std::function<void()> m_new_refresh;
-    std::function<void(const std::string&, const core::templates::Template&)> m_on_layout;   // s024a
-    std::function<void()> m_on_books;                                                          // s024b
-    std::function<void()> m_on_authors;                                                        // s024c          // s024: the where line + the group row, again
+    std::function<void(const std::string&, const std::string&)> m_on_organize;   // s024e
     Gtk::Label*    m_new_where = nullptr;
     Gtk::Label*    m_new_status = nullptr;
     std::vector<core::templates::Template> m_new_templates;

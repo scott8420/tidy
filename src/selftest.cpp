@@ -71,8 +71,11 @@
 #include "Busy.hpp"
 #include "core/Adopt.hpp"
 #include "core/Map.hpp"
+#include "core/Suspects.hpp"
+#include "core/Quarantine.hpp"
 #include "core/Conform.hpp"
 #include "core/Layout.hpp"
+#include "core/Organize.hpp"
 #include "core/Shape.hpp"
 #include "core/Routes.hpp"
 #include "core/Shortcuts.hpp"
@@ -4646,6 +4649,310 @@ int main(int argc, char** argv) {
               mv && tp::route_for(b.tpl(), "plate.png") == "Jacket" && b.move_route("*.png", tp::kTop).empty() &&
               tp::route_for_path(b.tpl(), "plate.png") == tp::kTop && b.undo() && tp::route_for(b.tpl(), "plate.png") == "Jacket" &&
               !b.move_route("*.png", "Nowhere").empty() && !b.move_route("*.nope", "Jacket").empty());
+    }
+
+
+    // ── s024e: Organize as... -- one folder + a type ─────────────────────────
+    {
+        std::cout << "[organize]\n";
+        namespace og = core::organize;
+        namespace dr = latch::door;
+        const auto& bt = core::starters::find("bookbinding")->t;
+        const auto& wt = core::starters::find("writing-project")->t;
+        const fs::path root = fs::temp_directory_path() / ("tidy_selftest_organize_" + std::to_string(::getpid()));
+        fs::remove_all(root);
+        fs::create_directories(root / "home");
+        fs::create_directories(root / "data");
+        const std::string H = fs::canonical(root / "home").string(), D = fs::canonical(root / "data").string();
+        core::projects::apply_places(D);
+        const auto book = [&](const std::string& dir) {
+            put_file(dir + "/A0001.png", "s");
+            put_file(dir + "/A0002.png", "s");
+            put_file(dir + "/book.odt", "o");
+        };
+        // One book; a series (two books + a bibliography + a part-like folder); authors.
+        const std::string one = H + "/Documents/Stuff/Keene, Carolyn/The Clue in the Diary";
+        book(one);
+        const std::string ser = H + "/Documents/Nancy Drew";
+        book(ser + "/01 The Secret of the Old Clock");
+        book(ser + "/02 The Hidden Staircase");
+        put_file(ser + "/bibliography.ods", "b");
+        put_file(ser + "/Wikipedia/page.html", "w");
+        const std::string aut = H + "/Documents/EBooks";
+        book(aut + "/Carolyn Keene/The Bungalow Mystery");
+        book(aut + "/Dixon, Franklin W/The Tower Treasure");
+        put_file(H + "/Documents/Scans only/A0001.png", "s");
+        check("organize: the shape -- one book, a series, a folder of authors",
+              og::guess(bt, one) == og::Shape::One && og::guess(bt, ser) == og::Shape::Many && og::guess(bt, aut) == og::Shape::Groups);
+        check("organize: project-like -- a book yes; a folder of only scans no",
+              og::project_like(bt, one) && !og::project_like(bt, H + "/Documents/Scans only"));
+        const auto g1 = og::groups_of(bt, one, og::Shape::One);
+        check("organize: one -- the author from a \"Last, First\" parent, the title its name",
+              g1.size() == 1 && g1[0].name == "Keene, Carolyn" && g1[0].projects.size() == 1 &&
+              g1[0].projects[0].title == "The Clue in the Diary");
+        auto g2 = og::groups_of(bt, ser, og::Shape::Many);
+        bool wiki_off = false;
+        for (const auto& p : g2[0].projects) if (fs::path(p.dir).filename() == "Wikipedia") wiki_off = !p.on;
+        check("organize: a series -- no author guessed (a series is no author), titles less the number, a non-book unticked",
+              g2.size() == 1 && g2[0].name.empty() && g2[0].projects.size() == 3 && wiki_off &&
+              g2[0].projects[0].title == "The Secret of the Old Clock");
+        const auto g3 = og::groups_of(bt, aut, og::Shape::Groups);
+        check("organize: authors -- each sub-folder a group, \"Carolyn Keene\" as \"Keene, Carolyn\"",
+              g3.size() == 2 && g3[0].name == "Keene, Carolyn" && g3[1].name == "Dixon, Franklin W");
+        check("organize: refused -- a series with no author", !og::plan(H, bt, g2, true).refused.empty() &&
+              og::plan(H, bt, g2, true).projects == 0);
+        g2[0].name = "Keene, Carolyn";
+        std::vector<og::Group> all = g1;
+        all.insert(all.end(), g2.begin(), g2.end());
+        all.insert(all.end(), g3.begin(), g3.end());
+        const auto before = tree_facts(H);
+        auto pl = og::plan(H, bt, all, true);
+        check("organize: the plan -- 5 books moved, 15 files laid out; the series' leftovers -> the Closet; empty authors -> the Trash",
+              pl.projects == 5 && pl.moved == 5 && pl.laid_out == 15 && pl.closet.size() == 1 &&
+              pl.closet[0] == "Documents/Nancy Drew" && pl.trashed.size() == 2 && pl.refused.empty(),
+              std::to_string(pl.projects) + "/" + std::to_string(pl.laid_out) + "/" + std::to_string(pl.closet.size()) + "/" +
+              std::to_string(pl.trashed.size()));
+        check("organize: READ-ONLY until run", tree_facts(H) == before);
+        latch::door::set_app_name("Tidy");
+        dr::Door door(H, D);
+        door.load();
+        pl.plan.previewed = true;
+        const auto r = door.run(pl.plan);
+        const std::string S = H + "/Documents/Bookbinding/Keene, Carolyn";
+        check("organize: run -> 4 by Keene, 1 by Dixon, each laid out; the bibliography and Wikipedia stay",
+              r.ok && fs::exists(S + "/The Clue in the Diary/Body/OCR/Scans/Archive/A0001.png") &&
+              fs::exists(S + "/The Hidden Staircase/Body/Layout/ODT/book.odt") &&
+              fs::exists(S + "/The Bungalow Mystery/Body/Layout/ODT/book.odt") &&
+              fs::exists(H + "/Documents/Bookbinding/Dixon, Franklin W/The Tower Treasure/Body/Layout/ODT/book.odt") &&
+              fs::exists(ser + "/bibliography.ods") && fs::exists(ser + "/Wikipedia/page.html") &&
+              !fs::exists(aut + "/Carolyn Keene") && core::projects::find(H).size() == 5,
+              r.messages.empty() ? "" : r.messages.front());
+        // Again, on a book already in place: laid out only.
+        put_file(S + "/The Clue in the Diary/A0003.png", "s");
+        const auto ip = og::plan(H, bt, og::groups_of(bt, S + "/The Clue in the Diary", og::Shape::One), true);
+        check("organize: a book already in place -- nothing moved, its new scan laid out",
+              ip.projects == 1 && ip.in_place == 1 && ip.moved == 0 && ip.laid_out == 1);
+        // Another type: a -project under its category.
+        put_file(H + "/Desktop/Tapper/Tapper.odt", "t");
+        put_file(H + "/Desktop/Tapper/notes.md", "n");
+        const auto wg = og::groups_of(wt, H + "/Desktop/Tapper", og::guess(wt, H + "/Desktop/Tapper"));
+        const auto wp = og::plan(H, wt, wg, true);
+        check("organize: another type -- ~/Writing/Tapper-project, laid out by its routes",
+              wp.moved == 1 && og::target_of(H, wt, "", "Tapper") == H + "/Writing/Tapper-project" && wp.laid_out == 2,
+              std::to_string(wp.moved) + "/" + std::to_string(wp.laid_out));
+        const auto u = door.undo();
+        check("organize: ONE undo -> everything back where it was", u.ok && fs::exists(one + "/book.odt") &&
+              fs::exists(ser + "/02 The Hidden Staircase/A0002.png") && fs::exists(aut + "/Carolyn Keene/The Bungalow Mystery/book.odt"));
+        fs::remove_all(root);
+        core::projects::set_shelves({});
+    }
+
+    // ── s025: the suspect scan -- on a FIXTURE, read-only ────────────────────
+    {
+        namespace su = core::suspects;
+        check("suspects: ext_of -- .optik yes; 'Mr. Smith', v1.2, .hidden, notes no",
+              su::ext_of("Hollow.optik") == ".optik" && su::ext_of("A.CoMpOsIx") == ".composix" &&
+              su::ext_of("Mr. Smith").empty() && su::ext_of("v1.2").empty() && su::ext_of(".hidden").empty() &&
+              su::ext_of("notes").empty() && su::ext_of("a.").empty());
+        check("suspects: size_text", su::size_text(17) == "17 B" && su::size_text(1536) == "1.5 KB" &&
+              su::size_text(3ull << 30) == "3.0 GB" && su::size_text(120ull << 20) == "120 MB");
+        const fs::path root = fs::temp_directory_path() / ("tidy_selftest_suspects_" + std::to_string(::getpid()));
+        fs::remove_all(root);
+        const std::string H = (root / "home").string();
+        put_file(H + "/Documents/Scans/Loose.klimt/book.json", "{}");
+        put_file(H + "/Documents/Scans/Loose.klimt/A0001.png", "12345");
+        put_file(H + "/Documents/Scans/Loose.klimt/.thumb", "xx");
+        put_file(H + "/Writing/Tapper-project/Tapper.folio/doc.json", "{}");
+        put_file(H + "/Writing/Tapper-project/notes.json", "{}");          // a project's head: not a suspect
+        put_file(H + "/Pictures/Old.photolib/x.dat", "d");
+        put_file(H + "/Pictures/Old.photolib/Inner.optik/i.json", "{}");   // held whole: not listed
+        put_file(H + "/Documents/Calibre Library/metadata.db", "db");
+        put_file(H + "/Documents/Calibre Library/Keene/Book (1)/metadata.opf", "opf");
+        put_file(H + "/Downloads/someapp/cache/c.bin", "c");
+        put_file(H + "/Projects/clone/.git/HEAD", "ref");                // a repo outside code: one item
+        put_file(H + "/Projects/clone/package.json", "{}");
+        put_file(H + "/Projects/clone/x.foo/a.json", "{}");
+        put_file(H + "/Develop/spdlog/.git/config", "[remote \"origin\"]\n\turl = https://github.com/gabime/spdlog\n");
+        put_file(H + "/Develop/scripts/run.sh", "#!");                    // not in git
+        put_file(H + "/Develop/gtk/tidy-project/tidy/.git/config", "[core]\n");   // git, no remote
+        put_file(H + "/Develop/gtk/tidy-project/tidy/build/CMakeCache.txt", "c");
+        put_file(H + "/Develop/gtk/tidy-project/tidy/build/compile_commands.json", "{}");
+        put_file(H + "/Develop/gtk/AutoGtk/autom4te.cache/x", "a");        // not in git
+        put_file(H + "/Develop/gtk/Curvz_Project/projects/My.curvz/a.json", "{}");
+        put_file(H + "/Documents/Old app/build/CMakeCache.txt", "c");      // build output outside code
+        put_file(H + "/Documents/Old app/autom4te.cache/y", "y");
+        put_file(H + "/Documents/Book.composix/c.json", "{}");             // ours: known
+        put_file(H + "/Documents/Jasper.scriv/Files/x.rtf", "r");          // latch's: known
+        put_file(H + "/Documents/Mr. Smith/notes.txt", "n");
+        put_file(H + "/Documents/config.json", "{}");                      // home's top folder: never a suspect
+        put_file(H + "/.cache/thumbnails/t.png", "t");                     // hidden
+        put_file(H + "/Archive/2025/Old.optik/a.json", "{}");             // archived: not entered
+        put_file(H + "/Keep/Secret.optik/s.json", "{}");                  // Hands off
+        const auto before = tree_facts(H);
+        latch::protect::set_owned({"Keep"});
+        latch::pkg::set_extra({".composix", ".quire"});
+        const auto r = su::scan(H, H);
+        latch::protect::set_owned({});
+        auto get = [&](const std::string& rel) -> const su::Suspect* {
+            for (const auto& x : r.list) if (x.rel == rel) return &x;
+            return nullptr;
+        };
+        const auto* lo = get("Documents/Scans/Loose.klimt");
+        check("suspects: Name.ext/ + json -> your app, loose, measured whole (hidden too)",
+              lo && lo->group == su::Group::App && lo->ext == ".klimt" && lo->project.empty() && lo->files == 3 &&
+              lo->bytes == 9 && !lo->known);
+        const auto* tf = get("Writing/Tapper-project/Tapper.folio");
+        check("suspects: inside a project -> marked as in it", tf && tf->group == su::Group::App &&
+              tf->project == "Writing/Tapper-project");
+        const auto* ol = get("Pictures/Old.photolib");
+        check("suspects: Name.ext/ without json; held whole (its .optik inside not listed)",
+              ol && ol->group == su::Group::Ext && !get("Pictures/Old.photolib/Inner.optik") && ol->files == 2);
+        const auto* cl = get("Documents/Calibre Library");
+        check("suspects: a database at its top -> held whole (no book under it listed)",
+              cl && cl->group == su::Group::Manifest && cl->why.size() == 1 && cl->why[0] == "metadata.db" &&
+              !get("Documents/Calibre Library/Keene/Book (1)") && cl->files == 2);
+        const auto* sa = get("Downloads/someapp");
+        check("suspects: cache/ at its top -> a marker", sa && sa->group == su::Group::Marker);
+        check("suspects: a git repo is one item -- nothing inside it listed",
+              r.repos == 1 && !get("Projects/clone") && !get("Projects/clone/x.foo"));
+        auto code = [&](const std::string& rel) -> const su::Item* {
+            for (const auto& x : r.code) if (x.rel == rel) return &x;
+            return nullptr;
+        };
+        check("suspects: ~/Develop -- one item per folder, Develop/gtk walked one level as a container",
+              r.code.size() == 5 && code("Develop/spdlog") && code("Develop/scripts") &&
+              code("Develop/gtk/tidy-project") && code("Develop/gtk/AutoGtk") && code("Develop/gtk/Curvz_Project") &&
+              !code("Develop/gtk"), std::to_string(r.code.size()));
+        check("suspects: code git states -- GitHub, no remote (2 deep), not in git",
+              code("Develop/spdlog") && code("Develop/spdlog")->git == su::Git::GitHub &&
+              code("Develop/gtk/tidy-project")->git == su::Git::Local &&
+              code("Develop/scripts")->git == su::Git::None && code("Develop/gtk/AutoGtk")->git == su::Git::None);
+        check("suspects: nothing inside code is a suspect or build output",
+              !get("Develop/gtk/Curvz_Project/projects/My.curvz") && !get("Develop/gtk/AutoGtk/autom4te.cache"));
+        check("suspects: build output outside code -- listed, not suspects",
+              r.build.size() == 2 && !get("Documents/Old app/autom4te.cache") && !get("Documents/Old app/build"),
+              std::to_string(r.build.size()));
+        const auto* co = get("Documents/Book.composix");
+        const auto* sc = get("Documents/Jasper.scriv");
+        check("suspects: .composix (ours) and .scriv (latch's) -> known", co && co->known && sc && sc->known);
+        check("suspects: not a suspect -- a project's head, home's top folders, 'Mr. Smith', hidden",
+              !get("Writing/Tapper-project") && !get("Documents") && !get("Documents/Mr. Smith") && !get(".cache/thumbnails"));
+        check("suspects: ~/Archive and Hands off not entered", !get("Archive/2025/Old.optik") && !get("Keep/Secret.optik") &&
+              r.shut == 2);
+        check("suspects: 7 in all", r.list.size() == 7, std::to_string(r.list.size()));
+        const auto txt = su::format(r);
+        check("suspects: the report -- .klimt by extension, loose / in projects, the counts line",
+              txt.find(".klimt") != std::string::npos && txt.find("1 loose, 0 in projects") != std::string::npos &&
+              txt.find("Known bundles already (not asked): 3") != std::string::npos &&
+              txt.find("1 git repos") != std::string::npos && txt.find("3 not in git") != std::string::npos);
+        const auto inside = su::scan(H, H + "/Develop/gtk/tidy-project/tidy");
+        const auto gtk = su::scan(H, H + "/Develop/gtk");
+        check("suspects: walked from inside code -- its item, one line; from Develop/gtk -- its 3 items",
+              inside.code.size() == 1 && inside.code[0].rel == "Develop/gtk/tidy-project" && inside.list.empty() &&
+              gtk.code.size() == 3, std::to_string(gtk.code.size()));
+        const auto sub = su::scan(H, H + "/Writing/Tapper-project");
+        check("suspects: walked from inside a project -> still marked in it",
+              sub.list.size() == 1 && sub.list[0].project == "Writing/Tapper-project");
+        check("suspects: READ-ONLY -- the tree is exactly as it was", tree_facts(H) == before);
+        latch::pkg::set_extra({});
+        fs::remove_all(root);
+    }
+
+    // ── s025b: the Quarantine's answers -- on a FIXTURE ─────────────────────
+    {
+        namespace su = core::suspects;
+        namespace qu = core::quarantine;
+        const auto pa = qu::parse("# c\next .ITMSP = bundle\next .boldoblique = ordinary\nfolder Documents/DBs = ordinary\n"
+                                  "folder a = b = not now\nfolder ../x = bundle\next .a.b = bundle\nfolder y = maybe\n"
+                                  "held Documents/Odd.thing\nheld /abs\n");
+        check("quarantine: parse -- lower-cased ext, the last ' = ', bad lines skipped",
+              pa.ext.size() == 2 && qu::of_ext(pa, ".itmsp") == qu::Answer::Bundle &&
+              qu::of_ext(pa, ".BoldOblique") == qu::Answer::Ordinary && pa.folders.size() == 2 &&
+              qu::of_folder(pa, "a = b") == qu::Answer::NotNow && qu::of_folder(pa, "Documents/DBs") == qu::Answer::Ordinary &&
+              pa.held.size() == 1 && pa.held[0] == "Documents/Odd.thing");
+        check("quarantine: to_text -> parse, the same answers", qu::parse(qu::to_text(pa)) == pa);
+        check("quarantine: bundle_exts", qu::bundle_exts(pa) == std::vector<std::string>{".itmsp"});
+
+        const fs::path root = fs::temp_directory_path() / ("tidy_selftest_quarantine_" + std::to_string(::getpid()));
+        fs::remove_all(root);
+        const std::string H = (root / "home").string(), D = (root / "data").string();
+        put_file(H + "/Documents/Fonts/N/NewsGothic.BoldOblique/NewsGothic.otf", "otf");   // ext answered ordinary
+        put_file(H + "/Documents/Fonts/N/NewsGothic.BoldOblique/Deep.klimt/k.json", "{}"); // walked into: found
+        put_file(H + "/Documents/Mobi/Pkg.itmsp/meta.xml", "x");                           // ext answered a bundle
+        put_file(H + "/Documents/Actual/My-Fin/db.sqlite", "d");                           // folder answered a bundle
+        put_file(H + "/Documents/Actual/My-Fin/metadata.json", "{}");
+        put_file(H + "/Documents/DBs/test.sqlite", "t");                                   // folder answered ordinary
+        put_file(H + "/Documents/DBs/Inner.foo/a.json", "{}");                             // walked into: found
+        put_file(H + "/Documents/Later/thumbnails/t.png", "p");                            // not now
+        put_file(H + "/Documents/Odd.thing/z.txt", "z");                                   // unanswered
+        put_file(H + "/Documents/J.scriv/x.rtf", "r");                                     // latch's: ordinary can't undo it
+        put_file(H + "/Documents/loose.txt", "l");
+        const auto before = tree_facts(H);
+        qu::Answers a;
+        a.ext = {{".boldoblique", qu::Answer::Ordinary}, {".itmsp", qu::Answer::Bundle}, {".scriv", qu::Answer::Ordinary}};
+        a.folders = {{"Documents/Actual/My-Fin", qu::Answer::Bundle}, {"Documents/DBs", qu::Answer::Ordinary},
+                     {"Documents/Later", qu::Answer::NotNow}};
+        check("quarantine: Save writes only Tidy's own file", core::own::write(D, qu::kFile, qu::to_text(a)).empty());
+        core::projects::apply_places(D, H);
+        const auto ex = latch::pkg::extra();
+        check("quarantine: apply_places -- your bundle extension joins latch's extras",
+              std::find(ex.begin(), ex.end(), ".itmsp") != ex.end() && latch::pkg::is_package_name("Pkg.ITMSP"));
+        const auto r = su::scan(H, H);
+        auto get = [&](const std::string& rel) -> const su::Suspect* {
+            for (const auto& x : r.list) if (x.rel == rel) return &x;
+            return nullptr;
+        };
+        const auto quiet = [&](const std::string& rel) { return std::find(r.quiet.begin(), r.quiet.end(), rel) != r.quiet.end(); };
+        check("quarantine: an ordinary extension -- not listed, walked into (what is inside it is found)",
+              !get("Documents/Fonts/N/NewsGothic.BoldOblique") && quiet("Documents/Fonts/N/NewsGothic.BoldOblique") &&
+              get("Documents/Fonts/N/NewsGothic.BoldOblique/Deep.klimt"));
+        const auto* pk = get("Documents/Mobi/Pkg.itmsp");
+        const auto* mf = get("Documents/Actual/My-Fin");
+        check("quarantine: a bundle -- by extension and by folder -> known, answered",
+              pk && pk->known && pk->answer == qu::Answer::Bundle && mf && mf->known && mf->answer == qu::Answer::Bundle);
+        check("quarantine: an ordinary folder -- not listed, walked into",
+              !get("Documents/DBs") && quiet("Documents/DBs") && get("Documents/DBs/Inner.foo"));
+        const auto* lt = get("Documents/Later");
+        const auto* od = get("Documents/Odd.thing");
+        check("quarantine: not now -> listed with its answer; unanswered -> listed, none",
+              lt && !lt->known && lt->answer == qu::Answer::NotNow && od && !od->known && od->answer == qu::Answer::None);
+        const auto* js = get("Documents/J.scriv");
+        check("quarantine: 'ordinary' never undoes latch's list (.scriv stays known)", js && js->known);
+        auto held = su::held_of(r);
+        std::sort(held.begin(), held.end());
+        check("quarantine: held -- the unanswered and the not now, nothing known",
+              held == std::vector<std::string>{"Documents/DBs/Inner.foo", "Documents/Fonts/N/NewsGothic.BoldOblique/Deep.klimt",
+                                               "Documents/Later", "Documents/Odd.thing"},
+              std::to_string(held.size()));
+        const auto txt = su::format(r);
+        check("quarantine: the report -- bundle folders under Known, Not now, the ordinary count",
+              txt.find("folders you answered \"a bundle\": 1") != std::string::npos &&
+              txt.find("Not now (still held, asked again later): 1") != std::string::npos &&
+              txt.find("(walked, not asked again): 2") != std::string::npos &&
+              txt.find("Known bundles already (not asked): 3") != std::string::npos);
+        a.held = held;
+        core::own::write(D, qu::kFile, qu::to_text(a));
+        core::projects::apply_places(D, H);
+        check("quarantine: held / one -- held and bundle folders are one; ordinary is not",
+              qu::held(H + "/Documents/Odd.thing") && qu::held(H + "/Documents/Later") && !qu::held(H + "/Documents/DBs") &&
+              qu::one(H + "/Documents/Actual/My-Fin") && !qu::held(H + "/Documents/Actual/My-Fin") &&
+              qu::one(H + "/Documents/Mobi/Pkg.itmsp") && !qu::one(H + "/Documents/DBs") && qu::one(H + "/Documents/J.scriv"));
+        const auto files = core::scan::walk(H, {H + "/Documents"});
+        auto has = [&](const std::string& rel) {
+            return std::any_of(files.begin(), files.end(), [&](const auto& f) { return f.path == H + "/" + rel; });
+        };
+        auto under = [&](const std::string& rel) {
+            return std::any_of(files.begin(), files.end(), [&](const auto& f) { return f.path.rfind(H + "/" + rel + "/", 0) == 0; });
+        };
+        check("quarantine: the walk -- held folders not entered or listed; a bundle folder is one item; ordinary walked",
+              !has("Documents/Odd.thing") && !under("Documents/Odd.thing") && !has("Documents/Later") && !under("Documents/Later") &&
+              has("Documents/Actual/My-Fin") && !under("Documents/Actual/My-Fin") && has("Documents/Mobi/Pkg.itmsp") &&
+              !under("Documents/Mobi/Pkg.itmsp") && has("Documents/DBs/test.sqlite") && has("Documents/loose.txt"));
+        check("quarantine: READ-ONLY on the home -- the tree is exactly as it was", tree_facts(H) == before);
+        qu::set("", {});
+        latch::pkg::set_extra({});
+        core::projects::set_shelves({});
+        fs::remove_all(root);
     }
 
     std::cout << "-----------------------------------------------\n";

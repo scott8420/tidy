@@ -99,7 +99,7 @@ const std::vector<Topic>& topics() {
           "catch-all so Sort, Files home and the Closet see its files. Look reads only."},
          {"Map -> Look.",
           "Click a box to go into it; Up (or Backspace) comes back.",
-          "Hover a box for its counts. Right-click it: Adopt in place..., Make it a catch-all..., Conform to a template..., Open in Files.",
+          "Hover a box for its counts. Right-click it: Adopt in place..., Make it a catch-all..., Organize as..., Open in Files.",
           "Look again after you adopt or sort to see the red shrink."},
          "map"},
         {"home", "Every day", "Files home",
@@ -122,46 +122,33 @@ const std::vector<Topic>& topics() {
 
         // ── Projects ──────────────────────────────────────────────────────────
         {"projects", "Projects", "Projects",
-         {"A folder named something-project is a project: it moves whole, never file by file. Tidy finds them, "
-          "gives each an id, follows them when they move, and keeps their status (active, paused, done, dropped).",
-          "Some projects are known by their PLACE instead of a name: a book is any folder at "
-          "~/Documents/Bookbinding/<Last, First>/<Title> -- no -project needed. It is kept whole the same way."},
-         {"Projects -> Look: what is where it belongs, and what is loose.", "Place a loose project where its kind lives.",
-          "New project: pick a template, a name -> preview -> Do it.",
-          "A new book: New project -> bookbinding -> the author (Keene, Carolyn) and the title -> preview -> Do it. "
-          "Body and Cover come with every stage folder, empty until you fill them.",
-          "An old book: Projects -> its row -> Layout... -> each file's folder proposed (scans to Body/OCR/Scans/Archive, "
-          "a name with cover or jacket to the Cover) -- change any; what no route fits is asked first and stays until "
-          "you pick -> Do it. Missing stage folders are made, folders left empty go to the Trash; one undo in Activity.",
-          "A book somewhere else (~/Documents/Nancy Drew/02 The Hidden Staircase): Projects -> Make books... (or the Map: "
-          "right-click -> Make it a book... / Its sub-folders are books...) -> the author once, each title guessed (the "
-          "number goes) -> Do it: each folder moves WHOLE onto the shelf. Then Layout... on each.",
-          "Whole authors at once: the Map -> right-click an author's folder -> Bookbinding author... (or a folder of "
-          "authors -> Its sub-folders are authors...), or Projects -> Books -> Bookbinding authors... Each folder in an "
-          "author's folder is a book; \"Carolyn Keene\" is offered as \"Keene, Carolyn\". Lay out each book too (on): "
-          "its files by the routes. Loose files left in the old author folder go to the Closet; an empty one, the Trash."},
+         {"A project is a folder that moves whole, never file by file. Some are named something-project; some are "
+          "known by their PLACE -- a book is any folder at ~/Documents/Bookbinding/<Last, First>/<Title>. Tidy finds "
+          "them, gives each an id, follows them when they move, and keeps their status (active, paused, done, dropped).",
+          "Organize as... is the one way to put a folder in order. Pick the TYPE first (a template: its tree and what "
+          "goes where). Tidy guesses what the folder is -- one project, a folder of projects (a series, an author's "
+          "books), or a folder of groups (authors) -- and the names (the number off a title; \"Carolyn Keene\" as "
+          "\"Keene, Carolyn\"). Each project's files go where the type's tree says; then it moves whole to where the "
+          "type lives. Loose files left behind go to the Closet; a folder left empty goes to the Trash. One preview, "
+          "one undo in Activity. On a project already in place it only tidies its files."},
+         {"Right-click any folder in the Map -> Organize as..., or Projects -> Organize as... -> Folder...",
+          "Pick the type (New type... if it is not there yet).",
+          "Check what the folder is, the names, the summary -> Do it.",
+          "A project's row -> Organize...: its own type, its files put where the tree says.",
+          "New project: pick a template, a name (a book: the author too) -> preview -> Do it."},
          "projects"},
         {"templates", "Projects", "Templates",
-         {"A template is the shape of a project: its folders, the whole tree (six deep at most). Lift one from a "
-          "project you like; New project builds the same tree. Drift shows where a project has wandered from its template.",
-          "The builder shows the template as a tree, like Files: each folder with what goes in it (\u2190 *.odt). "
+         {"A template is a TYPE of project: its folders as a tree, like Files, and what goes in each (\u2190 *.odt). "
+          "Organize as... and New project both use it. Drift shows where a project has wandered from its template.",
           "Right-click a folder (or its \u22ef): New folder, Rename, This goes here... (a pattern, or a sample name: "
           "A0001.png means the numbered run), Remove. Drag a rule to another folder. Drop a file from Files on a folder: "
-          "its type goes there. The particular rules always fit first (*cover*.png before *.png).",
-          "\"Known by its place\" (the builder's check): its projects are the folders under ~/<category>/<group>/ -- "
-          "no -project. The built-in bookbinding is one: Body (OCR, Layout, Print, Finals) and Cover (Layout, Print).",
-          "Its routes say where files go: \"*.odt -> Originals\". Top to bottom, the first that fits decides. A route may "
-          "name a folder first (\"Archive/*.png\" -- a .png anywhere under Archive) and may say \"stays where it is\" "
-          "or \"the project's top\" (\"*.optik\"). Conform folders... puts the files of many project folders -- your "
-          "30 books in ~/Documents/EBooks -- where the routes say, all at once: one preview, one undo. A file no route "
-          "fits stays and is listed; add a route and Look again."},
-         {"Templates -> From a scan... (or the Map: right-click a folder -> Make a template from a scan...): a project "
-          "folder, or a folder of many -> every file type found, with counts; a numbered run (A0001.png ..) has a line "
-          "of its own.",
-          "Tick the folders to keep; add new ones (Originals, Workups/Images).",
-          "Give each file type a folder. Tick Source on the types that build the others (.optik): they stay at the top.",
-          "Name it; say where projects of this kind live. Save and conform -> Conform's preview -> Do it.",
-          "Or: Lift from a project, add routes by hand, Save; Conform folders... -> Look -> Do it."},
+          "its type goes there. The particular rules always fit first (*cover*.png before *.png). A file no rule fits "
+          "is left where it is.",
+          "\"Known by its place\": its projects are the folders under ~/<category>/<group>/ -- no -project. The "
+          "built-in bookbinding is one: Body (OCR, Layout, Print, Finals) and Cover (Layout, Print)."},
+         {"Templates -> Starters... -> Use (bookbinding, writing-project...) -> change what you like -> Save.",
+          "Or New template, or Lift from a project you like (each lifted folder kept or removed).",
+          "Then: Organize as... with it."},
          "templates"},
         {"code", "Projects", "Code projects",
          {"A code project's source lives on its remote (GitHub). What is worth keeping in the archive is the "

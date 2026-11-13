@@ -63,7 +63,10 @@ std::vector<Shelf> shelves();
 // is never split, saved template or not), and the package extras: Tidy's own
 // bundles latch does not list (.composix, .quire) + <data>/bundles.json.
 // READ-ONLY (a directory listing + reads).
-void apply_places(const std::string& data_dir);
+// s025b: given the home, also the Quarantine's answers (core::quarantine):
+// your bundle extensions join the extras, held / bundle folders are set.
+// Without it the answers already set stay as they are.
+void apply_places(const std::string& data_dir, const std::string& home = "");
 // The saved templates + the built-in bookbinding when none of that name is
 // saved (READ-ONLY). What a book is checked against before you save your own.
 std::vector<templates::Template> known_templates(const std::string& data_dir);

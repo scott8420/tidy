@@ -70,12 +70,9 @@ class AboutWindow;
 class HelpWindow;
 class ProjectsPage;
 class IdListsWindow;
+class QuarantineWindow;
 class AdoptWindow;
-class ConformWindow;
-class LayoutWindow;
-class BooksWindow;
-class AuthorsWindow;
-class ShapeWindow;
+class OrganizeWindow;
 class TemplatesPage;
 class BackgroundWindow;
 class PurposesPage;
@@ -119,13 +116,10 @@ private:
     void arm_rescan();
                                                    // handler: the loose background rescan (s010f1)
     void on_id_lists();                            // handler: the Id lists window (s010f2)
+    void on_quarantine();                          // handler: the Quarantine window -- answers to the suspect scan (s025b)
     void on_adopt();
-    void on_conform(const std::string& folder = "");   // s023h: the Conform folders window
-    void on_layout(const std::string& book, const core::templates::Template& t);   // s024a: one book into the layout
-    void on_layout_at(const std::string& book);                                     // s024b: the same, its template found
-    void on_authors(const std::string& folder = "");   // s024c: Bookbinding authors (a trailing '/' = each sub-folder)
-    void on_books(const std::string& folder = "");   // s024b: Make books (a trailing '/' = each sub-folder)
-    void on_shape(const std::string& folder = "");     // s023i: a template made from a scan
+    void on_organize(const std::string& folder = "", const std::string& type = "");   // s024e: THE way to organize a folder
+    void on_new_type();                                // s024e: Organize as -> New type... -> the builder
     void on_adopt_folder(const std::string& rel, bool catch_all);   // s023f: from the Map
     void after_activity_undo(const std::string& label, const latch::door::Result& r, std::size_t synced);   // s023a                               // handler: the Adopt folders window (s023)
     void on_background();                          // handler: the Background scan window (s012b)
@@ -202,12 +196,9 @@ private:
     std::unique_ptr<HelpWindow>      m_help;
     std::unique_ptr<SettingsWindow>  m_settings_win;
     std::unique_ptr<IdListsWindow>   m_idlists_win;   // s010f2
+    std::unique_ptr<QuarantineWindow> m_quarantine_win;   // s025b
     std::unique_ptr<AdoptWindow>     m_adopt_win;     // s023
-    std::unique_ptr<ConformWindow>   m_conform_win;   // s023h
-    std::unique_ptr<LayoutWindow>    m_layout_win;    // s024a
-    std::unique_ptr<BooksWindow>     m_books_win;     // s024b
-    std::unique_ptr<AuthorsWindow>   m_authors_win;   // s024c
-    std::unique_ptr<ShapeWindow>     m_shape_win;     // s023i
+    std::unique_ptr<OrganizeWindow>  m_organize_win;  // s024e (replaces Conform, Shape, Layout, Books, Authors)
     std::unique_ptr<BackgroundWindow> m_background_win;   // s012b
     core::settings::Settings         m_settings;   // read at build_ui; written only by core::own
     std::unique_ptr<ShortcutsDialog> m_shortcuts;

@@ -145,7 +145,7 @@ Attention look(const std::string& home, const std::string& data_dir, const std::
     a.when = now;
     const auto st = settings::parse(own::read(data_dir, settings::kFile));
     protection::apply(home, protection::config_home(home), st);   // s019a: the hands-off folders, before any walk
-    projects::apply_places(data_dir);   // s024: books by their place, our bundles
+    projects::apply_places(data_dir, home);   // s024: books by their place, our bundles; s025b the Quarantine
     const auto book = purposes::parse(own::read(data_dir, purposes::kFile));
     const auto files = scan::walk(home, filelists::roots(home));
     auto judged = files;   // s019: and the files at home's own top (the sweep shows them; the id lists don't cover them)

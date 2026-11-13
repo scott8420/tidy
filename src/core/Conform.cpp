@@ -1,4 +1,5 @@
 #include "core/Conform.hpp"
+#include "core/Quarantine.hpp"
 
 #include "core/Archive.hpp"
 #include "core/Homing.hpp"
@@ -39,7 +40,7 @@ void walk(const tp::Template& t, const std::string& root, const fs::path& dir, P
         if (e2 || fs::is_symlink(st)) continue;
         const std::string path = it->path().string();
         const std::string rel = rel_to(root, path);
-        const bool pkg = fs::is_directory(st) && latch::pkg::is_package_name(name);
+        const bool pkg = fs::is_directory(st) && quarantine::one(path);
         if (fs::is_directory(st) && !pkg) {
             if (projects::is_project_name(name) || is_repo(it->path()) || latch::protect::protected_name(name)) {
                 ++out.whole;
@@ -73,7 +74,7 @@ std::vector<std::string> folders(const std::string& dir, bool each_sub) {
         if (name.empty() || name[0] == '.') continue;
         std::error_code e2;
         const auto st = it->symlink_status(e2);
-        if (e2 || !fs::is_directory(st) || latch::pkg::is_package_name(name) || latch::protect::protected_name(name))
+        if (e2 || !fs::is_directory(st) || quarantine::one(it->path().string()) || latch::protect::protected_name(name))
             continue;
         if (is_repo(it->path())) continue;
         out.push_back(it->path().string());

@@ -84,9 +84,12 @@ add_library(tidy_core STATIC
     src/core/Sort.cpp        # s020: the one-step Sort -- a level and a place for every loose file
     src/core/Routes.cpp      # s022: learned routes -- each send home remembered, proposed again
     src/core/Adopt.cpp       # s023: adopt -- picked folders cataloged in place, routes learned; catch-alls swept
+    src/core/Suspects.cpp    # s025: the suspect scan -- folders that may be one thing, read-only
+    src/core/Quarantine.cpp  # s025b: the answers -- a bundle / an ordinary folder / not now; held folders
     src/core/Map.cpp         # s023f: the home map -- cataloged / loose / untracked per folder; the treemap layout
     src/core/Conform.cpp     # s023h: conform project folders to a template -- the rules once, every folder, one preview
     src/core/Layout.cpp      # s024a: one old book into the layout -- proposed, asked, emptied folders trashed
+    src/core/Organize.cpp    # s024e: Organize as... -- one folder + a type: shape, names, laid out, moved
     src/core/Shape.cpp       # s023i: a scan -> every file type (numbered runs apart) + folder; picks -> a template
     src/core/Shortcuts.cpp   # one shortcut list, two consumers (Cairn)
     src/core/Facts.cpp       # statx times + user.tidy.* tags, read (s004)
@@ -161,13 +164,10 @@ add_executable(tidy
     src/AboutWindow.cpp
     src/SettingsWindow.cpp
     src/IdListsWindow.cpp
+    src/QuarantineWindow.cpp   # s025b: the answers to the suspect scan
     src/AdoptWindow.cpp      # s023: adopt folders -- in place or catch-all
     src/MapPage.cpp          # s023f: the home map -- a treemap of cataloged / loose / untracked
-    src/ConformWindow.cpp    # s023h: conform many project folders to a template
-    src/LayoutWindow.cpp     # s024a: one old book into the layout
-    src/BooksWindow.cpp      # s024b: folders -> books on the shelf, moved whole
-    src/AuthorsWindow.cpp    # s024c: authors' folders -> their books on the shelf, laid out; leftovers to the Closet
-    src/ShapeWindow.cpp      # s023i: a template made from a scan -- types and folders found, each type given a folder
+    src/OrganizeWindow.cpp   # s024e: Organize as... -- THE way to put a folder in order
     src/Busy.cpp             # s023a: long work off the window's thread, a progress bar over it
     src/TemplatesPage.cpp
     src/ProjectsPage.cpp

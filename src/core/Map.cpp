@@ -1,4 +1,5 @@
 #include "core/Map.hpp"
+#include "core/Quarantine.hpp"
 
 #include "core/Archive.hpp"
 #include "core/Birth.hpp"
@@ -79,7 +80,16 @@ void walk(const Ctx& cx, const std::string& dir, const std::string& rel, Mode mo
                 node.kids.push_back(std::move(k));
                 continue;
             }
-            if (latch::pkg::is_package_name(name)) {    // a package is one item
+            if (quarantine::held(path)) {                // s025b: quarantined -- not looked inside until answered
+                Node k;
+                k.name = name;
+                k.rel = crel;
+                k.shut = true;
+                k.what = "quarantined -- answer it in Quarantine (a bundle / an ordinary folder)";
+                node.kids.push_back(std::move(k));
+                continue;
+            }
+            if (quarantine::one(path)) {                 // a package is one item (s025b: or a folder you answered "a bundle")
                 const auto k = classify(cx, path, dir, mode);
                 node.here.add(k);
                 node.c.add(k);

@@ -14,12 +14,9 @@
 #include "ShortcutsDialog.hpp"
 #include "SettingsWindow.hpp"
 #include "IdListsWindow.hpp"
+#include "QuarantineWindow.hpp"
 #include "AdoptWindow.hpp"
-#include "ConformWindow.hpp"
-#include "LayoutWindow.hpp"
-#include "BooksWindow.hpp"
-#include "AuthorsWindow.hpp"
-#include "ShapeWindow.hpp"
+#include "OrganizeWindow.hpp"
 #include "TemplatesPage.hpp"
 #include "Busy.hpp"
 
@@ -224,6 +221,13 @@ void Shell::on_id_lists() {  // handler
     m_idlists_win->open();
 }
 
+// s025b: the Quarantine -- answers to the suspect scan; writes only Tidy's own list.
+void Shell::on_quarantine() {  // handler
+    if (!m_quarantine_win)
+        m_quarantine_win = std::make_unique<QuarantineWindow>(*this, m_home, m_data_dir, nullptr);
+    m_quarantine_win->open();
+}
+
 // s023: adopt folders -- the tags through the door (undo in Activity); the
 // picked folders saved in settings.ini as Settings saves them.
 void Shell::on_adopt() {  // handler
@@ -245,36 +249,11 @@ void Shell::on_adopt() {  // handler
     m_adopt_win->open(m_settings);
 }
 
-// s023h: conform many project folders to a template -- moves through the door.
-void Shell::on_conform(const std::string& folder) {  // handler
-    if (!m_conform_win)
-        m_conform_win = std::make_unique<ConformWindow>(*this, *m_door, m_home, m_data_dir, [this] { refresh_activity(); });
-    m_conform_win->open(folder);
-}
-
-// s024a: one old book into the layout -- moves through the door.
-void Shell::on_layout(const std::string& book, const core::templates::Template& t) {  // handler
-    if (!m_layout_win)
-        m_layout_win = std::make_unique<LayoutWindow>(*this, *m_door, m_home, m_data_dir, [this] {
-            refresh_activity();
-            if (m_projects) m_projects->refresh_if_shown();
-        });
-    m_layout_win->open(book, t);
-}
-
-// s024b: a book from the Map -- its shelf's template.
-void Shell::on_layout_at(const std::string& book) {  // handler
-    core::projects::Shelf shelf;
-    const std::string rel = book.size() > m_home.size() + 1 ? book.substr(m_home.size() + 1) : "";
-    if (!core::projects::is_whole_at(rel, &shelf)) return;
-    for (const auto& t : core::projects::known_templates(m_data_dir))
-        if (t.name == shelf.tpl) { on_layout(book, t); return; }
-}
-
-// s024c: authors' folders -> their books on the shelf; loose leftovers -> the Closet (catch-alls in settings.ini).
-void Shell::on_authors(const std::string& folder) {  // handler
-    if (!m_authors_win)
-        m_authors_win = std::make_unique<AuthorsWindow>(*this, *m_door, m_home, m_data_dir,
+// s024e: Organize as... -- one folder + a type: laid out and moved where the type lives;
+// loose leftovers -> the Closet (catch-alls in settings.ini, Adopt's way).
+void Shell::on_organize(const std::string& folder, const std::string& type) {  // handler
+    if (!m_organize_win)
+        m_organize_win = std::make_unique<OrganizeWindow>(*this, *m_door, m_home, m_data_dir,
             [this](const std::vector<std::string>& rels) {
                 auto s = m_settings;
                 for (const auto& r : rels)
@@ -283,40 +262,21 @@ void Shell::on_authors(const std::string& folder) {  // handler
                 if (!err.empty()) return err;
                 m_settings = s;
                 if (m_clo_states && m_clo_states->get_visible_child_name() == "results") fill_closet();
-                if (auto lg = log::get(log::Area::Shell)) lg->info("authors: {} catch-alls added for the Closet", rels.size());
+                if (auto lg = log::get(log::Area::Shell)) lg->info("organize: {} catch-alls added for the Closet", rels.size());
                 return std::string();
             },
+            [this] { on_new_type(); },
             [this] {
                 refresh_activity();
                 if (m_projects) m_projects->refresh_if_shown();
             });
-    const bool each = !folder.empty() && folder.back() == '/';
-    m_authors_win->open(each ? folder.substr(0, folder.size() - 1) : folder, each);
+    m_organize_win->open(folder, type);
 }
 
-// s024b: folders -> books on the shelf, moved whole.
-void Shell::on_books(const std::string& folder) {  // handler
-    if (!m_books_win)
-        m_books_win = std::make_unique<BooksWindow>(*this, *m_door, m_home, m_data_dir, [this] {
-            refresh_activity();
-            if (m_projects) m_projects->refresh_if_shown();
-        });
-    const bool each = !folder.empty() && folder.back() == '/';
-    m_books_win->open(each ? folder.substr(0, folder.size() - 1) : folder, each);
-}
-
-// s023i: a template made from a scan -- Save and conform goes on to Conform's preview.
-void Shell::on_shape(const std::string& folder) {  // handler
-    if (!m_shape_win)
-        m_shape_win = std::make_unique<ShapeWindow>(*this, m_home, m_data_dir,
-            [this](const std::string& name, const std::string& dir, bool each, bool conform) {
-                if (m_templates_page) m_templates_page->refresh();
-                if (!conform) return;
-                if (!m_conform_win)
-                    m_conform_win = std::make_unique<ConformWindow>(*this, *m_door, m_home, m_data_dir, [this] { refresh_activity(); });
-                m_conform_win->open_with(dir, name, each);
-            });
-    m_shape_win->open(folder);
+// s024e: "the organization template must be set first" -- a new type in the builder.
+void Shell::on_new_type() {  // handler
+    go("templates");   // the sidebar follows
+    if (m_templates_page) m_templates_page->start_new();
 }
 
 // s023f: the Map's right-click -> the Adopt window, with that folder added.

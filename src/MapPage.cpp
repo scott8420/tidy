@@ -357,20 +357,8 @@ void MapPage::menu_for(const Box& b, double x, double y) {
         item("Adopt in place...", "map.menu.adopt", [this, rel] { if (m_adopt) m_adopt(rel, false); });
         item("Make it a catch-all...", "map.menu.catchall", [this, rel] { if (m_adopt) m_adopt(rel, true); });
     }
-    if (!whole && m_conform)
-        item("Conform to a template...", "map.menu.conform", [this, rel] { m_conform(m_home + "/" + rel); });   // s023h
-    if (!whole && m_book) {   // s024b
-        item("Make it a book...", "map.menu.book", [this, rel] { m_book(m_home + "/" + rel); });
-        item("Its sub-folders are books...", "map.menu.books", [this, rel] { m_book(m_home + "/" + rel + "/"); });
-    }
-    if (!whole && m_authors) {   // s024c
-        item("Bookbinding author...", "map.menu.author", [this, rel] { m_authors(m_home + "/" + rel); });
-        item("Its sub-folders are authors...", "map.menu.authors", [this, rel] { m_authors(m_home + "/" + rel + "/"); });
-    }
-    if (m_layout && core::projects::is_whole_at(rel) && !core::projects::is_project_name(std::filesystem::path(rel).filename().string()))
-        item("Put in the layout...", "map.menu.layout", [this, rel] { m_layout(m_home + "/" + rel); });   // s024b
-    if (!whole && m_scan)
-        item("Make a template from a scan...", "map.menu.scan", [this, rel] { m_scan(m_home + "/" + rel); });   // s023i
+    if (m_organize && b.node->what != "~/Archive")   // s024e: the one way -- a loose folder, a series, a book in place
+        item("Organize as...", "map.menu.organize", [this, rel] { m_organize(m_home + "/" + rel); });
     item("Open in Files", "map.menu.open", [this, rel] {
         try {
             Gio::AppInfo::launch_default_for_uri(Gio::File::create_for_path(m_home + "/" + rel)->get_uri());

@@ -1,4 +1,5 @@
 #include "core/Shape.hpp"
+#include "core/Quarantine.hpp"
 
 #include "core/Projects.hpp"
 
@@ -59,7 +60,7 @@ void walk(const fs::path& root, const fs::path& dir, std::size_t idx, std::vecto
         const auto st = it->symlink_status(e2);
         if (e2 || fs::is_symlink(st)) continue;
         const std::string rel = it->path().lexically_relative(root).generic_string();
-        const bool pkg = fs::is_directory(st) && latch::pkg::is_package_name(name);
+        const bool pkg = fs::is_directory(st) && quarantine::one(it->path().string());
         if (fs::is_directory(st) && !pkg) {
             if (projects::is_project_name(name) || is_repo(it->path()) || latch::protect::protected_name(name)) {
                 ++out.whole;

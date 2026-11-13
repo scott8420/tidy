@@ -28,11 +28,7 @@ public:
     using Adopt = std::function<void(const std::string& rel, bool catch_all)>;
     MapPage(std::string home, bool fixture, Text user_dirs, CatchAll catch_all, Adopt adopt);
     void refresh_if_shown();
-    void set_on_conform(std::function<void(const std::string& dir)> f) { m_conform = std::move(f); }   // s023h
-    void set_on_scan(std::function<void(const std::string& dir)> f) { m_scan = std::move(f); }         // s023i
-    void set_on_book(std::function<void(const std::string& dir)> f) { m_book = std::move(f); }         // s024b
-    void set_on_layout(std::function<void(const std::string& dir)> f) { m_layout = std::move(f); }     // s024b
-    void set_on_authors(std::function<void(const std::string& dir)> f) { m_authors = std::move(f); }   // s024c
+    void set_on_organize(std::function<void(const std::string& dir)> f) { m_organize = std::move(f); }   // s024e
 
 private:
     struct Box {
@@ -52,11 +48,7 @@ private:
     Text m_user_dirs;
     CatchAll m_catch_all;
     Adopt m_adopt;
-    std::function<void(const std::string&)> m_conform;   // s023h
-    std::function<void(const std::string&)> m_scan;      // s023i
-    std::function<void(const std::string&)> m_book;      // s024b: Make it a book...
-    std::function<void(const std::string&)> m_layout;    // s024b: a book -> Put in the layout...
-    std::function<void(const std::string&)> m_authors;   // s024c: Bookbinding author...
+    std::function<void(const std::string&)> m_organize;   // s024e: Organize as...
     bool m_busy = false;
     std::shared_ptr<core::map::Node> m_root;
     std::string m_rel;                       // the folder shown

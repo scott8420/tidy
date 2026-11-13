@@ -18,8 +18,6 @@
 #include <gtkmm/label.h>
 #include <gtkmm/listbox.h>
 #include <gtkmm/listboxrow.h>
-#include <gtkmm/menubutton.h>
-#include <gtkmm/popover.h>
 #include <gtkmm/scrolledwindow.h>
 #include <gtkmm/stringlist.h>
 
@@ -166,18 +164,11 @@ void ProjectsPage::build_start() {
     nw->set_tooltip_text("A template's tree under a name you give, with its id -- previewed first");
     nw->signal_clicked().connect([this] { show_new(); });
     acts->append(*nw);
-    auto books = Gtk::make_managed<Gtk::Button>("Make books...");   // s024b
-    books->set_name("projects.start.books");
-    books->set_halign(Gtk::Align::CENTER);
-    books->set_tooltip_text("Folders anywhere -> books on the shelf: ~/Documents/Bookbinding/<Author>/<Title>, moved whole");
-    books->signal_clicked().connect([this] { if (m_on_books) m_on_books(); });
-    acts->append(*books);
-    auto authors = Gtk::make_managed<Gtk::Button>("Bookbinding authors...");   // s024c
-    authors->set_name("projects.start.authors");
-    authors->set_halign(Gtk::Align::CENTER);
-    authors->set_tooltip_text("An author's folder (or a folder of them): every book inside onto the shelf, laid out");
-    authors->signal_clicked().connect([this] { if (m_on_authors) m_on_authors(); });
-    acts->append(*authors);
+    auto org = Gtk::make_managed<Gtk::Button>("Organize as...");   // s024e
+    org->set_name("projects.start.organize");
+    org->set_tooltip_text("A folder + a type: laid out and moved where the type lives -- one preview, one undo");
+    org->signal_clicked().connect([this] { if (m_on_organize) m_on_organize("", ""); });
+    acts->append(*org);
     auto code = Gtk::make_managed<Gtk::Button>("Code projects...");
     code->set_name("projects.start.code");
     code->set_halign(Gtk::Align::CENTER);
@@ -229,26 +220,11 @@ void ProjectsPage::build_results() {
     nw->set_name("projects.new");
     nw->signal_clicked().connect([this] { show_new(); });
     bar->append(*nw);
-    {   // s024b/c: the book acts behind one button -- the bar stays one line
-        auto books = Gtk::make_managed<Gtk::MenuButton>();
-        books->set_name("projects.books");
-        books->set_label("Books");
-        books->set_tooltip_text("Bookbinding: folders or authors' folders -> books on the shelf");
-        auto pop = Gtk::make_managed<Gtk::Popover>();
-        auto pbox = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::VERTICAL, 2);
-        const auto item = [&](const char* text, const char* name, std::function<void()> f) {
-            auto b = Gtk::make_managed<Gtk::Button>(text);
-            b->set_name(name);
-            b->set_has_frame(false);
-            b->signal_clicked().connect([pop, f = std::move(f)] { pop->popdown(); f(); });
-            pbox->append(*b);
-        };
-        item("Make books...", "projects.books.make", [this] { if (m_on_books) m_on_books(); });
-        item("Bookbinding authors...", "projects.books.authors", [this] { if (m_on_authors) m_on_authors(); });
-        pop->set_child(*pbox);
-        books->set_popover(*pop);
-        bar->append(*books);
-    }
+    auto org = Gtk::make_managed<Gtk::Button>("Organize as...");   // s024e
+    org->set_name("projects.organize");
+    org->set_tooltip_text("A folder + a type: laid out and moved where the type lives -- one preview, one undo");
+    org->signal_clicked().connect([this] { if (m_on_organize) m_on_organize("", ""); });
+    bar->append(*org);
     auto code = Gtk::make_managed<Gtk::Button>("Code projects...");
     code->set_name("projects.code");
     code->set_tooltip_text("Each code project: pushed?, sizes (build, .git), status -- archive the done ones, clean builds");
@@ -775,15 +751,15 @@ void ProjectsPage::render() {
             std::size_t doable = 0;
             if (missing)
                 for (const auto& w : refusals(m_door, pj::fix(p, d))) doable += w.empty();
-            if (p.by_place && t && m_on_layout) {   // s024a: a book -- its files into the layout
-                auto lay = Gtk::make_managed<Gtk::Button>("Layout...");
-                lay->set_name("projects.layout." + p.rel);
-                lay->set_tooltip_text("Put this book's files in the " + t->name + " layout -- each proposed, the rest asked; "
-                                      "the missing stage folders made. One preview, one undo");
-                const auto tt = *t;
-                lay->signal_clicked().connect([this, p, tt] { m_on_layout(p.path, tt); });
-                b->append(*lay);
-                doable = 0;   // Layout makes the missing folders too
+            if (t && m_on_organize) {   // s024e: its files where its type's tree says (and its missing folders)
+                auto org = Gtk::make_managed<Gtk::Button>("Organize...");
+                org->set_name("projects.organize." + p.rel);
+                org->set_tooltip_text("Organize as " + t->name + ": its files where the tree says, the missing folders "
+                                      "made -- previewed, one undo");
+                const std::string tn = t->name;
+                org->signal_clicked().connect([this, p, tn] { m_on_organize(p.path, tn); });
+                b->append(*org);
+                doable = 0;   // Organize makes the missing folders too
             }
             if (doable) {
                 auto fix = Gtk::make_managed<Gtk::Button>("Fix...");

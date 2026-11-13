@@ -1,3 +1,4 @@
+#include "core/Suspects.hpp"
 #include "App.hpp"
 #include "core/Due.hpp"
 
@@ -44,7 +45,9 @@ bool notify(const tidy::core::due::Notice& n) {
 // s012a: `tidy --scan` -- the headless look (no window, no GTK): what needs
 // attention, saved to <data>/attention.ini for the tile. READ-ONLY on the home.
 // s012b: `tidy --scan --notify` -- what the timer runs: at N, a notification.
+// s025: `tidy --suspects [folder]` -- the suspect scan, a report. READ-ONLY.
 int main(int argc, char** argv) {
+    if (argc >= 2 && std::strcmp(argv[1], "--suspects") == 0) return tidy::core::suspects::main_cli(argc, argv);
     if (argc >= 2 && std::strcmp(argv[1], "--scan") == 0) {
         const bool want = argc == 3 && std::strcmp(argv[2], "--notify") == 0;
         if (argc > 3 || (argc == 3 && !want)) { std::cerr << "usage: tidy --scan [--notify]\n"; return 2; }

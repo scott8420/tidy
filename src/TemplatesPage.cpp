@@ -150,12 +150,6 @@ void TemplatesPage::build_start() {
     lift->set_tooltip_text("Read a project's folders, two deep, as a proposal -- nothing in it is touched");
     lift->signal_clicked().connect([this] { on_lift(); });
     row->append(*lift);
-    auto fscan = Gtk::make_managed<Gtk::Button>("From a scan...");   // s023i
-    fscan->set_name("templates.start.scan");
-    fscan->set_valign(Gtk::Align::CENTER);
-    fscan->set_tooltip_text("Scan a project folder or a folder of many: every file type and folder found -- give each type a folder");
-    fscan->signal_clicked().connect([this] { if (m_on_scan) m_on_scan(); });
-    row->append(*fscan);
     auto orb = Gtk::make_managed<Gtk::Button>("New");
     orb->set_name("templates.start.new");
     orb->add_css_class("orb");
@@ -186,17 +180,6 @@ void TemplatesPage::build_list() {
     lift->set_name("templates.list.lift");
     lift->signal_clicked().connect([this] { on_lift(); });
     bar->append(*lift);
-    auto fscan = Gtk::make_managed<Gtk::Button>("From a scan...");   // s023i
-    fscan->set_name("templates.list.scan");
-    fscan->set_tooltip_text("Scan a project folder or a folder of many: every file type and folder found -- give each type a folder");
-    fscan->signal_clicked().connect([this] { if (m_on_scan) m_on_scan(); });
-    bar->append(*fscan);
-    // s023h: the rules once, applied to every project folder -- one preview, one Do it.
-    auto conform = Gtk::make_managed<Gtk::Button>("Conform folders...");
-    conform->set_name("templates.list.conform");
-    conform->set_tooltip_text("Put the files of many project folders where a template's routes say -- previewed first");
-    conform->signal_clicked().connect([this] { if (m_on_conform) m_on_conform(); });
-    bar->append(*conform);
     auto nw = Gtk::make_managed<Gtk::Button>("New template");
     nw->set_name("templates.list.new");
     nw->add_css_class("act");
@@ -504,6 +487,8 @@ void TemplatesPage::refresh_builder() {
 TemplatesPage::~TemplatesPage() {
     if (m_tree_pop) m_tree_pop->unparent();
 }
+
+void TemplatesPage::start_new() { on_new(); }   // s024e
 
 // ── s024d: the tree ────────────────────────────────────────────────────────
 namespace {

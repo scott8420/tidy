@@ -32,13 +32,10 @@ class TemplatesPage : public Gtk::Stack {
 public:
     TemplatesPage(Gtk::Window& parent, std::string home, std::string data_dir, bool fixture);
     ~TemplatesPage() override;   // s024d: the tree's popover is unparented
-    void set_on_conform(std::function<void()> f) { m_on_conform = std::move(f); }   // s023h
-    void set_on_scan(std::function<void()> f) { m_on_scan = std::move(f); }         // s023i
+    void start_new();   // s024e: Organize as -> New type... -> a new template in the builder
     void refresh();   // s023i: a template saved elsewhere -- the list again (not while the builder is open)
 
 private:
-    std::function<void()> m_on_conform;   // s023h
-    std::function<void()> m_on_scan;      // s023i
     void build_start();
     void build_list();
     void build_builder();
