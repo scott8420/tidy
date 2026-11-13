@@ -102,6 +102,14 @@ std::string format(const Report& r);
 // s025b: the suspects still quarantined after a scan -- not known, not
 // answered ordinary: the "held" list a Save writes.
 std::vector<std::string> held_of(const Report& r);
+// s025b2: `a` with its held + hands_off lists worked out from a look -- no
+// rescan (each answer is saved the moment it is picked). Held: suspects not
+// known, answered nothing or not now; hands off: answered don't touch, plus
+// the ones still answered so that a look no longer sees (they are shut).
+quarantine::Answers with_lists(quarantine::Answers a, const Report& r);
+
+// s025b1: the suspects answered "don't touch" (rel) -- made Hands off by a Save.
+std::vector<std::string> hands_off_of(const Report& r);
 
 // tidy --suspects [folder]: apply protection + places, scan, print. 0 = ok.
 int main_cli(int argc, char** argv);

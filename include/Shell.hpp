@@ -124,6 +124,8 @@ private:
     void after_activity_undo(const std::string& label, const latch::door::Result& r, std::size_t synced);   // s023a                               // handler: the Adopt folders window (s023)
     void on_background();                          // handler: the Background scan window (s012b)
     void offer_lists();                            // handler: s010f3 -- count stale id lists -> the offer bar
+    void show_offer(std::size_t lists, std::size_t refound, long ms);   // s025b3: the bar from a count made off the thread
+    void launch_look();                            // s025b3: the launch rescan + id-list check, under Busy
     void on_shortcuts();                           // category: handler: the keyboard reference
     void on_dump_registry();                       // category: handler: print the live widget tree
     void on_activity_undo();                       // category: handler: undo the newest batch, through the door

@@ -42,6 +42,11 @@ public:
     // s010f1: the loose background rescan -- find + record (read-only on the
     // home); the list re-renders if shown. Returns the summary line.
     std::string rescan();
+    // s025b3: the rescan in two halves -- gather() touches no GTK and no
+    // member (off the window's thread, under Busy); take() renders.
+    struct Gathered { std::vector<core::projects::Project> found; core::rescan::Result r; };
+    static Gathered gather(const std::string& home, const std::string& data_dir);
+    std::string take(Gathered g);
     // s012c: the tile's "New project -> <template>": the form, that template
     // picked, the name box focused. Nothing is made until Preview + Do it.
     void new_from(const std::string& template_name);

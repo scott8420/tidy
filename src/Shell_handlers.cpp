@@ -224,7 +224,7 @@ void Shell::on_id_lists() {  // handler
 // s025b: the Quarantine -- answers to the suspect scan; writes only Tidy's own list.
 void Shell::on_quarantine() {  // handler
     if (!m_quarantine_win)
-        m_quarantine_win = std::make_unique<QuarantineWindow>(*this, m_home, m_data_dir, nullptr);
+        m_quarantine_win = std::make_unique<QuarantineWindow>(*this, *m_door, m_home, m_data_dir, [this] { refresh_activity(); });
     m_quarantine_win->open();
 }
 
@@ -299,6 +299,12 @@ void Shell::offer_lists() {  // handler
     namespace fl = core::filelists;
     const auto st = fl::stale(core::scan::walk(m_home, fl::roots(m_home)));
     const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
+    show_offer(st.lists, st.refound, static_cast<long>(ms));
+}
+
+void Shell::show_offer(std::size_t lists, std::size_t refound, long ms) {  // handler
+    if (!m_offer) return;
+    struct { std::size_t lists, refound; } st{lists, refound};
     std::string line;
     if (st.lists) line = std::to_string(st.lists) + " id list" + (st.lists == 1 ? "" : "s") + " out of date";
     if (st.refound) line += (line.empty() ? "" : ", ") + std::to_string(st.refound) + " id" +

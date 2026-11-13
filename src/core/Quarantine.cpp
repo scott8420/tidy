@@ -19,6 +19,8 @@ const char* answer_title(Answer a) {
         case Answer::Bundle:   return "A bundle";
         case Answer::Ordinary: return "An ordinary folder";
         case Answer::NotNow:   return "Not now";
+        case Answer::DontTouch:return "Don't touch";
+        case Answer::Trash:    return "To the Trash";
     }
     return "";
 }
@@ -35,7 +37,9 @@ const char* word_of(Answer a) {
         case Answer::Bundle:   return "bundle";
         case Answer::Ordinary: return "ordinary";
         case Answer::NotNow:   return "not now";
-        case Answer::None:     break;
+        case Answer::DontTouch:return "don't touch";
+        case Answer::None:
+        case Answer::Trash:    break;   // never kept
     }
     return "";
 }
@@ -43,6 +47,7 @@ Answer answer_of(const std::string& w) {
     if (w == "bundle") return Answer::Bundle;
     if (w == "ordinary") return Answer::Ordinary;
     if (w == "not now") return Answer::NotNow;
+    if (w == "don't touch") return Answer::DontTouch;
     return Answer::None;
 }
 std::string lower_ext(std::string x) {
@@ -62,7 +67,7 @@ bool good_rel(const std::string& r) {
 
 Answers parse(const std::string& text) {
     Answers a;
-    std::set<std::string> held;
+    std::set<std::string> held, off;
     std::istringstream in(text);
     for (std::string line; std::getline(in, line);) {
         line = trim(line);
@@ -71,6 +76,11 @@ Answers parse(const std::string& text) {
         if (sp == std::string::npos) continue;
         const std::string kind = line.substr(0, sp);
         std::string rest = trim(line.substr(sp + 1));
+        if (kind == "hands" && rest.rfind("off ", 0) == 0) {
+            rest = trim(rest.substr(4));
+            if (good_rel(rest) && off.insert(rest).second) a.hands_off.push_back(rest);
+            continue;
+        }
         if (kind == "held") {
             if (good_rel(rest) && held.insert(rest).second) a.held.push_back(rest);
             continue;
@@ -94,10 +104,11 @@ std::string to_text(const Answers& a) {
     o << "# Tidy -- answers to the suspect scan (Quarantine). Written by Tidy's Save;\n"
          "# one line each: ext .x = bundle|ordinary|not now, folder <rel> = ..., held <rel>.\n";
     for (const auto& [e, ans] : a.ext)
-        if (ans != Answer::None) o << "ext " << e << " = " << word_of(ans) << "\n";
+        if (*word_of(ans)) o << "ext " << e << " = " << word_of(ans) << "\n";
     for (const auto& [f, ans] : a.folders)
-        if (ans != Answer::None) o << "folder " << f << " = " << word_of(ans) << "\n";
+        if (*word_of(ans)) o << "folder " << f << " = " << word_of(ans) << "\n";
     for (const auto& h : a.held) o << "held " << h << "\n";
+    for (const auto& h : a.hands_off) o << "hands off " << h << "\n";
     return o.str();
 }
 
@@ -136,9 +147,25 @@ void set(const std::string& home, Answers a) {
     for (const auto& [f, ans] : a.folders)
         if (ans == Answer::Bundle) s->bundles.insert(home + "/" + f);
         else if (ans == Answer::NotNow) s->held.insert(home + "/" + f);
+    for (const auto& h : still_hands_off(a)) s->held.insert(home + "/" + h);
     s->a = std::move(a);
     g_state.store(std::move(s));
 }
+std::vector<std::string> still_hands_off(const Answers& a) {
+    std::vector<std::string> v;
+    for (const auto& h : a.hands_off) {
+        const auto name = h.substr(h.rfind('/') == std::string::npos ? 0 : h.rfind('/') + 1);
+        const auto dot = name.rfind('.');
+        const auto fa = of_folder(a, h);
+        const auto ea = dot == std::string::npos || dot == 0 ? Answer::None : of_ext(a, name.substr(dot));
+        if (fa == Answer::DontTouch || (fa == Answer::None && ea == Answer::DontTouch)) v.push_back(h);
+    }
+    for (const auto& [f, ans] : a.folders)
+        if (ans == Answer::DontTouch && std::find(v.begin(), v.end(), f) == v.end()) v.push_back(f);
+    return v;
+}
+std::vector<std::string> hands_off() { return still_hands_off(g_state.load()->a); }
+
 Answers current() { return g_state.load()->a; }
 std::string current_home() { return g_state.load()->home; }
 

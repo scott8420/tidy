@@ -70,7 +70,18 @@ void apply_places(const std::string& data_dir, const std::string& home) {
     auto extra = latch::pkg::load_extra(data_dir);
     for (const auto& e : own_bundles())
         if (std::find(extra.begin(), extra.end(), e) == extra.end()) extra.push_back(e);
-    if (!home.empty()) quarantine::set(home, quarantine::load(data_dir));   // s025b
+    if (!home.empty()) {
+        quarantine::set(home, quarantine::load(data_dir));   // s025b
+        // s025b1: "don't touch" -> Hands off. The last set's are taken out
+        // first, so an answer changed away from "don't touch" lets go.
+        static std::vector<std::string> last;
+        auto own = latch::protect::owned();
+        std::erase_if(own, [](const std::string& r) { return std::find(last.begin(), last.end(), r) != last.end(); });
+        last.clear();
+        for (const auto& h : quarantine::hands_off())
+            if (std::find(own.begin(), own.end(), h) == own.end()) { own.push_back(h); last.push_back(h); }
+        latch::protect::set_owned(std::move(own));
+    }
     for (const auto& e : quarantine::bundle_exts(quarantine::current()))
         if (std::find(extra.begin(), extra.end(), e) == extra.end()) extra.push_back(e);
     latch::pkg::set_extra(std::move(extra));

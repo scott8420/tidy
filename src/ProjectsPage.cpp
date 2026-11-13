@@ -421,23 +421,33 @@ void ProjectsPage::fill() {
 // Find, then tell the catalog (s010f1): seen / moved by id / back / gone.
 // Read-only on the home; the catalog is opened for writing only if there is
 // an id to record or a catalog already holding projects.
-core::rescan::Result ProjectsPage::look() {
-    const auto left = pj::parse_left(core::own::read(m_data_dir, pj::kFile));
-    m_found = pj::find(m_home, left);
-    core::rescan::Result r;
-    r.found = m_found.size();
-    const bool any_id = std::any_of(m_found.begin(), m_found.end(), [](const pj::Project& p) { return !p.id.empty(); });
+ProjectsPage::Gathered ProjectsPage::gather(const std::string& home, const std::string& data_dir) {
+    Gathered g;
+    const auto left = pj::parse_left(core::own::read(data_dir, pj::kFile));
+    g.found = pj::find(home, left);
+    auto& r = g.r;
+    r.found = g.found.size();
+    const bool any_id = std::any_of(g.found.begin(), g.found.end(), [](const pj::Project& p) { return !p.id.empty(); });
     std::error_code ec;
     core::catalog::Catalog cat;
-    if ((any_id || std::filesystem::exists(core::catalog::Catalog::path_in(m_data_dir), ec)) && cat.open(m_data_dir, true))
-        r = core::rescan::record(m_found, pj::known_templates(m_data_dir), cat, static_cast<std::int64_t>(std::time(nullptr)));
+    if ((any_id || std::filesystem::exists(core::catalog::Catalog::path_in(data_dir), ec)) && cat.open(data_dir, true))
+        r = core::rescan::record(g.found, pj::known_templates(data_dir), cat, static_cast<std::int64_t>(std::time(nullptr)));
     for (const auto& t : r.twins)
         if (auto lg = log::get(log::Area::Io)) lg->warn("projects: {} carries an id already seen -- a copy?", t);
-    return r;
+    return g;
 }
 
-std::string ProjectsPage::rescan() {
-    const auto r = look();
+core::rescan::Result ProjectsPage::look() {
+    auto g = gather(m_home, m_data_dir);
+    m_found = std::move(g.found);
+    return g.r;
+}
+
+std::string ProjectsPage::rescan() { return take(gather(m_home, m_data_dir)); }
+
+std::string ProjectsPage::take(Gathered g) {
+    m_found = std::move(g.found);
+    const auto r = g.r;
     const auto line = core::rescan::summary(r);
     if (get_visible_child_name() == "results") {
         render();

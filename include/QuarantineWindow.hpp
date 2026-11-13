@@ -3,7 +3,9 @@
 // 13.1). Look (core::suspects, read-only, under Busy) -> one row per
 // extension (groups 1, 2) or per folder (groups 3, 4), each with its answer:
 // Not answered / A bundle / An ordinary folder / Not now. Save writes Tidy's
-// own quarantine.txt (core::own) and nothing else -- no user file moves -- then
+// own quarantine.txt (core::own) -- then (s025b1) "Don't touch" makes a
+// folder Hands off, and "To the Trash" shows a preview first, then trashes
+// through the door (one undo step in Activity); nothing else moves -- then
 // Tidy re-reads it: bundle extensions join latch's extras, held folders are
 // kept out of every walk. Answered rows stay listed so an answer can change.
 // GTK here; the rules are core::quarantine + core::suspects. Becomes Review's
@@ -13,7 +15,10 @@
 #include "core/Quarantine.hpp"
 #include "core/Suspects.hpp"
 
+#include <latch/Door.hpp>
+
 #include <functional>
+#include <optional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -25,7 +30,7 @@ namespace tidy {
 class QuarantineWindow : public Gtk::Window {
 public:
     using Changed = std::function<void()>;   // after a Save: the Map etc. may look again
-    QuarantineWindow(Gtk::Window& parent, std::string home, std::string data_dir, Changed changed);
+    QuarantineWindow(Gtk::Window& parent, latch::door::Door& door, std::string home, std::string data_dir, Changed changed);
     ~QuarantineWindow() override;
 
     void open();                             // present + Look
@@ -35,6 +40,7 @@ public:
         bool by_ext = true;
         std::string key;                     // ".itmsp" or "Documents/DBs"
         std::string title, detail;
+        std::vector<std::string> rels;       // the folders it covers (the Trash takes them all)
         core::quarantine::Answer was = core::quarantine::Answer::None, now = core::quarantine::Answer::None;
         Gtk::DropDown* pick = nullptr;
     };
@@ -50,7 +56,14 @@ private:
     void show();
     void on_save();
     void update_bar();
+    void preview(latch::door::Plan plan);   // s025b1: the Trash rows, shown before Do it
+    void save_answers(const std::string& done_text);
+    void answer_now(std::size_t i);         // s025b2: saved the moment it is picked
+    void back();
 
+    latch::door::Door& m_door;
+    std::optional<latch::door::Plan> m_plan;   // shown, not yet run
+    Gtk::Button*  m_look = nullptr;
     std::string m_home, m_data_dir;
     Changed m_changed;
     std::shared_ptr<core::suspects::Report> m_report;

@@ -4930,6 +4930,18 @@ int main(int argc, char** argv) {
               txt.find("Not now (still held, asked again later): 1") != std::string::npos &&
               txt.find("(walked, not asked again): 2") != std::string::npos &&
               txt.find("Known bundles already (not asked): 3") != std::string::npos);
+        {   // s025b2: the lists from a look, no rescan -- the same as held_of
+            auto wl = su::with_lists(a, r);
+            std::sort(wl.held.begin(), wl.held.end());
+            check("quarantine: with_lists -- held as held_of, no hands off yet", wl.held == held && wl.hands_off.empty(),
+                  std::to_string(wl.held.size()));
+            auto b2 = a;
+            b2.folders["Documents/Odd.thing"] = qu::Answer::DontTouch;
+            const auto wl2 = su::with_lists(b2, r);
+            check("quarantine: with_lists -- a don't-touch answer leaves held, joins hands off",
+                  std::find(wl2.held.begin(), wl2.held.end(), "Documents/Odd.thing") == wl2.held.end() &&
+                  wl2.hands_off == std::vector<std::string>{"Documents/Odd.thing"});
+        }
         a.held = held;
         core::own::write(D, qu::kFile, qu::to_text(a));
         core::projects::apply_places(D, H);
@@ -4949,6 +4961,78 @@ int main(int argc, char** argv) {
               has("Documents/Actual/My-Fin") && !under("Documents/Actual/My-Fin") && has("Documents/Mobi/Pkg.itmsp") &&
               !under("Documents/Mobi/Pkg.itmsp") && has("Documents/DBs/test.sqlite") && has("Documents/loose.txt"));
         check("quarantine: READ-ONLY on the home -- the tree is exactly as it was", tree_facts(H) == before);
+        // s025b1: don't touch -> Hands off; to the Trash -> the door, undoable.
+        {
+            const auto pd = qu::parse("folder Documents/Odd.thing = don't touch\next .thing = ordinary\n"
+                                      "hands off Documents/Odd.thing\nhands off Documents/Gone\nfolder x = to the trash\n");
+            check("quarantine: don't touch -- kept and written back; 'to the trash' is never kept",
+                  qu::of_folder(pd, "Documents/Odd.thing") == qu::Answer::DontTouch && pd.hands_off.size() == 2 &&
+                  qu::of_folder(pd, "x") == qu::Answer::None && qu::parse(qu::to_text(pd)) == pd &&
+                  qu::still_hands_off(pd) == std::vector<std::string>{"Documents/Odd.thing"});
+            put_file(H + "/Documents/Other.zap/z.bin", "z");
+            a.ext[".zap"] = qu::Answer::DontTouch;                 // by extension: found by a look
+            a.folders["Documents/Odd.thing"] = qu::Answer::DontTouch;   // by folder: Hands off at once
+            core::own::write(D, qu::kFile, qu::to_text(a));
+            core::projects::apply_places(D, H);
+            const auto r2 = su::scan(H, H);
+            const auto hd = su::hands_off_of(r2);
+            const auto h2 = su::held_of(r2);
+            check("quarantine: don't touch -- a folder is Hands off at once; an extension's folders found by the look",
+                  latch::protect::here("Documents/Odd.thing") && hd == std::vector<std::string>{"Documents/Other.zap"} &&
+                  std::find(h2.begin(), h2.end(), "Documents/Other.zap") == h2.end() &&
+                  su::format(r2).find("Don't touch (Hands off from the next Save; then not looked inside): 1") != std::string::npos,
+                  std::to_string(hd.size()));
+            a.hands_off = qu::still_hands_off(a);
+            a.hands_off.insert(a.hands_off.end(), hd.begin(), hd.end());
+            core::own::write(D, qu::kFile, qu::to_text(a));
+            core::projects::apply_places(D, H);
+            check("quarantine: Save -> Hands off (latch protect), held, and the scan no longer enters it",
+                  latch::protect::here("Documents/Other.zap") && qu::held(H + "/Documents/Other.zap") &&
+                  su::hands_off_of(su::scan(H, H)).empty());
+            a.folders["Documents/Odd.thing"] = qu::Answer::NotNow;
+            a.hands_off = qu::still_hands_off(a);
+            core::own::write(D, qu::kFile, qu::to_text(a));
+            core::projects::apply_places(D, H);
+            check("quarantine: changed away from don't touch -> Hands off lets go (still held: not now)",
+                  !latch::protect::here("Documents/Odd.thing") && qu::held(H + "/Documents/Odd.thing") &&
+                  a.hands_off == std::vector<std::string>{"Documents/Other.zap"} && latch::protect::here("Documents/Other.zap"));
+            const auto names = [&] {   // paths + sizes (a move back changes ctime, so not tree_facts)
+                std::set<std::string> v;
+                for (auto it = fs::recursive_directory_iterator(H); it != fs::recursive_directory_iterator(); ++it)
+                    if (it->path().string().find("/.") == std::string::npos)   // not the Trash under a fixture home
+                    v.insert(it->path().string() + (it->is_regular_file() ? " " + std::to_string(it->file_size()) : "/"));
+                return v;
+            };
+            const auto before2 = names();
+            latch::door::Door door(H, D);
+            door.load();
+            latch::door::Plan pl;
+            pl.label = "Quarantine: to the Trash";
+            latch::door::Action ac;
+            ac.verb = latch::door::Verb::Trash;
+            ac.from = H + "/Documents/Later";
+            pl.actions.push_back(ac);
+            std::vector<std::string> made, freed;
+            const auto why = door.refusal(pl.actions[0], made, freed);
+            pl.previewed = true;
+            const auto rt = door.run(pl);
+            const bool gone = !fs::exists(H + "/Documents/Later");
+            const auto ru = door.undo();
+            check("quarantine: to the Trash -- a held folder trashed whole through the door, one undo puts it back",
+                  why.empty() && rt.ok && gone && ru.ok && names() == before2,
+                  why + "|" + std::to_string(rt.ok) + std::to_string(gone) + std::to_string(ru.ok) +
+                      std::to_string(names() == before2) + "|" + (rt.messages.empty() ? "" : rt.messages[0]) + "|" +
+                      (ru.messages.empty() ? "" : ru.messages[0]));
+            latch::door::Action hof = ac;
+            hof.from = H + "/Documents/Odd.thing";
+            a.folders["Documents/Odd.thing"] = qu::Answer::DontTouch;
+            a.hands_off = qu::still_hands_off(a);
+            core::own::write(D, qu::kFile, qu::to_text(a));
+            core::projects::apply_places(D, H);
+            std::vector<std::string> m3, f3;
+            check("quarantine: the door refuses to trash a don't-touch folder", !door.refusal(hof, m3, f3).empty());
+            latch::protect::set_owned({});
+        }
         qu::set("", {});
         latch::pkg::set_extra({});
         core::projects::set_shelves({});

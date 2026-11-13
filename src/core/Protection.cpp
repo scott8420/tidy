@@ -1,4 +1,5 @@
 #include "core/Protection.hpp"
+#include "core/Quarantine.hpp"
 
 #include <latch/Protect.hpp>
 
@@ -31,7 +32,10 @@ std::vector<std::string> all(const std::string& home, const std::string& cfg, co
 }
 
 void apply(const std::string& home, const std::string& cfg, const settings::Settings& st) {
-    latch::protect::set_owned(all(home, cfg, st));
+    auto v = all(home, cfg, st);
+    for (const auto& h : quarantine::hands_off())   // s025b1: answered "don't touch" in Quarantine
+        if (std::find(v.begin(), v.end(), h) == v.end()) v.push_back(h);
+    latch::protect::set_owned(std::move(v));
 }
 
 bool under(const std::string& rel) {

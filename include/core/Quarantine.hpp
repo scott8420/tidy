@@ -12,6 +12,11 @@
 //                       (groups 3, 4): that folder.
 //   An ordinary folder  a folder like any other -- walked, never asked again.
 //   Not now             still quarantined: held, untouched; asked again later.
+//   Don't touch         (s025b1) kept as it is, for good: made Hands off (latch
+//                       protect -- never entered, never moved, the door refuses
+//                       it), never asked again.
+//   To the Trash        (s025b1) not kept as an answer: the window trashes the
+//                       folder through the door (preview, one undo step).
 // Unanswered = quarantined too (do no harm). "Held" folders -- the last Save's
 // suspects not answered ordinary or bundle -- are never entered by Tidy's
 // walks (Sort, the Closet, Due, the Map shows them shut) until answered.
@@ -25,19 +30,21 @@ namespace tidy::core::quarantine {
 
 inline constexpr const char* kFile = "quarantine.txt";
 
-enum class Answer { None = 0, Bundle, Ordinary, NotNow };
-const char* answer_title(Answer a);   // "Not answered", "A bundle", "An ordinary folder", "Not now"
+enum class Answer { None = 0, Bundle, Ordinary, NotNow, DontTouch, Trash };   // Trash: the window only
+const char* answer_title(Answer a);   // "Not answered", "A bundle", "An ordinary folder", "Not now", "Don't touch", "To the Trash"
 
 struct Answers {
     std::map<std::string, Answer> ext;      // ".itmsp" -> Bundle   (groups 1, 2)
     std::map<std::string, Answer> folders;  // "Documents/DBs" -> Ordinary (groups 3, 4; rel to home)
     std::vector<std::string> held;          // rel to home: quarantined at the last Save
+    std::vector<std::string> hands_off;     // rel to home: answered "don't touch" (folder or extension) -- Hands off
     bool operator==(const Answers&) const = default;
 };
 
 // The file's text <-> Answers. One line each, read back by the last " = ":
 //   ext .itmsp = bundle        folder Documents/DBs = ordinary
 //   held Documents/Degoo/Font Library/N/NewsGothic.BoldOblique
+//   hands off Documents/Actual/My-Finances-ec1addd
 // '#' lines are comments. A bad line is skipped, never an error.
 Answers parse(const std::string& text);
 std::string to_text(const Answers& a);
@@ -55,6 +62,13 @@ std::vector<std::string> bundle_exts(const Answers& a);
 void set(const std::string& home, Answers a);
 Answers current();
 std::string current_home();
+
+// The "don't touch" folders (rel), for latch's protect list: apply_places and
+// protection::apply add them to Hands off.
+std::vector<std::string> hands_off();
+// Keep the hands-off folders still answered "don't touch" (by folder, or by
+// its name's extension) -- a Save's look no longer sees them (they are shut).
+std::vector<std::string> still_hands_off(const Answers& a);
 
 // Is the folder at `abs` quarantined -- held, not entered at all?
 bool held(const std::string& abs);

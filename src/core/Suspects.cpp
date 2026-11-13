@@ -375,11 +375,12 @@ std::string format(const Report& r) {
     std::ostringstream o;
     o << "Tidy -- suspect folders under " << r.from << "\n"
       << "READ-ONLY: nothing moved, nothing written. Each suspect is held whole (not looked inside).\n\n";
-    std::vector<const Suspect*> known, known_dirs, later;
+    std::vector<const Suspect*> known, known_dirs, later, off;
     std::vector<const Suspect*> g[4];
     for (const auto& s : r.list) {
         if (s.known) (s.ext.empty() ? known_dirs : known).push_back(&s);
         else if (s.answer == quarantine::Answer::NotNow) later.push_back(&s);
+        else if (s.answer == quarantine::Answer::DontTouch) off.push_back(&s);
         else g[static_cast<int>(s.group)].push_back(&s);
     }
     const auto folder_line = [&o](const Suspect* s) {
@@ -402,6 +403,8 @@ std::string format(const Report& r) {
     }
     o << "\nNot now (still held, asked again later): " << later.size() << "\n";
     for (auto* s : later) folder_line(s);
+    o << "\nDon't touch (Hands off from the next Save; then not looked inside): " << off.size() << "\n";
+    for (auto* s : off) folder_line(s);
     o << "\nAnswered \"an ordinary folder\" (walked, not asked again): " << r.quiet.size() << "\n";
     {
         std::size_t n[4] = {};
@@ -432,7 +435,29 @@ std::string format(const Report& r) {
 std::vector<std::string> held_of(const Report& r) {
     std::vector<std::string> v;
     for (const auto& s : r.list)
-        if (!s.known) v.push_back(s.rel);   // unanswered or not now: quarantined
+        if (!s.known && s.answer != quarantine::Answer::DontTouch) v.push_back(s.rel);   // unanswered or not now
+    return v;
+}
+
+quarantine::Answers with_lists(quarantine::Answers a, const Report& r) {
+    namespace q = quarantine;
+    std::vector<std::string> held, off = q::still_hands_off(a);
+    for (const auto& s : r.list) {
+        auto eff = q::of_folder(a, s.rel);
+        if (eff == q::Answer::None && !s.ext.empty()) eff = q::of_ext(a, s.ext);
+        if (s.known && eff != q::Answer::DontTouch) continue;   // latch's / ours / your bundle
+        if (eff == q::Answer::None || eff == q::Answer::NotNow) held.push_back(s.rel);
+        else if (eff == q::Answer::DontTouch && std::find(off.begin(), off.end(), s.rel) == off.end()) off.push_back(s.rel);
+    }
+    a.held = std::move(held);
+    a.hands_off = std::move(off);
+    return a;
+}
+
+std::vector<std::string> hands_off_of(const Report& r) {
+    std::vector<std::string> v;
+    for (const auto& s : r.list)
+        if (!s.known && s.answer == quarantine::Answer::DontTouch) v.push_back(s.rel);
     return v;
 }
 

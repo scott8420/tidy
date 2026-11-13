@@ -15,6 +15,9 @@
 #include "Log.hpp"
 #include "core/Paths.hpp"
 #include "core/FileLists.hpp"
+#include "core/Scan.hpp"
+#include "Busy.hpp"
+#include <chrono>
 
 #include <latch/Door.hpp>
 #include <glibmm/main.h>
@@ -74,18 +77,42 @@ void Shell::build_ui() {
     bind_actions();    // bindings
 
     // s010f1: once at launch (when the loop is idle), then every N minutes.
+    // s025b3 (Scott: "open the app then create a bkgnd thread to scan and
+    // show a progress dlg"): the window first, then the walks under Busy.
     if (m_projects && m_settings.rescan_minutes > 0)
-        Glib::signal_idle().connect_once([this] {
-            const auto line = m_projects->rescan();
-            if (auto lg = log::get(log::Area::Shell)) lg->info("rescan at launch: {}", line);
-            offer_lists();
-        });
+        Glib::signal_timeout().connect_once([this] { launch_look(); }, 150);   // the window is drawn first
     arm_rescan();
 
     if (auto lg = log::get(log::Area::Shell))
         lg->info("ready -- latch says '{}'; home {}{}; records at {}; {} batches",
                  latch::door::app_name(), m_home, m_fixture ? " (FIXTURE)" : "", m_data_dir,
                  m_door->batches().size());
+}
+
+void Shell::launch_look() {
+    struct Out {
+        ProjectsPage::Gathered g;
+        core::filelists::Stale st;
+        long ms_projects = 0, ms_lists = 0;
+    };
+    auto out = std::make_shared<Out>();
+    const std::string home = m_home, data = m_data_dir;
+    busy::start(*this, "Tidy -- looking over your home", "Finding your projects, then checking the id lists",
+        [out, home, data] {
+            const auto t0 = std::chrono::steady_clock::now();
+            out->g = ProjectsPage::gather(home, data);
+            const auto t1 = std::chrono::steady_clock::now();
+            namespace fl = core::filelists;
+            out->st = fl::stale(core::scan::walk(home, fl::roots(home)));
+            const auto t2 = std::chrono::steady_clock::now();
+            out->ms_projects = static_cast<long>(std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count());
+            out->ms_lists = static_cast<long>(std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count());
+        },
+        [this, out] {
+            const auto line = m_projects->take(std::move(out->g));
+            if (auto lg = log::get(log::Area::Shell)) lg->info("rescan at launch: {} ({} ms)", line, out->ms_projects);
+            show_offer(out->st.lists, out->st.refound, out->ms_lists);
+        });
 }
 
 }  // namespace tidy
