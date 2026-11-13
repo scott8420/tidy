@@ -425,8 +425,25 @@ int main(int argc, char** argv) {
         std::string said;
         for (const auto& i : lk::lint(nav)) said += i + "; ";
         check("look: Tidy's sidebar lints clean", said.empty(), said);
-        check("look: the first page shown is The Closet",
-              lk::first_item(nav) >= 0 && nav[lk::first_item(nav)].id == "closet");
+        // s027 the new shell: four areas from the sections, every page in one.
+        const auto ar = lk::areas(nav);
+        std::string names;
+        for (const auto& a : ar) names += a.id + "(" + a.title + ") ";
+        check("look: the areas are Design / Organize / Review / Settings",
+              names == "design(Design) organize(Organize) review(Review) settings(Settings) ", names);
+        bool icons = true;
+        for (const auto& a : ar) icons = icons && !a.icon.empty() && !a.tabs.empty() && !a.tint.empty();
+        check("look: each area has its icon, a tint and at least one tab", icons);
+        check("look: Organize opens on its guided start", ar.size() > 1 && ar[1].tabs.front() == "organize");
+        check("look: Quarantine is Review's, Types is Design's, Settings its own",
+              lk::area_of(ar, "quarantine") == "review" && lk::area_of(ar, "templates") == "design" &&
+              lk::area_of(ar, "purposes") == "design" && lk::area_of(ar, "settings") == "settings" &&
+              lk::area_of(ar, "closet") == "organize" && lk::area_of(ar, "nowhere").empty());
+        std::size_t tabs = 0;
+        for (const auto& a : ar) tabs += a.tabs.size();
+        std::size_t items = 0;
+        for (const auto& e : nav) items += e.section ? 0 : 1;
+        check("look: every page sits in exactly one area", tabs == items);
 
         const std::string css = slurp(TIDY_LOOK_CSS);
         check("look: look.css is readable", !css.empty(), TIDY_LOOK_CSS);

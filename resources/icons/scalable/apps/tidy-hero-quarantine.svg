@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <!-- Tidy hero: quarantine: a disc in the page's own tint (magenta), a white glyph. -->
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f0abfc"/><stop offset="1" stop-color="#a21caf"/></linearGradient>
+    <radialGradient id="s" cx="0.35" cy="0.25" r="0.6"><stop offset="0" stop-color="#ffffff" stop-opacity="0.45"/><stop offset="1" stop-color="#ffffff" stop-opacity="0"/></radialGradient>
+  </defs>
+  <circle cx="64" cy="64" r="58" fill="url(#g)"/>
+  <g fill="#ffffff">
+    <path d="M64 24l36 14v24c0 22-15 36-36 44-21-8-36-22-36-44V38z" opacity=".95"/>
+    <rect fill="#a21caf" x="58" y="44" width="12" height="30" rx="5"/><circle fill="#a21caf" cx="64" cy="86" r="6"/>
+  </g>
+  <circle cx="64" cy="64" r="58" fill="url(#s)"/>
+</svg>

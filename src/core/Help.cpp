@@ -208,7 +208,7 @@ const std::vector<Topic>& topics() {
          "activity"},
         {"settings", "Safety", "Settings",
          {"The aging days, the rescan, Due's years and days, the proofs needed before removal, the junk list, the "
-          "type table, and your backup media. Main menu -> Settings..."},
+          "type table, and your backup media. The sidebar -> Settings."},
          {}, ""},
     };
     return t;

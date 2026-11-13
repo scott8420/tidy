@@ -1,3 +1,4 @@
+#include <cctype>
 #include "core/Look.hpp"
 
 #include <algorithm>
@@ -50,24 +51,59 @@ NavEntry item(std::string id, std::string icon, std::string title, std::string t
 }
 
 std::vector<NavEntry> tidy_nav() {
-    // The road's pages (docs/PROGRESS.md), one tint each. Icons: Tidy's own
-    // symbolics (tidy-<id>-symbolic, from Rouster's set) in the gresource.
-    // Colour (the-look.md): each page's emblem is drawn in its own tint.
+    // s027 the new shell (REBUILD 10): four areas, each a section here; its
+    // items are the area's tabs, in order. Icons: Tidy's own symbolics
+    // (tidy-<id>-symbolic) in the gresource; each page keeps its own tint.
     return {
-        section("TODAY"),
-        item("closet",    "tidy-closet-symbolic",      "The Closet",  "emerald"),
-        item("due",       "tidy-due-symbolic",         "Due",         "rose"),
+        section("DESIGN"),
+        item("templates",  "tidy-templates-symbolic",  "Types",       "violet"),
+        item("purposes",   "tidy-purposes-symbolic",   "Purposes",    "teal"),
         section("ORGANIZE"),
-        item("sort",      "tidy-sort-symbolic",        "Sort",        "lime"),
-        item("map",       "tidy-map-symbolic",         "Map",         "orange"),   // s023f
-        item("projects",  "tidy-projects-symbolic",    "Projects",    "amber"),
-        item("templates", "tidy-templates-symbolic",   "Templates",   "violet"),
-        item("purposes",  "tidy-purposes-symbolic",    "Purposes",    "teal"),
-        item("home",      "tidy-home-symbolic",        "Files home",  "sky"),
-        section("KEEP"),
-        item("archive",   "tidy-archive-symbolic",     "Archive",     "indigo"),
-        item("activity",  "tidy-activity-symbolic",    "Activity",    "slate"),
+        item("organize",   "tidy-organize-symbolic",   "Start",       "green"),    // s027: the guided landing
+        item("map",        "tidy-map-symbolic",        "Map",         "orange"),
+        item("projects",   "tidy-projects-symbolic",   "Projects",    "amber"),
+        item("sort",       "tidy-sort-symbolic",       "Sort",        "lime"),
+        item("home",       "tidy-home-symbolic",       "Files home",  "sky"),
+        item("closet",     "tidy-closet-symbolic",     "The Closet",  "emerald"),
+        section("REVIEW"),
+        item("due",        "tidy-due-symbolic",        "Due",         "rose"),
+        item("quarantine", "tidy-quarantine-symbolic", "Quarantine",  "magenta"),  // s027: was a window
+        item("archive",    "tidy-archive-symbolic",    "Archive",     "indigo"),
+        item("activity",   "tidy-activity-symbolic",   "Activity",    "slate"),
+        section("SETTINGS"),
+        item("settings",   "tidy-settings-symbolic",   "Settings",    "slate"),    // s027: was a window
     };
+}
+
+std::vector<Area> areas(const std::vector<NavEntry>& nav) {
+    static const std::vector<std::pair<std::string, std::string>> look = {
+        {"design", "tidy-design-symbolic"}, {"organize", "tidy-organize-symbolic"},
+        {"review", "tidy-review-symbolic"}, {"settings", "tidy-settings-symbolic"},
+    };
+    std::vector<Area> out;
+    for (const auto& e : nav) {
+        if (e.section) {
+            Area a;
+            a.title = e.title.empty() ? e.title : std::string(1, e.title[0]);
+            for (std::size_t i = 1; i < e.title.size(); ++i)
+                a.title += static_cast<char>(std::tolower(static_cast<unsigned char>(e.title[i])));
+            for (char c : e.title) a.id += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            for (const auto& [id, icon] : look)
+                if (id == a.id) a.icon = icon;
+            out.push_back(std::move(a));
+        } else if (!out.empty()) {
+            if (out.back().tabs.empty()) out.back().tint = e.tint;   // the area wears its first tab's tint
+            out.back().tabs.push_back(e.id);
+        }
+    }
+    return out;
+}
+
+std::string area_of(const std::vector<Area>& areas, const std::string& page) {
+    for (const auto& a : areas)
+        for (const auto& t : a.tabs)
+            if (t == page) return a.id;
+    return {};
 }
 
 int first_item(const std::vector<NavEntry>& nav) {

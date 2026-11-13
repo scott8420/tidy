@@ -61,6 +61,20 @@ NavEntry item(std::string id, std::string icon, std::string title, std::string t
 // Tidy's sidebar: the road's pages.
 std::vector<NavEntry> tidy_nav();
 
+// s027 the new shell: the sidebar's areas, read from the nav's sections --
+// Design / Organize / Review / Settings -- each with its tabs (page ids, in
+// order). Pure.
+struct Area {
+    std::string id;                  // "organize"
+    std::string title;               // "Organize"
+    std::string icon;                // tidy-organize-symbolic
+    std::string tint;                // its first tab's
+    std::vector<std::string> tabs;   // page ids
+};
+std::vector<Area> areas(const std::vector<NavEntry>& nav);
+// The area holding `page` ("" if none).
+std::string area_of(const std::vector<Area>& areas, const std::string& page);
+
 // The first selectable entry's index (the page shown at start), or -1.
 int first_item(const std::vector<NavEntry>& nav);
 

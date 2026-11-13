@@ -1,4 +1,7 @@
 #include "Shell.hpp"
+#include "OrganizeStart.hpp"
+#include "QuarantinePage.hpp"
+#include "SettingsPage.hpp"
 #include "Log.hpp"
 #include "Look.hpp"
 #include "core/Pages.hpp"
@@ -74,12 +77,20 @@ void Shell::build_shell() {  // zone: window + header + body
         m_stack.set_transition_type(Gtk::StackTransitionType::CROSSFADE);
         m_stack.set_transition_duration(180);
         m_body.append(m_side);
+        // s027: the area's tabs over its pages.
+        m_tabs.set_transition_type(Gtk::StackTransitionType::NONE);
+        m_tabs.set_vhomogeneous(false);
+        auto col = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::VERTICAL, 0);
+        col->set_hexpand(true);
+        col->append(m_tabs);
+        col->append(m_stack);
+        m_body.append(*col);
     } else {
         m_sidebar.set_stack(m_stack);
         m_sidebar.set_size_request(160, -1);
         m_body.append(m_sidebar);
+        m_body.append(m_stack);
     }
-    m_body.append(m_stack);
     m_body.set_vexpand(true);
 
     // s010f3: the rescan's offer, under every page: "3 id lists out of date".
@@ -130,6 +141,24 @@ void Shell::build_pages() {  // zone: one page per nav item, then the sidebar
 // greyed -- the shape of the page to come, not a button that pretends.
 void Shell::build_page(const std::string& id) {  // zone: a page's hero
     if (id == "activity") { build_activity(); return; }   // s004: alive
+    if (id == "organize") {                                // s027: Organize's guided landing
+        m_org_start = Gtk::make_managed<OrganizeStart>(m_data_dir, [this](const std::string& page) { go(page); },
+                                                       [this] { on_organize(); });
+        m_stack.add(*m_org_start, id, "Organize");
+        return;
+    }
+    if (id == "quarantine") {                              // s027: was the Quarantine window (s025b)
+        m_quarantine = Gtk::make_managed<QuarantinePage>(*this, *m_door, m_home, m_data_dir, [this] { refresh_activity(); });
+        m_stack.add(*m_quarantine, id, "Quarantine");
+        return;
+    }
+    if (id == "settings") {                                // s027: was the Settings window (s006a)
+        m_settings_page = Gtk::make_managed<SettingsPage>(*this, m_home,
+                                                          [this](const core::settings::Settings& st) { return save_settings(st); });
+        m_settings_page->show(m_settings);
+        m_stack.add(*m_settings_page, id, "Settings");
+        return;
+    }
     if (id == "closet") { build_closet(); return; }       // s005: the birth report (read-only)
     if (id == "projects") {                                // s008: found, placed, fixed -- through the door
         const auto* pp = core::pages::find(id);
@@ -428,48 +457,66 @@ void Shell::build_closet() {  // zone: The Closet
 
 // The look's sidebar (Cairn's build_nav): brand, section headers that are
 // never selected, icon rows named "nav.<page>".
-void Shell::build_nav() {  // zone: brand + sections + rows
+void Shell::build_nav() {  // zone: brand + the four areas + each area's tab row
     m_side.append(*label("Tidy", "sidebar-brand", 0.0f));
     m_nav.set_selection_mode(Gtk::SelectionMode::SINGLE);
     m_nav.set_vexpand(true);
-    for (const auto& e : m_nav_model) {
+    m_areas = core::look::areas(m_nav_model);
+    for (const auto& a : m_areas) {
         auto row = Gtk::make_managed<Gtk::ListBoxRow>();
-        if (e.section) {
-            row->set_selectable(false);
-            row->set_activatable(false);
-            row->set_can_focus(false);
-            row->set_child(*label(e.title, "sidebar-section", 0.0f));
-            row->add_css_class("section-row");
-        } else {
-            row->set_name("nav." + e.id);
-            auto box = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::HORIZONTAL, 10);
-            auto img = Gtk::make_managed<Gtk::Image>();
-            img->set_from_icon_name(e.icon);
-            img->set_pixel_size(18);
-            box->append(*img);
-            box->append(*label(e.title, nullptr, 0.0f));
-            row->set_child(*box);
-        }
+        row->set_name("nav." + a.id);
+        auto box = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::HORIZONTAL, 10);
+        auto img = Gtk::make_managed<Gtk::Image>();
+        img->set_from_icon_name(a.icon);
+        img->set_pixel_size(18);
+        box->append(*img);
+        box->append(*label(a.title, nullptr, 0.0f));
+        row->set_child(*box);
         m_nav.append(*row);
+
+        // The tab row: one toggle per page, grouped (only one lit).
+        auto bar = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::HORIZONTAL, 6);
+        bar->set_name("tabs." + a.id);
+        bar->set_margin_start(24);
+        bar->set_margin_end(24);
+        bar->set_margin_top(12);
+        bar->set_margin_bottom(2);
+        Gtk::ToggleButton* first = nullptr;
+        for (const auto& id : a.tabs) {
+            std::string title = id;
+            for (const auto& e : m_nav_model)
+                if (!e.section && e.id == id) title = e.title;
+            auto t = Gtk::make_managed<Gtk::ToggleButton>(title);
+            t->set_name("tab." + id);
+            t->add_css_class("ghost");
+            t->add_css_class("small");
+            t->add_css_class("mode");
+            if (first) t->set_group(*first); else first = t;
+            t->signal_toggled().connect([this, t, id] {
+                if (t->get_active() && !m_tab_sync) on_nav(id);
+            });
+            m_tab_buttons[id] = t;
+            if (a.tabs.size() > 1) bar->append(*t);   // Settings: one page -- an empty row (a hidden
+        }                                              // stack child can't be shown, so it stays)
+        m_tabs.add(*bar, a.id);
     }
     m_nav.signal_row_selected().connect([this](Gtk::ListBoxRow* row) {
         if (!row) return;
         const std::string n = row->get_name();
-        if (n.rfind("nav.", 0) == 0) on_nav(n.substr(4));
+        if (n.rfind("nav.", 0) == 0) on_area(n.substr(4));
     });
     m_side.append(m_nav);
-    const int first = core::look::first_item(m_nav_model);
-    if (auto* r = first >= 0 ? m_nav.get_row_at_index(first) : nullptr) m_nav.select_row(*r);
+    // s027: Tidy opens on Organize's landing.
+    for (int i = 0; auto* r = m_nav.get_row_at_index(i); ++i)
+        if (std::string(r->get_name()) == "nav.organize") m_nav.select_row(*r);
 }
 
 Glib::RefPtr<Gio::Menu> Shell::build_menu() {  // zone: hamburger model
     auto menu = Gio::Menu::create();
     auto prefs = Gio::Menu::create();
-    prefs->append("Settings\u2026", "win.settings");
     prefs->append("Adopt folders\u2026", "win.adopt");   // s023
     prefs->append("Organize as\u2026", "win.organize");   // s024e
     prefs->append("Id lists\u2026", "win.id-lists");
-    prefs->append("Quarantine\u2026", "win.quarantine");   // s025b
     prefs->append("Background scan\u2026", "win.background");
     menu->append_section(prefs);
     auto diag = Gio::Menu::create();

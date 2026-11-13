@@ -7,6 +7,14 @@
 <gresources>
   <gresource prefix="/io/github/scott8420/Tidy/icons/scalable/apps">
     <file preprocess="xml-stripblanks" alias="tidy-activity-symbolic.svg">icons/scalable/apps/tidy-activity-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="tidy-quarantine-symbolic.svg">icons/scalable/apps/tidy-quarantine-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="tidy-hero-organize.svg">icons/scalable/apps/tidy-hero-organize.svg</file>
+    <file preprocess="xml-stripblanks" alias="tidy-hero-quarantine.svg">icons/scalable/apps/tidy-hero-quarantine.svg</file>
+    <file preprocess="xml-stripblanks" alias="tidy-hero-settings.svg">icons/scalable/apps/tidy-hero-settings.svg</file>
+    <file preprocess="xml-stripblanks" alias="tidy-design-symbolic.svg">icons/scalable/apps/tidy-design-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="tidy-organize-symbolic.svg">icons/scalable/apps/tidy-organize-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="tidy-review-symbolic.svg">icons/scalable/apps/tidy-review-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="tidy-settings-symbolic.svg">icons/scalable/apps/tidy-settings-symbolic.svg</file>
     <file preprocess="xml-stripblanks" alias="tidy-archive-symbolic.svg">icons/scalable/apps/tidy-archive-symbolic.svg</file>
     <file preprocess="xml-stripblanks" alias="tidy-closet-symbolic.svg">icons/scalable/apps/tidy-closet-symbolic.svg</file>
     <file preprocess="xml-stripblanks" alias="tidy-done-symbolic.svg">icons/scalable/apps/tidy-done-symbolic.svg</file>

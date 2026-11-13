@@ -11,6 +11,9 @@
 #include <gtkmm/label.h>
 #include <gtkmm/revealer.h>
 #include <giomm/menu.h>
+#include <gtkmm/togglebutton.h>
+
+#include <map>
 
 #include <latch/Door.hpp>
 
@@ -44,7 +47,7 @@
 //   "Where is the birth report shown?" -> Shell_zones.cpp    (build_closet),
 //                                         Shell_handlers.cpp (on_closet_look),
 //                                         Shell_helpers.cpp  (fill_closet) -- s005
-//   "Where are the settings?"         -> Shell_handlers.cpp (on_settings), SettingsWindow,
+//   "Where are the settings?"         -> Shell_handlers.cpp (on_settings), SettingsPage,
 //                                         core::settings; written by core::own (s006a)
 //   "Where are projects found / moved?"-> ProjectsPage (core::projects; plans through
 //                                         m_door, previewed; undone in Activity, s008)
@@ -70,7 +73,8 @@ class AboutWindow;
 class HelpWindow;
 class ProjectsPage;
 class IdListsWindow;
-class QuarantineWindow;
+class QuarantinePage;
+class OrganizeStart;
 class AdoptWindow;
 class OrganizeWindow;
 class TemplatesPage;
@@ -81,7 +85,7 @@ class SortPage;
 class MapPage;
 class DuePage;
 class ArchivePage;
-class SettingsWindow;
+class SettingsPage;
 class ShortcutsDialog;
 
 class Shell : public Gtk::ApplicationWindow {
@@ -109,7 +113,9 @@ private:
     void bind_actions();                           // category: bindings: win.* actions
 
     // ── handlers ───────────────────────────────────────────────────────────
-    void on_nav(const std::string& page);          // category: handler: a sidebar row -> page + tint
+    void on_nav(const std::string& page);          // category: handler: a page shown (its tab) + tint
+    void on_area(const std::string& area);         // s027: a sidebar row -> its area's tabs + last page
+    std::string save_settings(const core::settings::Settings& s);   // s027: Settings' Save
     void on_help();                                // category: handler: How to use Tidy (s017)
     void on_about();                               // category: handler: the About window (hide-on-close)
     void on_settings();                            // category: handler: the Settings window (s006a)
@@ -156,6 +162,11 @@ private:
     widgets::StackSidebar m_sidebar;   // the look off: GTK's own
     widgets::Stack        m_stack;
     std::vector<core::look::NavEntry> m_nav_model;
+    std::vector<core::look::Area>     m_areas;      // s027: Design / Organize / Review / Settings
+    widgets::Stack        m_tabs;      // s027: one tab row per area, above the pages
+    std::map<std::string, std::string> m_area_page;   // s027: the tab each area last showed
+    std::map<std::string, Gtk::ToggleButton*> m_tab_buttons;   // page id -> its tab
+    bool                  m_tab_sync = false;
     std::string           m_tint;      // the tint on the window now ("" = none)
 
     // Facts the pages show.
@@ -192,13 +203,14 @@ private:
     MapPage*      m_map_page = nullptr;    // s023f
     TemplatesPage* m_templates_page = nullptr;   // s023i
     ArchivePage*  m_archive = nullptr;            // s013b the archive + backup (managed by the stack)
+    SettingsPage*   m_settings_page = nullptr;   // s027: the Settings area (was a window)
+    QuarantinePage* m_quarantine = nullptr;      // s027: Review's tab (was a window)
+    OrganizeStart*  m_org_start = nullptr;       // s027: Organize's guided landing
     DuePage*      m_due = nullptr;                // s012a the trigger (managed by the stack)          // s011 files home (managed by the stack)
 
     std::unique_ptr<AboutWindow>     m_about;
     std::unique_ptr<HelpWindow>      m_help;
-    std::unique_ptr<SettingsWindow>  m_settings_win;
     std::unique_ptr<IdListsWindow>   m_idlists_win;   // s010f2
-    std::unique_ptr<QuarantineWindow> m_quarantine_win;   // s025b
     std::unique_ptr<AdoptWindow>     m_adopt_win;     // s023
     std::unique_ptr<OrganizeWindow>  m_organize_win;  // s024e (replaces Conform, Shape, Layout, Books, Authors)
     std::unique_ptr<BackgroundWindow> m_background_win;   // s012b

@@ -163,9 +163,10 @@ add_executable(tidy
     src/Shell_helpers.cpp
     src/SelectList.cpp       # s018: select like Nautilus + Set to (Closet, Purposes, Files home)
     src/AboutWindow.cpp
-    src/SettingsWindow.cpp
+    src/SettingsPage.cpp
     src/IdListsWindow.cpp
-    src/QuarantineWindow.cpp   # s025b: the answers to the suspect scan
+    src/QuarantinePage.cpp   # s025b: the answers to the suspect scan; s027 a page
+    src/OrganizeStart.cpp    # s027: Organize's guided landing
     src/AdoptWindow.cpp      # s023: adopt folders -- in place or catch-all
     src/MapPage.cpp          # s023f: the home map -- a treemap of cataloged / loose / untracked
     src/OrganizeWindow.cpp   # s024e: Organize as... -- THE way to put a folder in order

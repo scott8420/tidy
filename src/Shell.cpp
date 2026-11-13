@@ -4,9 +4,9 @@
 #include "AboutWindow.hpp"
 #include "HelpWindow.hpp"      // complete types for the unique_ptr dtors
 #include "ShortcutsDialog.hpp"
-#include "SettingsWindow.hpp"
+#include "SettingsPage.hpp"
 #include "IdListsWindow.hpp"
-#include "QuarantineWindow.hpp"
+#include "QuarantinePage.hpp"
 #include "AdoptWindow.hpp"
 #include "OrganizeWindow.hpp"
 #include "BackgroundWindow.hpp"
@@ -38,7 +38,8 @@ Shell::Shell()
       m_side("shell.side", Gtk::Orientation::VERTICAL),
       m_nav("shell.nav"),
       m_sidebar("shell.sidebar"),
-      m_stack("shell.stack") {
+      m_stack("shell.stack"),
+      m_tabs("shell.tabs") {
     set_name("shell.window");
 }
 

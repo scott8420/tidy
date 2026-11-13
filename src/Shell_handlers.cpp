@@ -12,9 +12,10 @@
 #include "SortPage.hpp"
 #include "AboutWindow.hpp"
 #include "ShortcutsDialog.hpp"
-#include "SettingsWindow.hpp"
+#include "SettingsPage.hpp"
 #include "IdListsWindow.hpp"
-#include "QuarantineWindow.hpp"
+#include "QuarantinePage.hpp"
+#include "OrganizeStart.hpp"
 #include "AdoptWindow.hpp"
 #include "OrganizeWindow.hpp"
 #include "TemplatesPage.hpp"
@@ -47,7 +48,7 @@
 
 namespace tidy {
 
-void Shell::on_nav(const std::string& page) {  // handler: a sidebar row -> page + tint
+void Shell::on_nav(const std::string& page) {  // handler: a page shown -> its tab lit + tint
     std::string tint;
     for (const auto& e : m_nav_model)
         if (!e.section && e.id == page) tint = e.tint;
@@ -56,8 +57,32 @@ void Shell::on_nav(const std::string& page) {  // handler: a sidebar row -> page
         m_tint = tint;
         if (!m_tint.empty()) add_css_class("tint-" + m_tint);   // look.css: window.tint-<name>
     }
+    const bool from_elsewhere = std::string(m_stack.get_visible_child_name()) != page;
     m_stack.set_visible_child(page);
+    // s027: the area's tab row follows, and remembers this page.
+    if (const auto area = core::look::area_of(m_areas, page); !area.empty()) {
+        m_area_page[area] = page;
+        if (std::string(m_tabs.get_visible_child_name()) != area) m_tabs.set_visible_child(area);
+        if (auto it = m_tab_buttons.find(page); it != m_tab_buttons.end() && !it->second->get_active()) {
+            m_tab_sync = true;
+            it->second->set_active(true);
+            m_tab_sync = false;
+        }
+    }
+    // s027: pages that read when shown.
+    if (page == "organize" && m_org_start) m_org_start->refresh();
+    if (page == "quarantine" && m_quarantine) m_quarantine->open();   // looks the first time only
+    if (page == "settings" && m_settings_page && from_elsewhere) m_settings_page->show(m_settings);
     if (auto lg = log::get(log::Area::Shell)) lg->debug("nav -> {} (tint {})", page, m_tint);
+}
+
+void Shell::on_area(const std::string& area) {  // handler: s027 -- a sidebar row -> its last page
+    for (const auto& a : m_areas) {
+        if (a.id != area || a.tabs.empty()) continue;
+        const auto it = m_area_page.find(area);
+        on_nav(it != m_area_page.end() ? it->second : a.tabs.front());
+        return;
+    }
 }
 
 void Shell::on_help() {  // handler: How to use Tidy -- non-modal, beside the window (s017)
@@ -72,28 +97,29 @@ void Shell::on_about() {  // handler: the About window -- a hide-on-close single
 
 // Settings (s006a): written by core::own, the one writer of Tidy's own files;
 // the Closet re-reads with the new aging days and junk list.
-void Shell::on_settings() {  // handler: the Settings window
-    if (!m_settings_win)
-        m_settings_win = std::make_unique<SettingsWindow>(*this, m_home, [this](const core::settings::Settings& s) {
-            const std::string err = core::own::write(m_data_dir, core::settings::kFile, core::settings::format(s));
-            if (!err.empty()) return err;
-            m_settings = s;
-            core::backup::register_media(m_settings.media);   // s013b
-            core::protection::apply(m_home, core::protection::config_home(m_home), m_settings);   // s019a
-            if (m_archive) m_archive->refresh_if_shown();
-            arm_rescan();
-            if (m_clo_states && m_clo_states->get_visible_child_name() == "results") fill_closet();
+void Shell::on_settings() {  // handler: s027 -- the Settings area (was a window)
+    go("settings");
+}
+
+// What Settings' Save does: written by core::own, then everyone re-reads.
+std::string Shell::save_settings(const core::settings::Settings& s) {  // glue
+    const std::string err = core::own::write(m_data_dir, core::settings::kFile, core::settings::format(s));
+    if (!err.empty()) return err;
+    m_settings = s;
+    core::backup::register_media(m_settings.media);   // s013b
+    core::protection::apply(m_home, core::protection::config_home(m_home), m_settings);   // s019a
+    if (m_archive) m_archive->refresh_if_shown();
+    arm_rescan();
+    if (m_clo_states && m_clo_states->get_visible_child_name() == "results") fill_closet();
     if (m_projects) m_projects->refresh_if_shown();
     if (m_purposes) m_purposes->refresh_if_shown();
     if (m_home_page) m_home_page->refresh_if_shown();
     if (m_sort_page) m_sort_page->refresh_if_shown();   // s020
     if (m_projects) m_projects->refresh_if_shown();     // s021: the code view's archived lines
-            if (auto lg = log::get(log::Area::Shell))
-                lg->info("settings saved: aging {} days, {} junk patterns, rescan every {} min", s.aging_days,
-                         s.junk.size(), s.rescan_minutes);
-            return std::string();
-        });
-    m_settings_win->show(m_settings);
+    if (auto lg = log::get(log::Area::Shell))
+        lg->info("settings saved: aging {} days, {} junk patterns, rescan every {} min", s.aging_days,
+                 s.junk.size(), s.rescan_minutes);
+    return std::string();
 }
 
 void Shell::on_shortcuts() {  // handler: the keyboard reference (renders from core::shortcut_registry)
@@ -222,10 +248,8 @@ void Shell::on_id_lists() {  // handler
 }
 
 // s025b: the Quarantine -- answers to the suspect scan; writes only Tidy's own list.
-void Shell::on_quarantine() {  // handler
-    if (!m_quarantine_win)
-        m_quarantine_win = std::make_unique<QuarantineWindow>(*this, *m_door, m_home, m_data_dir, [this] { refresh_activity(); });
-    m_quarantine_win->open();
+void Shell::on_quarantine() {  // handler: s027 -- Review's Quarantine tab (was a window)
+    go("quarantine");
 }
 
 // s023: adopt folders -- the tags through the door (undo in Activity); the
@@ -338,9 +362,15 @@ namespace tidy {
 
 // s012c: the tile's requests, through App::on_command_line.
 void Shell::go(const std::string& page) {  // glue
+    const auto area = core::look::area_of(m_areas, page);   // s027: the page's area row
+    if (!area.empty()) m_area_page[area] = page;             // so selecting the row lands here
     bool selected = false;
     for (int i = 0; auto* r = m_nav.get_row_at_index(i); ++i)
-        if (std::string(r->get_name()) == "nav." + page) { m_nav.select_row(*r); selected = true; }
+        if (!area.empty() && std::string(r->get_name()) == "nav." + area) {
+            if (m_nav.get_selected_row() == r) on_nav(page);
+            else m_nav.select_row(*r);
+            selected = true;
+        }
     if (!selected) on_nav(page);       // the look off: GTK's own sidebar follows the stack
     present();
 }

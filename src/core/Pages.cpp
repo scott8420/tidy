@@ -5,6 +5,12 @@ namespace tidy::core::pages {
 const std::vector<Page>& all() {
     // Promises from REQUIREMENTS.md; milestones from PROGRESS.md's road.
     static const std::vector<Page> p = {
+        {"organize", "Organize",
+         "Put a folder in order: pick it, see what Tidy recognises, preview, Do it.", "s027"},
+        {"quarantine", "Quarantine",
+         "Folders that may be one thing: held whole until you answer.", "s025"},
+        {"settings", "Settings",
+         "What you set: ages, tables, media, Hands off.", "s006"},
         {"closet", "The Closet",
          "The undecided wait here until someone decides. Decided files never visit.", "s006"},
         {"due", "Due",
@@ -15,8 +21,8 @@ const std::vector<Page>& all() {
          "Your home at a glance: where files are cataloged, loose, or not tracked yet.", "s023"},
         {"projects", "Projects",
          "Each <name>-project is found, placed by category, and moved whole.", "s008"},
-        {"templates", "Templates",
-         "The upper levels of a project's tree, built here; drift shown against them.", "s007"},
+        {"templates", "Types",
+         "Your designs: a project's tree, what goes in each folder; drift shown against them.", "s007"},
         {"purposes", "Purposes",
          "One decision per purpose, not per file: open it, close it, and its inputs follow.", "s009"},
         {"home", "Files home",
