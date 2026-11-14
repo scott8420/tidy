@@ -24,7 +24,7 @@ namespace dr = latch::door;
 
 namespace tidy {
 
-void Shell::on_put(std::vector<std::string> files) {
+void Shell::on_put(std::vector<std::string> files, std::function<void()> then) {
     if (files.empty()) {
         auto dlg = Gtk::FileDialog::create();
         dlg->set_title("Put it with... -- which files?");
@@ -40,10 +40,10 @@ void Shell::on_put(std::vector<std::string> files) {
         });
         return;
     }
-    put_pick_folder(std::move(files));
+    put_pick_folder(std::move(files), std::move(then));
 }
 
-void Shell::put_pick_folder(std::vector<std::string> files) {
+void Shell::put_pick_folder(std::vector<std::string> files, std::function<void()> then) {
     // Start the folder picker somewhere likely: a comic -> the Comics shelf.
     std::string start = m_home;
     bool all_comics = true;
@@ -55,25 +55,26 @@ void Shell::put_pick_folder(std::vector<std::string> files) {
                                      : "Put " + std::to_string(files.size()) + " files with... -- which folder?");
     dlg->set_modal(true);
     dlg->set_initial_folder(Gio::File::create_for_path(start));
-    dlg->select_folder(*this, [this, dlg, files](const Glib::RefPtr<Gio::AsyncResult>& res) {
+    dlg->select_folder(*this, [this, dlg, files, then](const Glib::RefPtr<Gio::AsyncResult>& res) {
         std::string to;
         try {
             const auto f = dlg->select_folder_finish(res);
-            if (!f || f->get_path().empty()) return;
+            if (!f || f->get_path().empty()) { if (then) then(); return; }
             to = f->get_path();
-        } catch (const Glib::Error&) { return; }
+        } catch (const Glib::Error&) { if (then) then(); return; }
         std::string rel;
         if (const auto why = core::put::folder_rel(m_home, to, &rel); !why.empty()) {
             auto a = Gtk::AlertDialog::create("Not that folder");
             a->set_detail(why);
             a->show(*this);
+            if (then) then();
             return;
         }
-        put_preview(files, rel);
+        put_preview(files, rel, then);
     });
 }
 
-void Shell::put_preview(const std::vector<std::string>& files, const std::string& rel) {
+void Shell::put_preview(const std::vector<std::string>& files, const std::string& rel, std::function<void()> then) {
     auto planned = core::put::plan(m_home, files, rel);
     std::string text, refused;
     for (const auto& l : planned.lines) text += "\n  " + l;
@@ -96,21 +97,22 @@ void Shell::put_preview(const std::vector<std::string>& files, const std::string
     }
     dlg->set_cancel_button(0);
     auto keep = std::make_shared<dr::Plan>(std::move(planned.plan));
-    dlg->choose(*this, [this, dlg, keep, files, rel, ok = any && refused.empty()](const Glib::RefPtr<Gio::AsyncResult>& res) {
+    dlg->choose(*this, [this, dlg, keep, files, rel, then, ok = any && refused.empty()](const Glib::RefPtr<Gio::AsyncResult>& res) {
         int pick = 0;
-        try { pick = dlg->choose_finish(res); } catch (const Glib::Error&) { return; }
-        if (pick != 1 || !ok) return;
+        try { pick = dlg->choose_finish(res); } catch (const Glib::Error&) { if (then) then(); return; }
+        if (pick != 1 || !ok) { if (then) then(); return; }
         keep->previewed = true;
         const std::string data = m_data_dir, home = m_home;
         auto* door = m_door.get();
         busy::door(*this, *m_door, std::move(*keep), "Put it with",
-            [this, files, rel, data, home](const dr::Result& r) {
+            [this, files, rel, data, home, then](const dr::Result& r) {
                 std::string why;
                 const auto taught = core::put::learn(home, data, files, rel, &why);
                 if (auto lg = log::get(log::Area::Door))
                     lg->info("put: {} done, {} failed -> ~/{}; {} taught{}", r.done, r.failed, rel, taught,
                              why.empty() ? "" : " (routes not saved: " + why + ")");
                 refresh_activity();
+                if (then) { then(); return; }   // s030n: Start's queue goes on (it looks again at its end)
                 if (m_org_start && std::string(m_stack.get_visible_child_name()) == "organize") {
                     m_org_start->note(r.ok ? "Put with ~/" + rel + " -- one undo in Review → Activity." : "Put: not done -- see the log.");
                     m_org_start->refresh();

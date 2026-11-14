@@ -191,6 +191,7 @@ void Shell::build_page(const std::string& id) {  // zone: a page's hero
             [this] { refresh_activity(); });
         m_org_start->set_on_put([this] { on_put(); });   // s030g
         m_org_start->set_dirs([this] { return user_dirs_text(); });   // s030l: the Closet page's places
+        m_org_start->set_put_files([this](std::vector<std::string> f, std::function<void()> then) { on_put(std::move(f), std::move(then)); });   // s030n
         m_stack.add(*m_org_start, id, "Organize");
         return;
     }

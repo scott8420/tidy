@@ -524,6 +524,7 @@ void sets_and_kinds(Report& r, const std::vector<Loose>& loose, const std::vecto
             ++c.first;
             ++c.second[f.folder];
             ++r.in_closet;
+            r.unclaimed.push_back(f.folder.empty() ? f.name : f.folder + "/" + f.name);   // s030n
             continue;
         }
         auto& k = kinds[kind];

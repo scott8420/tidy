@@ -104,6 +104,7 @@ struct Report {
     std::vector<Copies> copies;
     std::size_t loose_files = 0;  // files outside bundles and projects (sets + kinds + closet)
     std::size_t in_sets = 0, in_kinds = 0, in_closet = 0;
+    std::vector<std::string> unclaimed;   // s030n: the Closet's files, rel to home (nothing claims them)
     std::size_t code_items = 0;   // ~/Develop
     std::uint64_t code_bytes = 0;
     std::size_t repos = 0, build = 0, shut = 0, folders = 0;

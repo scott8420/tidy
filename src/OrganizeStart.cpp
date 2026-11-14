@@ -14,6 +14,7 @@
 #include <glibmm/main.h>
 #include <gtkmm/alertdialog.h>
 #include <gtkmm/button.h>
+#include <gtkmm/entry.h>
 #include <gtkmm/image.h>
 #include <gtkmm/label.h>
 #include <gtkmm/scrolledwindow.h>
@@ -211,24 +212,38 @@ void OrganizeStart::look() {
     auto media = std::make_shared<std::vector<core::media::Item>>();
     auto closet_n = std::make_shared<long long>(-1);
     auto books = std::make_shared<std::vector<core::library::Item>>();
+    auto unclaimed = std::make_shared<std::vector<std::string>>();
+    auto ask = std::make_shared<std::vector<core::ebooks::Row>>();
     const std::string dirs = m_dirs ? m_dirs() : std::string();
     const bool have_dirs = static_cast<bool>(m_dirs);
     busy::start(m_parent, "Organize -- looking over your home", "Reading your home top down (nothing moves)",
-                [out, saved, comics, settled, media, closet_n, books, dirs, have_dirs, home, data] {
+                [out, saved, comics, settled, media, closet_n, books, unclaimed, ask, dirs, have_dirs, home, data] {
+                    *out = rc::scan(home, home, data, false);
+                    *books = core::library::find(home, *out, ask.get());   // s030m; s030n: the authorless asked
                     if (have_dirs) {   // s030l: exactly what the Closet page will list
                         const auto st = core::settings::parse(core::own::read(data, core::settings::kFile));
                         const auto now = static_cast<std::int64_t>(std::time(nullptr));
                         const auto rep = core::birth::report(home, core::birth::sweep(home, dirs, st.catch_all), now, st.old_years);
-                        *closet_n = static_cast<long long>(core::closet::view(rep, now, st).total());
+                        const auto v = core::closet::view(rep, now, st);
+                        *closet_n = static_cast<long long>(v.total());
+                        // s030n: the files nothing claims that the Closet page does NOT list, less those you left.
+                        std::set<std::string> on_page;
+                        for (const auto& b : v.proposed) on_page.insert(b.file.path);
+                        for (const auto& b : v.waiting) on_page.insert(b.file.path);
+                        const auto gone = gd::left(data);
+                        for (const auto& rel : out->unclaimed) {
+                            const std::string abs = home + "/" + rel;
+                            if (!on_page.count(abs) && !gone.count(rel)) unclaimed->push_back(abs);
+                        }
                     }
                     *media = core::media::find(home);   // s030j
                     *settled = gd::settled(data);   // s030f
-                    *out = rc::scan(home, home, data, false);
-                    *books = core::library::find(home, *out);   // s030m
                     *saved = core::home::saved(data);
                     *comics = core::comics::find(home);   // s030e
                 },
-                [this, out, saved, comics, settled, media, closet_n, books] {
+                [this, out, saved, comics, settled, media, closet_n, books, unclaimed, ask] {
+                    m_unclaimed = std::move(*unclaimed);
+                    m_ask = std::move(*ask);
                     m_books = std::move(*books);
                     m_media = std::move(*media);
                     m_comics = std::move(*comics);
@@ -240,6 +255,8 @@ void OrganizeStart::look() {
                     in.settled = *settled;
                     in.closet = *closet_n;
                     in.books = m_books.size();
+                    in.unclaimed = m_unclaimed.size();
+                    in.authorless = m_ask.size();
                     for (const auto& m : m_media) {
                         if (m.what == "its subtitles") continue;
                         if (m.to.rfind(core::media::kMovies, 0) == 0) ++in.movies; else ++in.episodes;
@@ -340,6 +357,8 @@ void OrganizeStart::do_it() {
         }
         case gd::Act::SortFolder: if (m_sort) m_sort(s.folders.empty() ? std::vector<std::string>{s.folder} : s.folders, s.whole); break;
         case gd::Act::Reshelve:   reshelve(); break;
+        case gd::Act::Unclaimed:  unclaimed_at(0); break;   // s030n
+        case gd::Act::AskAuthors: ask_at(0); break;         // s030n
         case gd::Act::None: break;
     }
 }
@@ -423,6 +442,122 @@ void OrganizeStart::reshelve() {   // s030e comics; s030j movies + series -- one
                                           static_cast<std::int64_t>(std::time(nullptr)));
             });
     });
+}
+
+// s030n: the files nothing claims, one at a time.
+void OrganizeStart::unclaimed_at(std::size_t i) {
+    if (i >= m_unclaimed.size()) { look(); return; }
+    const std::string abs = m_unclaimed[i];
+    const std::string rel = abs.rfind(m_home + "/", 0) == 0 ? abs.substr(m_home.size() + 1) : abs;
+    std::error_code ec;
+    if (!fs::exists(abs, ec)) { unclaimed_at(i + 1); return; }   // gone meanwhile
+    const auto size = fs::file_size(abs, ec);
+    auto dlg = Gtk::AlertDialog::create(fs::path(abs).filename().string() + "  (" + std::to_string(i + 1) + " of " +
+                                        std::to_string(m_unclaimed.size()) + ")");
+    dlg->set_detail("In ~/" + fs::path(rel).parent_path().string() + (ec ? std::string() : "   --   " + std::to_string(size / 1024) + " KB") +
+                    "\n\nNo Home rule claims this type. Put it with a folder (Tidy remembers names like it), send it to "
+                    "the Trash (one undo), or leave it where it is -- Tidy won't ask again.\nTip: a rule for the whole type is "
+                    "Design \u2192 Types \u2192 Home \u2192 + file type.");
+    dlg->set_buttons({"Stop", "Leave it", "To the Trash", "Put it with\u2026"});
+    dlg->set_cancel_button(0);
+    dlg->set_default_button(3);
+    dlg->choose(m_parent, [this, dlg, i, abs, rel](const Glib::RefPtr<Gio::AsyncResult>& res) {
+        int pick = 0;
+        try { pick = dlg->choose_finish(res); } catch (const Glib::Error&) { pick = 0; }
+        if (pick == 0) { look(); return; }
+        if (pick == 1) {
+            core::guide::leave(m_data_dir, rel);
+            unclaimed_at(i + 1);
+            return;
+        }
+        if (pick == 3) {
+            if (m_put_files) m_put_files({abs}, [this, i] { unclaimed_at(i + 1); });
+            else unclaimed_at(i + 1);
+            return;
+        }
+        dr::Plan plan;
+        dr::Action a;
+        a.verb = dr::Verb::Trash;
+        a.from = abs;
+        a.reason = "nothing claims it -- you sent it to the Trash";
+        plan.actions.push_back(a);
+        plan.label = "Trash: " + fs::path(abs).filename().string();
+        plan.previewed = true;   // the dialog above was its preview
+        busy::door(m_parent, m_door, std::move(plan), "To the Trash", [this, i](const dr::Result& r) {
+            if (m_changed) m_changed();
+            if (auto lg = log::get(log::Area::Door)) lg->info("start: unclaimed to the Trash -- {} done, {} failed", r.done, r.failed);
+            unclaimed_at(i + 1);
+        });
+    });
+}
+
+// s030n: the ebooks with no author found -- who wrote it?
+void OrganizeStart::ask_at(std::size_t i) {
+    if (i >= m_ask.size()) { look(); return; }
+    auto row = m_ask[i];
+    auto win = new Gtk::Window();
+    win->set_transient_for(m_parent);
+    win->set_modal(true);
+    win->set_title("Who wrote it? (" + std::to_string(i + 1) + " of " + std::to_string(m_ask.size()) + ")");
+    win->set_default_size(560, -1);
+    auto box = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::VERTICAL, 10);
+    box->set_margin(18);
+    box->append(*text(fs::path(row.path).filename().string(), "card-title"));
+    box->append(*text("In ~/" + fs::path(row.path).parent_path().string().substr(m_home.size() + 1) +
+                      ". Tidy found no author inside the file. Type it as Last, First (\"Norton, Andre\") -- it goes to "
+                      "Entertainment/EBooks/" + row.genre + "/<Last, First>/<Title>.", "dim"));
+    auto author = Gtk::make_managed<Gtk::Entry>();
+    author->set_placeholder_text("Last, First");
+    {   // the folder above, when it reads like a name ("Andre Norton") and is no genre or the title itself
+        const std::string up = fs::path(row.path).parent_path().filename().string();
+        std::size_t words = 1;
+        bool digits = false;
+        for (char c : up) { words += c == ' '; digits = digits || std::isdigit(static_cast<unsigned char>(c)); }
+        if (!digits && words >= 2 && words <= 4 && up != row.title)
+            author->set_text(core::ebooks::last_first(up));
+    }
+    author->set_name("organize.ask.author");
+    auto title = Gtk::make_managed<Gtk::Entry>();
+    title->set_text(row.title);
+    title->set_name("organize.ask.title");
+    auto grid = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::VERTICAL, 6);
+    grid->append(*text("Author", "dim"));
+    grid->append(*author);
+    grid->append(*text("Title", "dim"));
+    grid->append(*title);
+    box->append(*grid);
+    auto why = text("", "dim");
+    box->append(*why);
+    auto bar = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::HORIZONTAL, 8);
+    bar->set_halign(Gtk::Align::END);
+    auto stop = Gtk::make_managed<Gtk::Button>("Stop");
+    auto skip = Gtk::make_managed<Gtk::Button>("Skip");
+    auto put = Gtk::make_managed<Gtk::Button>("Put it on the shelf");
+    put->add_css_class("suggested-action");
+    put->set_name("organize.ask.put");
+    bar->append(*stop);
+    bar->append(*skip);
+    bar->append(*put);
+    box->append(*bar);
+    win->set_child(*box);
+    auto done = [win](bool) { win->set_visible(false); Glib::signal_idle().connect_once([win] { delete win; }); };
+    stop->signal_clicked().connect([this, done] { done(true); look(); });
+    skip->signal_clicked().connect([this, done, i] { done(true); ask_at(i + 1); });
+    put->signal_clicked().connect([this, done, i, row, author, title, why]() mutable {
+        row.author = core::ebooks::last_first(author->get_text());
+        row.title = core::ebooks::folder_name(title->get_text());
+        if (const auto p = core::ebooks::row_problem(row); !p.empty()) { why->set_text(p); return; }
+        auto planned = core::ebooks::plan(m_home, {row});
+        planned.plan.previewed = true;   // this window shows where it goes
+        done(true);
+        busy::door(m_parent, m_door, std::move(planned.plan), "On the shelf", [this, i](const dr::Result& r) {
+            if (m_changed) m_changed();
+            if (auto lg = log::get(log::Area::Door)) lg->info("start: an ebook on its shelf -- {} done, {} failed", r.done, r.failed);
+            ask_at(i + 1);
+        });
+    });
+    win->present();
+    author->grab_focus();
 }
 
 void OrganizeStart::send_home(const gd::Step& s) {

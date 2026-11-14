@@ -120,8 +120,13 @@ std::vector<Step> steps(const recognise::Report& r, const Inputs& in) {
         s.title = "Sets";
         s.icon = "view-grid-symbolic";
         s.details = "sees";
-        s.todo = in.comics + in.movies + in.episodes + in.books;   // s030e comics; s030j movies + series; s030m books
-        if (s.todo) {
+        s.todo = in.comics + in.movies + in.episodes + in.books + in.authorless;   // s030e; s030j; s030m; s030n
+        if (s.todo && s.todo == in.authorless) {   // s030n: only the ones that need you
+            s.now = "Say who wrote " + plural(in.authorless, "ebook", "ebooks") +
+                    " Tidy could not read an author from -- one at a time, then each goes on the shelf.";
+            s.act = Act::AskAuthors;
+            s.details = "sees";
+        } else if (s.todo) {
             std::vector<std::string> parts;
             if (in.comics) parts.push_back(plural(in.comics, "comic", "comics") + " (" + plural(in.series, "series", "series") + ")");
             if (in.movies) parts.push_back(plural(in.movies, "movie", "movies"));
@@ -136,7 +141,8 @@ std::vector<Step> steps(const recognise::Report& r, const Inputs& in) {
             if (in.books) where.push_back("EBooks/<Genre>/<Last, First>/<Title>");
             std::string shelves;
             for (std::size_t i = 0; i < where.size(); ++i) shelves += (i ? ", " : "") + where[i];
-            s.now = "Put " + list + " on " + (parts.size() == 1 ? "its shelf" : "their shelves") + " in ~/Entertainment -- " + shelves + ".";
+            s.now = "Put " + list + " on " + (parts.size() == 1 ? "its shelf" : "their shelves") + " in ~/Entertainment -- " + shelves + "." +
+                    (in.authorless ? " Then " + plural(in.authorless, "ebook needs", "ebooks need") + " you to say who wrote it." : "");
             s.act = Act::Reshelve;
             s.details = "sees";
         } else {
@@ -192,10 +198,17 @@ std::vector<Step> steps(const recognise::Report& r, const Inputs& in) {
         s.title = "Closet";
         s.icon = "user-trash-symbolic";
         s.details = "closet";
-        s.todo = in.closet >= 0 ? static_cast<std::size_t>(in.closet) : r.in_closet;
-        if (s.todo) {
-            s.now = "Decide on the " + plural(s.todo, "file", "files") + " nothing claims -- keep, move or let go.";
+        const std::size_t page = in.closet >= 0 ? static_cast<std::size_t>(in.closet) : r.in_closet;
+        s.todo = page + (in.closet >= 0 ? in.unclaimed : 0);
+        if (page) {
+            s.now = "Decide on the " + plural(page, "file", "files") + " in the Closet -- keep, move or let go." +
+                    (in.closet >= 0 && in.unclaimed ? " Then " + plural(in.unclaimed, "file", "files") + " nothing claims, one at a time." : "");
             s.act = Act::Closet;
+        } else if (s.todo) {   // s030n: outside the Closet page's places -- one at a time
+            s.now = "Look at the " + plural(s.todo, "file", "files") + " nothing claims, one at a time -- put it with a folder, "
+                    "send it to the Trash, or leave it (never asked again).";
+            s.act = Act::Unclaimed;
+            s.details = "sees";
         }
     }
 
@@ -230,6 +243,22 @@ std::string settle(const std::string& data_dir, const std::string& rel) {
     std::string text = "# Tidy: folders Sort found nothing to move in -- Start's Loose files skips them\n";
     for (const auto& r : s) text += r + "\n";
     return own::write(data_dir, "settled.txt", text);
+}
+
+std::set<std::string> left(const std::string& data_dir) {
+    std::set<std::string> out;
+    std::istringstream in(own::read(data_dir, "left.txt"));
+    for (std::string line; std::getline(in, line);)
+        if (!line.empty() && line[0] != '#') out.insert(line);
+    return out;
+}
+
+std::string leave(const std::string& data_dir, const std::string& rel) {
+    auto s = left(data_dir);
+    if (rel.empty() || !s.insert(rel).second) return "";
+    std::string text = "# Tidy: files you said Leave it to -- Start's Closet step never asks again\n";
+    for (const auto& r : s) text += r + "\n";
+    return own::write(data_dir, "left.txt", text);
 }
 
 bool expert(const std::string& data_dir) {

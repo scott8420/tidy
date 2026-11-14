@@ -236,9 +236,10 @@ private:
     void start_look();
     void back_to_start();
     // s030g: Put it with... -- files picked (or given), a folder picked, the plan, Do it.
-    void on_put(std::vector<std::string> files = {});
-    void put_pick_folder(std::vector<std::string> files);
-    void put_preview(const std::vector<std::string>& files, const std::string& rel);   // s030b: after a Do it begun on Start -- the steps, looked again
+    // `then` (s030n): called once the put is done or given up -- Start's one-at-a-time queue.
+    void on_put(std::vector<std::string> files = {}, std::function<void()> then = {});
+    void put_pick_folder(std::vector<std::string> files, std::function<void()> then = {});
+    void put_preview(const std::vector<std::string>& files, const std::string& rel, std::function<void()> then = {});   // s030b: after a Do it begun on Start -- the steps, looked again
     void set_expert(bool on);
 };
 

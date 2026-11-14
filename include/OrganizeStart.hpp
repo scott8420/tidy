@@ -45,6 +45,8 @@ public:
 
     void refresh();   // look again (under Busy): called each time the page shows
     void set_on_put(std::function<void()> f) { m_on_put = std::move(f); }   // s030g
+    // s030n: Put it with... for given files, `then` when done or given up.
+    void set_put_files(std::function<void(std::vector<std::string>, std::function<void()>)> f) { m_put_files = std::move(f); }
     // s030l: the sweep's places (the Closet page's own), read on the main thread.
     void set_dirs(std::function<std::string()> f) { m_dirs = std::move(f); }
     void note(const std::string& line) { m_after += (m_after.empty() ? "" : "  ") + line; }   // s030f: shown after the next look
@@ -69,6 +71,11 @@ private:
     Changed m_changed;
     std::function<void()> m_on_put;   // s030g
     std::function<std::string()> m_dirs;   // s030l
+    std::function<void(std::vector<std::string>, std::function<void()>)> m_put_files;   // s030n
+    std::vector<std::string> m_unclaimed;          // s030n: abs paths, nothing claims them
+    std::vector<core::ebooks::Row> m_ask;          // s030n: library ebooks with no author
+    void unclaimed_at(std::size_t i);
+    void ask_at(std::size_t i);
 
     std::vector<core::guide::Step> m_steps;
     std::set<int> m_skipped;

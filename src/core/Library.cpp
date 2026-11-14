@@ -38,7 +38,7 @@ std::string genre_of(const std::string& folder) {
     return ebooks::folder_name(folder);
 }
 
-std::vector<Item> find(const std::string& home, const recognise::Report& r) {
+std::vector<Item> find(const std::string& home, const recognise::Report& r, std::vector<ebooks::Row>* ask) {
     std::vector<Item> out;
     const std::string lib = recognise::kLibrary;
     for (const auto& p : r.projects) {
@@ -57,7 +57,10 @@ std::vector<Item> find(const std::string& home, const recognise::Report& r) {
             out.push_back({abs.string(), std::string(ebooks::kRoot) + "/" + genre + "/" + ebooks::folder_name(author) + "/" + title, true});
         } else {            // ebook files right in <Genre>/<X>: each by its own title + author
             for (const auto& row : ebooks::find(home, abs.string(), genre)) {
-                if (!ebooks::row_problem(row).empty()) continue;
+                if (!ebooks::row_problem(row).empty()) {
+                    if (ask && row.author.empty() && !row.title.empty()) ask->push_back(row);   // s030n: ask who wrote it
+                    continue;
+                }
                 out.push_back({row.path, ebooks::target_of(row), false});
             }
         }

@@ -17,6 +17,7 @@
 //
 // GTK-free. READ-ONLY (plans only).
 // ─────────────────────────────────────────────────────────────────────────────
+#include "core/Ebooks.hpp"
 #include "core/Recognise.hpp"
 
 #include <latch/Door.hpp>
@@ -34,7 +35,8 @@ struct Item {
     bool whole = false;
 };
 // From the whole-home report's library books (How::Book).
-std::vector<Item> find(const std::string& home, const recognise::Report& r);
+// s030n: `ask` (optional) gets the ebooks found with no author -- asked one by one.
+std::vector<Item> find(const std::string& home, const recognise::Report& r, std::vector<ebooks::Row>* ask = nullptr);
 
 struct Planned {
     latch::door::Plan plan;

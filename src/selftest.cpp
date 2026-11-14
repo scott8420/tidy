@@ -5973,6 +5973,47 @@ int main(int argc, char** argv) {
         fs::remove_all(root);
     }
 
+    // ── s030n: files nothing claims, one at a time; who wrote it ───────────────
+    {
+        namespace gd = tidy::core::guide;
+        namespace rc = tidy::core::recognise;
+        namespace lb = tidy::core::library;
+        rc::Report r0;
+        gd::Inputs a; a.home_saved = true; a.closet = 0; a.unclaimed = 8;
+        auto v = gd::steps(r0, a);
+        check("s030n guide: an empty Closet page + 8 files nothing claims -> the Closet step goes one at a time",
+              v[5].todo == 8 && v[5].act == gd::Act::Unclaimed && gd::current(v) == 5, v[5].now);
+        a.closet = 3;
+        v = gd::steps(r0, a);
+        check("s030n guide: the Closet page first when it has files (then the 8)",
+              v[5].act == gd::Act::Closet && v[5].todo == 11 && v[5].now.find("Then 8 files") != std::string::npos, v[5].now);
+        gd::Inputs b; b.home_saved = true; b.closet = 0; b.authorless = 2;
+        v = gd::steps(r0, b);
+        check("s030n guide: only authorless ebooks left -> Sets asks who wrote them", v[3].act == gd::Act::AskAuthors && v[3].todo == 2, v[3].now);
+
+        const fs::path root = fs::temp_directory_path() / ("tidy_s030n_" + std::to_string(::getpid()));
+        fs::remove_all(root);
+        const fs::path home = root / "home";
+        put_file(home / "Documents/Fonts/fonts.zip", "z");
+        put_file(home / "Documents/EBooks/Fiction/Andre Norton/Star Guard.epub", "not really an epub");
+        put_file(home / "Downloads/.keep", "");
+        const std::string H = fs::canonical(home).string();
+        const std::string D = (root / "data").string();
+        fs::create_directories(D);
+        const auto rep = rc::scan(H, H, D, false);
+        check("s030n recognise: the files nothing claims are listed by path",
+              std::find(rep.unclaimed.begin(), rep.unclaimed.end(), "Documents/Fonts/fonts.zip") != rep.unclaimed.end(),
+              std::to_string(rep.unclaimed.size()));
+        std::vector<tidy::core::ebooks::Row> ask;
+        const auto items = lb::find(H, rep, &ask);
+        check("s030n library: an ebook with no author found is asked, not moved",
+              items.empty() && ask.size() == 1 && ask[0].title == "Star Guard" && ask[0].genre == "Fiction",
+              std::to_string(items.size()) + "/" + std::to_string(ask.size()));
+        const auto w = gd::leave(D, "Documents/Fonts/fonts.zip");
+        check("s030n left: Leave it is saved and read back", w.empty() && gd::left(D).count("Documents/Fonts/fonts.zip"), w);
+        fs::remove_all(root);
+    }
+
     std::cout << "-----------------------------------------------\n";
     std::cout << g_pass << " pass / " << g_fail << " fail\n";
     return g_fail == 0 ? 0 : 1;

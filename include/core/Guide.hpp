@@ -41,6 +41,8 @@ enum class Act {
     SortFolder,      // Sort, for `folder` only (`whole` left out)
     Closet,          // open the Closet
     Reshelve,        // s030e: the comics off the shelf -> their series (one preview, one undo)
+    Unclaimed,       // s030n: the files nothing claims, one at a time (Put it with / Trash / Leave it)
+    AskAuthors,      // s030n: the authorless ebooks, one at a time (who wrote it?)
 };
 
 struct Step {
@@ -73,6 +75,8 @@ struct Inputs {
     // the Closet step counts what the Closet PAGE shows (closet::view total); -1 = not given.
     long long closet = -1;
     std::size_t books = 0;         // s030m: books in the old EBooks library (Documents/EBooks) off the shelf
+    std::size_t unclaimed = 0;     // s030n: files nothing claims, outside the Closet page (not left)
+    std::size_t authorless = 0;    // s030n: library ebooks with no author found -- asked one by one
     std::set<std::string> settled; // s030f: folders Sort found nothing to move in (Tidy's own settled.txt)
 };
 
@@ -86,6 +90,9 @@ const char* state_text(State s);   // "done", "do this now", "to do", "not ready
 // looked in from Start and found nothing to move is SETTLED -- Loose files does
 // not offer it again. Tidy's own <data>/settled.txt, one folder (rel) a line.
 std::set<std::string> settled(const std::string& data_dir);
+// s030n: files you said "Leave it" to (Tidy's own left.txt, rel to home) -- never asked again.
+std::set<std::string> left(const std::string& data_dir);
+std::string leave(const std::string& data_dir, const std::string& rel);
 std::string settle(const std::string& data_dir, const std::string& rel);   // "" = saved
 
 // Expert mode: <data>/mode.txt says "expert". Guided otherwise.
