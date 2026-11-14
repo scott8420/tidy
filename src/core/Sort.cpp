@@ -1,4 +1,6 @@
 #include "core/Sort.hpp"
+#include "core/Comics.hpp"
+#include "core/Recognise.hpp"
 #include "core/Archive.hpp"
 #include "core/Closet.hpp"
 #include "core/Facts.hpp"
@@ -144,7 +146,86 @@ std::string entertainment_for(const std::vector<homing::TypeRoute>& table, const
     return folder;
 }
 std::string month_now(std::int64_t now) { return month_of(now); }
+
+// s030 (Scott: "srt files need to be with the video"): a subtitle / nfo goes
+// where its video goes -- the video of the same name first, else the one video
+// in its folder (or, for a Subs/ folder, in the folder above). No video in the
+// plan beside it -> it stays (never the Closet).
+std::string stem_lower(const std::string& name) {
+    std::string s = fs::path(name).stem().string();
+    for (auto& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return s;
+}
+void follow_videos(std::vector<Row>& out) {
+    std::map<std::string, std::vector<std::size_t>> videos;   // folder -> video rows
+    for (std::size_t i = 0; i < out.size(); ++i) {
+        if (out[i].folder_whole || out[i].is_project) continue;
+        const fs::path p(out[i].born.file.path);
+        if (kind_of(p.filename().string()) == "Movies") videos[p.parent_path().string()].push_back(i);
+    }
+    for (auto& r : out) {
+        if (r.folder_whole || r.is_project) continue;
+        const fs::path p(r.born.file.path);
+        if (!is_companion(p.filename().string())) continue;
+        const Row* v = nullptr;
+        for (fs::path dir = p.parent_path(); !v && !dir.empty(); dir = dir.parent_path()) {
+            const auto it = videos.find(dir.string());
+            if (it != videos.end()) {
+                const std::string st = stem_lower(p.filename().string());
+                for (auto i : it->second)   // the same name ("Movie.en.srt" -> "Movie.mkv") first
+                    if (st.rfind(stem_lower(fs::path(out[i].born.file.path).filename().string()), 0) == 0) { v = &out[i]; break; }
+                if (!v && it->second.size() == 1) v = &out[it->second.front()];
+            }
+            if (dir == p.parent_path() && dir.filename() != "Subs" && dir.filename() != "subs" && dir.filename() != "Subtitles") break;
+        }
+        r.closet = false;
+        if (!v || v->go != Go::Home) {
+            r.go = Go::Stays;
+            r.tag = false;
+            r.why = v ? "with its video -- stays where it is" : "a subtitle -- stays (no video beside it)";
+            continue;
+        }
+        r.go = Go::Home;
+        r.folder = v->folder;
+        r.level = v->level;
+        r.tag = v->tag;
+        r.why = "with its video -> ~/" + v->folder;
+    }
+}
 }  // namespace
+
+// s030e (Scott: "I want it to go in with the other Flash Gordon cbz files"): a
+// comic going home goes to its series on the Comics shelf instead of by type.
+void join_series(const std::string& home, std::vector<Row>& out) {
+    std::vector<std::string> known;
+    bool looked = false;
+    for (auto& r : out) {
+        if (r.folder_whole || r.is_project || !(r.go == Go::Home || r.closet)) continue;
+        // s030g: a NAME route you taught ("flash*.cbz") wins; a broad from-route ("*.cbz from
+        // Downloads") never outranks the series -- a Donald Duck is no Flash Gordon.
+        if (!r.learned.folder.empty() && r.folder == r.learned.folder && r.learned.because.find(" from ") == std::string::npos) continue;
+        const std::string n = fs::path(r.born.file.path).filename().string();
+        if (!comics::is_comic(n)) continue;
+        if (r.closet) {   // no Home rule for it: a comic still has a place -- its series
+            r.closet = false;
+            r.go = Go::Home;
+            r.level = retention::Level::Keep;
+            r.tag = true;
+        }
+        if (!looked) { known = comics::shelf(home); looked = true; }
+        const std::string s = comics::series_of(n, known);
+        const bool there = std::find(known.begin(), known.end(), s) != known.end();
+        r.folder = std::string(comics::kShelf) + "/" + s;
+        r.why = there ? "joins its series: " + s + " (on the Comics shelf)" : "a new series on the Comics shelf: " + s;
+    }
+}
+
+bool is_companion(const std::string& file_name) {
+    static const std::set<std::string> k = {".srt", ".sub", ".idx", ".ass", ".ssa", ".vtt", ".nfo", ".smi"};
+    std::string e = fs::path(file_name).extension().string();
+    for (auto& c : e) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return k.count(e) > 0;
+}
 
 std::vector<Row> rows(const std::string& home, const birth::Report& rep, const settings::Settings& st,
                       std::int64_t now, const std::vector<projects::Project>& found,
@@ -198,7 +279,7 @@ std::vector<Row> rows(const std::string& home, const birth::Report& rep, const s
                     r.now_folder = e;
                     r.now_why = "moved on now -- " + what;
                 } else if (const auto* t = homing::type_of(table, name)) {
-                    if (const auto f = home::expand(t->folder, r.born.file.path); !f.empty()) {
+                    if (const auto f = home::expand(t->folder, r.born.file.path); !f.empty() && !home::is_trash(f)) {
                         r.now_folder = f;
                         r.now_why = "moved on now -- Home: " + t->pattern + " -> ~/" + f;
                     }
@@ -247,6 +328,19 @@ std::vector<Row> rows(const std::string& home, const birth::Report& rep, const s
         // s029: the Home design names the folder; no rule fits -> it waits in the Closet.
         const auto* t = homing::type_of(table, name);
         if (!t) {
+            // s030i: an app's file (.mort -> Develop/Mortimer) has its app's home even with no Home rule.
+            std::string ext = fs::path(name).extension().string();
+            for (auto& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            if (const auto bh = recognise::bundle_home(ext); !bh.empty() && bh != "=" && homing::folder_check(bh).empty()) {
+                if (fs::path(r.born.file.path).parent_path() == fs::path(home) / bh) {
+                    r.go = Go::Stays;
+                    r.why = "at its app's home already (~/" + bh + ")";
+                    return;
+                }
+                r.folder = bh;
+                r.why = "its app's home: " + ext + " -> ~/" + bh;
+                return;
+            }
             r.go = Go::Stays;
             r.tag = false;
             r.closet = true;
@@ -260,6 +354,12 @@ std::vector<Row> rows(const std::string& home, const birth::Report& rep, const s
             r.tag = false;
             r.closet = true;
             r.why = "no home: " + why;
+            return;
+        }
+        if (home::is_trash(folder)) {   // s030i: your Home design says it is trash
+            r.go = Go::Trash;
+            r.tag = false;
+            r.why = "Home: " + t->pattern + " -> the Trash (one undo in Activity)";
             return;
         }
         if (fs::path(r.born.file.path).parent_path() == fs::path(home) / folder) {
@@ -361,8 +461,15 @@ std::vector<Row> rows(const std::string& home, const birth::Report& rep, const s
         // s029: a folder goes whole to the Home folder most of its files have (a slot's
         // fixed part: a folder of fonts -> ~/Fonts/<its name>); none -> it stays (the Closet).
         if (most(types).empty()) continue;
-        const std::string folder = home::fixed_part(most(types));
+        std::string folder = home::fixed_part(most(types));
         if (!homing::folder_check(folder).empty()) continue;
+        // s030: a slot folder (fonts) named only for its format -- Roboto/static,
+        // Oswald/ttf -- goes under its parent's name: ~/Fonts/Roboto/static.
+        if (home::has_slot(most(types)) && home::generic_folder_name(name)) {
+            const std::string parent = home::clean_name(fs::path(path).parent_path().filename().string());
+            const bool top = parent == "Desktop" || parent == "Downloads" || fs::path(path).parent_path() == fs::path(home);
+            if (!top && !parent.empty() && homing::folder_check(folder + "/" + parent).empty()) folder += "/" + parent;
+        }
         r.go = Go::Home;
         r.folder = folder;
         r.why = "a folder (" + count + "), mostly ~/" + folder + " (Home), moved whole";
@@ -403,6 +510,8 @@ std::vector<Row> rows(const std::string& home, const birth::Report& rep, const s
         out.push_back(std::move(r));
     }
     (void)month_now;
+    follow_videos(out);
+    join_series(home, out);   // s030e
     return out;
 }
 
@@ -453,6 +562,16 @@ Planned plan(const std::string& home, const std::vector<Row>& chosen, std::int64
         picks.push_back({r.born.file.path, r.folder, r.why});
     }
     auto home_p = homing::plan(home, picks);
+    // s030i: the Trash rows -- after the moves.
+    std::vector<dr::Action> trash;
+    for (const auto& r : chosen) {
+        if (r.go != Go::Trash) continue;
+        dr::Action a;
+        a.verb = dr::Verb::Trash;
+        a.from = r.born.file.path;
+        a.reason = r.why;
+        trash.push_back(a);
+    }
     // 3. The archive (its own id tag dropped where step 1 gives one).
     std::vector<std::string> arch;
     for (const auto& r : chosen)
@@ -465,6 +584,7 @@ Planned plan(const std::string& home, const std::vector<Row>& chosen, std::int64
     out.plan.actions = std::move(tags);
     out.plan.actions.insert(out.plan.actions.end(), home_p.plan.actions.begin(), home_p.plan.actions.end());
     out.plan.actions.insert(out.plan.actions.end(), placed.begin(), placed.end());
+    out.plan.actions.insert(out.plan.actions.end(), trash.begin(), trash.end());
     for (auto& a : arch_p.plan.actions) {
         if (a.verb == dr::Verb::Tag && (a.attr == facts::kId || a.attr == facts::kRetention) && stamped.count(a.from))
             continue;   // step 1 gives it (s023d: its level too -- Historical already)

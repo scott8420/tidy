@@ -183,4 +183,7 @@ private:
     std::string m_saved_as;
 };
 
+// s030i: the folders in the tree's own order (as parse and save keep them).
+void sort_folders(Template& t);
+
 }  // namespace tidy::core::templates

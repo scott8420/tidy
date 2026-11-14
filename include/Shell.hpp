@@ -227,6 +227,19 @@ private:
     Gtk::Revealer* m_offer = nullptr;
     Gtk::Label*    m_offer_text = nullptr;
     std::string    m_offer_dismissed;              // the line last dismissed -- shown again when it changes
+    // s030a: Guided (default) vs Expert (every tab); Start's first look after the launch walks.
+    bool m_expert = false;
+    Gtk::Button* m_steps_button = nullptr;   // s030b: back to Start, from any page
+    bool m_closet_from_start = false, m_closet_ran = false;   // s030d
+    bool m_launched = false;
+    Glib::RefPtr<Gio::SimpleAction> m_expert_act;
+    void start_look();
+    void back_to_start();
+    // s030g: Put it with... -- files picked (or given), a folder picked, the plan, Do it.
+    void on_put(std::vector<std::string> files = {});
+    void put_pick_folder(std::vector<std::string> files);
+    void put_preview(const std::vector<std::string>& files, const std::string& rel);   // s030b: after a Do it begun on Start -- the steps, looked again
+    void set_expert(bool on);
 };
 
 }  // namespace tidy

@@ -71,8 +71,9 @@ void Shell::on_nav(const std::string& page) {  // handler: a page shown -> its t
             m_tab_sync = false;
         }
     }
+    if (m_steps_button) m_steps_button->set_visible(page != "organize");   // s030b
     // s027: pages that read when shown.
-    if (page == "organize" && m_org_start) m_org_start->refresh();
+    if (page == "organize" && m_org_start && m_launched && from_elsewhere) m_org_start->refresh();   // s030a: looks under Busy
     if (page == "templates" && m_templates_page && from_elsewhere) m_templates_page->refresh();   // s028a: a type saved elsewhere
     if (page == "quarantine" && m_quarantine) m_quarantine->open();   // looks the first time only
     if (page == "settings" && m_settings_page && from_elsewhere) m_settings_page->show(m_settings);
@@ -83,7 +84,8 @@ void Shell::on_area(const std::string& area) {  // handler: s027 -- a sidebar ro
     for (const auto& a : m_areas) {
         if (a.id != area || a.tabs.empty()) continue;
         const auto it = m_area_page.find(area);
-        on_nav(it != m_area_page.end() ? it->second : a.tabs.front());
+        // s030a: Guided has no tab rows -- an area opens on its first page (Organize: Start).
+        on_nav(m_expert && it != m_area_page.end() ? it->second : a.tabs.front());
         return;
     }
 }
@@ -207,6 +209,7 @@ void Shell::on_closet_run() {  // handler
     m_clo_plan.reset();
     plan.previewed = true;   // shown in full by show_closet_preview (RULES: preview first)
     const auto r = m_door->run(plan);
+    if (r.ok && m_closet_from_start) m_closet_ran = true;   // s030d
     core::catalog::Catalog cat;
     std::size_t rec = 0;
     if (cat.open(m_data_dir, true))

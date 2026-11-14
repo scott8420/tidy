@@ -53,6 +53,11 @@ OrganizeWindow::OrganizeWindow(Gtk::Window& parent, dr::Door& door, std::string 
     set_transient_for(parent);
     set_modal(true);
     set_hide_on_close(true);
+    signal_close_request().connect([this] {   // s030c: from Start, the window's X goes back too
+        if (!m_when_done) return false;
+        finish();
+        return true;
+    }, false);
     set_default_size(860, 660);
 
     auto box = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::VERTICAL, 8);
@@ -130,8 +135,13 @@ OrganizeWindow::OrganizeWindow(Gtk::Window& parent, dr::Door& door, std::string 
     bar->append(*m_status);
     auto close = Gtk::make_managed<Gtk::Button>("Close");
     close->set_name("organize.close");
-    close->signal_clicked().connect([this] { set_visible(false); });
+    close->signal_clicked().connect([this] { if (m_when_done) finish(); else set_visible(false); });
     bar->append(*close);
+    m_skip = Gtk::make_managed<Gtk::Button>("Skip this one");   // s030c: the queue from Start
+    m_skip->set_name("organize.skip");
+    m_skip->set_visible(false);
+    m_skip->signal_clicked().connect([this] { if (!m_busy) next("Skipped."); });
+    bar->append(*m_skip);
     m_run = Gtk::make_managed<Gtk::Button>("Do it");
     m_run->set_name("organize.run");
     m_run->add_css_class("suggested-action");
@@ -170,7 +180,44 @@ void OrganizeWindow::fill_types(const std::string& want) {
     m_quiet = false;
 }
 
+void OrganizeWindow::open_from_start(std::vector<Item> items, std::function<void()> when_done) {
+    m_queue = std::move(items);
+    m_when_done = std::move(when_done);
+    if (m_queue.empty()) { finish(); return; }
+    load_at(0, "");
+}
+
+void OrganizeWindow::load_at(std::size_t i, const std::string& before) {
+    m_at = i;
+    m_force_one = true;
+    open(m_queue[i].first, m_queue[i].second);
+    m_force_one = false;
+    const std::string of = std::to_string(i + 1) + " of " + std::to_string(m_queue.size());
+    set_title("Organize as... -- " + of);
+    if (m_skip) m_skip->set_visible(true);
+    m_status->set_text((before.empty() ? std::string() : before + "  ") + "This is " + of + ".");
+}
+
+void OrganizeWindow::next(const std::string& before) {
+    if (m_at + 1 < m_queue.size()) { load_at(m_at + 1, before); return; }
+    finish();
+}
+
+void OrganizeWindow::finish() {
+    m_queue.clear();
+    set_title("Organize as...");
+    if (m_skip) m_skip->set_visible(false);
+    set_visible(false);
+    if (m_when_done) { auto f = std::move(m_when_done); m_when_done = nullptr; f(); }
+}
+
 void OrganizeWindow::open(const std::string& folder, const std::string& type) {
+    if (!m_force_one) {   // opened by hand: no queue, no way back to Start
+        m_when_done = nullptr;
+        m_queue.clear();
+        set_title("Organize as...");
+        if (m_skip) m_skip->set_visible(false);
+    }
     const std::string keep = m_t ? m_t->name : "";
     fill_types(type.empty() ? keep : type);
     m_folder = folder;
@@ -197,7 +244,7 @@ void OrganizeWindow::on_type() {
     m_groupsb->set_label("a folder of " + (m_t->group.empty() ? std::string("groups") : lower_word(m_t->group) + "s"));
     m_status->set_text("To ~/" + m_t->category);
     // The shape: guessed for this folder and type.
-    m_shape = m_folder.empty() ? og::Shape::One : og::guess(*m_t, m_folder);
+    m_shape = m_folder.empty() || m_force_one ? og::Shape::One : og::guess(*m_t, m_folder);
     if (!grp && m_shape == og::Shape::Groups) m_shape = og::Shape::Many;
     m_quiet = true;
     (m_shape == og::Shape::One ? m_one : m_shape == og::Shape::Many ? m_many : m_groupsb)->set_active(true);
@@ -333,6 +380,7 @@ void OrganizeWindow::on_run() {
             m_status->set_text(r.ok ? "Done: " + std::to_string(r.done) + " steps -- one undo in Activity." + extra
                                     : "Not all done: " + (r.messages.empty() ? std::string("see the log") : r.messages.front()));
             if (auto lg = log::get(log::Area::Door)) lg->info("organize: {} done, {} failed, {} to the closet", r.done, r.failed, closet.size());
+            if (r.ok && !m_queue.empty()) next("Done.");   // s030c: the next one, or back to Start
         },
         [data, door](const dr::Result& r) {   // the catalog follows the files it knows
             core::catalog::Catalog cat;

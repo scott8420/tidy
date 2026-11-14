@@ -101,6 +101,7 @@ tp::Template seed(const settings::Settings& st) {
         else add_route(t, seen, r.pattern, r.folder);
     }
     std::sort(t.folders.begin(), t.folders.end(), [](const tp::Folder& a, const tp::Folder& b) { return a.path < b.path; });
+    ensure_trash(t);   // s030i
     return t;
 }
 
@@ -110,14 +111,22 @@ bool saved(const std::string& data_dir) {
     return found;
 }
 
+bool is_trash(const std::string& folder) { return folder == kTrash; }
+
+void ensure_trash(tp::Template& t) {
+    for (const auto& f : t.folders) if (f.path == kTrash) return;
+    t.folders.push_back({kTrash, tp::Role::Input});
+    tp::sort_folders(t);
+}
+
 tp::Template load(const std::string& data_dir, const settings::Settings& st) {
     bool found = false;
     const auto text = own::read(data_dir, tp::rel_of(kName), &found);
     if (found) {
         auto t = tp::parse(text);
-        if (is_home(t)) return t;
+        if (is_home(t)) { ensure_trash(t); return t; }
     }
-    return seed(st);
+    return seed(st);   // seed() has the Trash row
 }
 tp::Template load(const std::string& data_dir) {
     return load(data_dir, settings::parse(own::read(data_dir, settings::kFile)));
@@ -156,6 +165,14 @@ std::string fixed_part(const std::string& folder) {
     std::string out = folder.substr(0, lt);
     while (!out.empty() && out.back() == '/') out.pop_back();
     return out;
+}
+
+bool generic_folder_name(const std::string& name) {
+    std::string l;
+    for (unsigned char c : name) l += static_cast<char>(std::tolower(c));
+    static const std::set<std::string> g = {"static", "variable", "ttf", "otf", "woff", "woff2", "fonts", "font",
+                                            "webfonts", "web", "desktop", "truetype", "opentype"};
+    return g.count(l) > 0;
 }
 
 std::string clean_name(const std::string& raw) {
@@ -229,6 +246,7 @@ std::string font_name(const std::string& abs) {
 }
 
 std::string expand(const std::string& folder, const std::string& abs, std::string* why) {
+    if (is_trash(folder)) return folder;   // s030i: no folder -- the Trash
     std::string out = folder;
     if (has_slot(folder)) {
         std::string name = font_name(abs);

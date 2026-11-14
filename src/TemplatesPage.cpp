@@ -595,8 +595,21 @@ void TemplatesPage::tree_menu(Gtk::Widget& at, const std::string& folder) {
                          return err;
                      });
         });
-    item("This goes here...", "templates.tree.goes", [this, anchor, folder, where] {
-        tree_ask(*anchor, "What goes in " + where + "?  (*.odt   *cover*.png   A0001.png)", "", [this, folder](const std::string& raw) {
+    item("This goes here...", "templates.tree.goes", [this, anchor, folder, where] { goes_here(*anchor, folder, where); });
+    if (real)
+        item("Remove " + folder + "/", "templates.tree.remove", [this, folder] {
+            m_tree_pop->popdown();
+            Glib::signal_idle().connect_once([this, folder] { edit(m_b.remove_folder(folder)); });
+        });
+    m_tree_pop->set_child(*box);
+    pop_at(at);
+}
+
+// s030i (Scott: "I want to add .ods and .sqlite files in it and I don't see how"):
+// the ask behind "This goes here..." -- the menu item and each row's + button.
+void TemplatesPage::goes_here(Gtk::Widget& anchor, const std::string& folder, const std::string& where) {
+    {
+        tree_ask(anchor, "What goes in " + where + "?  (*.ods   *.sqlite   *cover*.png   A0001.png)", "", [this, folder](const std::string& raw) {
             std::string p = raw;
             while (!p.empty() && p.back() == ' ') p.pop_back();
             while (!p.empty() && p.front() == ' ') p.erase(0, 1);
@@ -610,14 +623,7 @@ void TemplatesPage::tree_menu(Gtk::Widget& at, const std::string& folder) {
             if (err.empty()) Glib::signal_idle().connect_once([this] { edit(""); });
             return err;
         });
-    });
-    if (real)
-        item("Remove " + folder + "/", "templates.tree.remove", [this, folder] {
-            m_tree_pop->popdown();
-            Glib::signal_idle().connect_once([this, folder] { edit(m_b.remove_folder(folder)); });
-        });
-    m_tree_pop->set_child(*box);
-    pop_at(at);
+    }
 }
 
 void TemplatesPage::chip_menu(Gtk::Widget& at, const std::string& pattern) {
@@ -747,6 +753,17 @@ void TemplatesPage::fill_tree() {
                 if (i < tp::roles().size()) Glib::signal_idle().connect_once([this, p, i] { edit(m_b.set_role(p, tp::roles()[i])); });
             });
             row->append(*dd);
+        }
+        // s030i: + adds a file type to this folder, in plain sight (was only in the right-click menu).
+        if (r.key != tp::kStays) {
+            auto plus = Gtk::make_managed<Gtk::Button>("\uFF0B file type");
+            plus->set_name("templates.tree.plus." + r.key);
+            plus->add_css_class("flat");
+            plus->set_tooltip_text("Add a file type that goes in this folder: *.ods, *.sqlite, or a sample name");
+            const std::string pk = r.key;
+            const std::string pw = r.key == tp::kTop ? std::string("the top") : r.key == core::home::kTrash ? std::string("the Trash") : r.key + "/";
+            plus->signal_clicked().connect([this, plus, pk, pw] { goes_here(*plus, pk, pw); });
+            row->append(*plus);
         }
         auto more = Gtk::make_managed<Gtk::Button>("⋯");
         more->set_name("templates.tree.more." + r.key);

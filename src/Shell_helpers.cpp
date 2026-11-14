@@ -6,6 +6,7 @@
 #include "core/Retention.hpp"
 #include "Log.hpp"
 
+#include <glibmm/main.h>
 #include <gtkmm/checkbutton.h>
 #include "SelectList.hpp"
 #include <gtkmm/label.h>
@@ -180,6 +181,11 @@ void Shell::show_closet(const ClosetLook& look) {  // helper
     if (auto lg = log::get(log::Area::Shell))
         lg->info("closet: {} proposed, {} waiting, {} decided ({} junk) in {} places",
                  v.proposed.size(), v.waiting.size(), v.decided, v.junk, rep.places.size());
+    // s030d: opened from Start -- once a Do it has emptied it, back to the steps.
+    if (m_closet_from_start && m_closet_ran && m_clo_rows.empty()) {
+        m_closet_from_start = m_closet_ran = false;
+        Glib::signal_idle().connect_once([this] { back_to_start(); });
+    }
 }
 
 std::vector<core::birth::Born> Shell::closet_selected() const {  // helper

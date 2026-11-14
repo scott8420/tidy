@@ -93,6 +93,7 @@ private:
     Gtk::Popover*  m_tree_pop = nullptr;          // one, on the list: rows are rebuilt on every edit
     void fill_tree();
     void tree_menu(Gtk::Widget& at, const std::string& folder);   // folder: a path, kTop or kStays
+    void goes_here(Gtk::Widget& anchor, const std::string& folder, const std::string& where);   // s030i
     void chip_menu(Gtk::Widget& at, const std::string& pattern);
     void tree_ask(Gtk::Widget& at, const std::string& prompt, const std::string& initial,
                   std::function<std::string(const std::string&)> ok);

@@ -54,7 +54,7 @@ bool tree_less(const std::string& a, const std::string& b) {
     }
     return pa.size() < pb.size();
 }
-void sort_folders(Template& t) {
+void sort_folders_(Template& t) {
     std::sort(t.folders.begin(), t.folders.end(),
               [](const Folder& a, const Folder& b) { return tree_less(a.path, b.path); });
 }
@@ -229,7 +229,7 @@ Template parse(const std::string& text) {
             t.routes.push_back({trim(val.substr(0, ar)), trim(val.substr(ar + 4))});
         }
     }
-    sort_folders(t);
+    sort_folders_(t);
     return t;
 }
 
@@ -255,7 +255,7 @@ std::string save(const std::string& data_dir, const Template& t) {
     const auto ps = problems(t);
     if (!ps.empty()) return join(ps, "; ");
     Template s = t;
-    sort_folders(s);
+    sort_folders_(s);
     return own::write(data_dir, rel_of(s.name), format(s));
 }
 
@@ -371,7 +371,7 @@ Template lift(const std::string& project_dir, const std::vector<std::string>& fo
     t.category = base.parent_path().filename().string();
     for (const auto& f : folders)
         if (path_refusal(f).empty()) t.folders.push_back({f, guess_role(f)});
-    sort_folders(t);
+    sort_folders_(t);
     return t;
 }
 
@@ -556,5 +556,7 @@ std::string Builder::save_refusal(const std::vector<std::string>& existing) cons
         return "a template named \"" + m_now.t.name + "\" already exists -- open it, or choose another name";
     return "";
 }
+
+void sort_folders(Template& t) { sort_folders_(t); }   // s030i: for the Home type's Trash row
 
 }  // namespace tidy::core::templates

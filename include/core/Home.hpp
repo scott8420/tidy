@@ -35,6 +35,12 @@ inline constexpr const char* kTop = "~";                // the Home type's categ
 inline constexpr const char* kLetter = "<A-Z|OTHER>";
 inline constexpr const char* kFullName = "<full name>";
 inline constexpr const char* kDownloads = "Downloads/";  // a route "Downloads/*.mkv" = a READ download
+// s030i (Scott: ".sla is trash", ".ics ... .log ... .bak is trash"): a row in the
+// Home tree whose rules send a file to the Trash -- through the door, one undo.
+inline constexpr const char* kTrash = "<the Trash>";
+bool is_trash(const std::string& folder);
+// The Home type always shows its Trash row (added when a saved one lacks it).
+void ensure_trash(templates::Template& t);
 
 bool is_home(const templates::Template& t);   // name "home", category "~"
 
@@ -71,5 +77,8 @@ std::string expand(const std::string& folder, const std::string& abs, std::strin
 std::string font_name(const std::string& abs);
 std::string letter_of(const std::string& name);           // "Garamond" -> "G", "1942 Report" -> "OTHER"
 std::string clean_name(const std::string& raw);           // '/' -> '-', trimmed, no leading '.'
+// s030: a folder named only for a format or role -- static, variable, ttf, otf,
+// fonts, webfonts (any case) -- says nothing of what it holds.
+bool generic_folder_name(const std::string& name);
 
 }  // namespace tidy::core::home

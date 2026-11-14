@@ -298,6 +298,10 @@ void SeesPage::show(const rc::Report& r) {
                 if (p.routed) d += "; placed " + std::to_string(p.placed) + " of " + std::to_string(p.routed);
             } else if (!p.maybe.empty()) {
                 d += "\nmaybe an old " + p.maybe + " (its folders are " + p.maybe + "'s)";
+            } else if (p.how == core::recognise::Project::How::Place) {
+                d += "\non its shelf";
+            } else if (p.how == core::recognise::Project::How::Book) {
+                d += "\na book in the library";
             } else {
                 d += "\nno type fits half its tree";
             }

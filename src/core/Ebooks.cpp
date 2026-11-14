@@ -289,7 +289,8 @@ Meta read_pdf(const std::string& path) {
 }  // namespace
 
 bool is_ebook(const std::string& file_name) {
-    static const std::set<std::string> k = {".epub", ".mobi", ".azw", ".azw3", ".fb2", ".djvu", ".cbz", ".cbr", ".cb7", ".pdf"};
+    // s030e: comics (.cbz .cbr .cb7) are no ebooks -- they go to the Comics shelf by series.
+    static const std::set<std::string> k = {".epub", ".mobi", ".azw", ".azw3", ".fb2", ".djvu", ".pdf"};
     return k.count(lower(fs::path(file_name).extension().string())) > 0;
 }
 

@@ -7,6 +7,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <set>
+#include <unordered_map>
 #include <sstream>
 
 namespace tidy::core::filelists {
@@ -104,7 +105,8 @@ std::map<std::string, std::vector<Line>> wanted(const std::vector<facts::Facts>&
 std::vector<Found> refind(const std::vector<facts::Facts>& files) {
     std::set<std::string> carried;
     for (const auto& f : files) if (!f.tags.id.empty()) carried.insert(f.tags.id);
-    std::map<std::string, std::vector<Line>> lists;     // folder -> its list, read once
+    // folder -> its list, read once, by name (s030h: was each file x the whole list)
+    std::map<std::string, std::unordered_multimap<std::string, Line>> lists;
     std::vector<Found> out;
     std::map<std::string, int> claims;
     for (const auto& f : files) {
@@ -112,22 +114,32 @@ std::vector<Found> refind(const std::vector<facts::Facts>& files) {
         const fs::path p(f.path);
         const auto dir = p.parent_path().string();
         auto it = lists.find(dir);
-        if (it == lists.end()) it = lists.emplace(dir, parse(read_text(dir + "/" + kFile))).first;
-        for (const auto& l : it->second)
-            if (l.name == p.filename().string() && l.size == f.size && !carried.count(l.id)) {
+        if (it == lists.end()) {
+            std::unordered_multimap<std::string, Line> by;
+            for (auto& l : parse(read_text(dir + "/" + kFile))) by.emplace(l.name, std::move(l));
+            it = lists.emplace(dir, std::move(by)).first;
+        }
+        const auto [b, e] = it->second.equal_range(p.filename().string());
+        for (auto at = b; at != e; ++at) {
+            const auto& l = at->second;
+            if (l.size == f.size && !carried.count(l.id)) {
                 out.push_back({f.path, l.id});
                 ++claims[l.id];
                 break;
             }
+        }
     }
     std::erase_if(out, [&](const Found& x) { return claims[x.id] > 1; });
     return out;
 }
 
 std::vector<facts::Facts> with_found(std::vector<facts::Facts> files, const std::vector<Found>& found) {
+    // s030h (Scott: the launch scan spun 320 s+): a lookup, not files x found.
+    std::unordered_map<std::string, const std::string*> by_path;
+    by_path.reserve(found.size());
+    for (const auto& x : found) by_path[x.path] = &x.id;
     for (auto& f : files)
-        for (const auto& x : found)
-            if (x.path == f.path) f.tags.id = x.id;
+        if (const auto it = by_path.find(f.path); it != by_path.end()) f.tags.id = *it->second;
     return files;
 }
 

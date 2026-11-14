@@ -1,5 +1,7 @@
+#include "core/Guide.hpp"
 #include "Shell.hpp"
 #include "OrganizeStart.hpp"
+#include "OrganizeWindow.hpp"
 #include "SeesPage.hpp"
 #include "QuarantinePage.hpp"
 #include "SettingsPage.hpp"
@@ -65,6 +67,22 @@ void Shell::build_shell() {  // zone: window + header + body
     m_logo_button.set_tooltip_text("About Tidy");
     m_logo_button.set_action_name("win.about");
     header->pack_start(m_logo_button);
+    // s030b (Scott: "there should always be a way to go back to Easy Steps"):
+    // a Steps button, shown on every page but Start itself.
+    m_steps_button = Gtk::make_managed<Gtk::Button>();
+    m_steps_button->set_name("shell.steps");
+    {
+        auto b = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::HORIZONTAL, 6);
+        auto i = Gtk::make_managed<Gtk::Image>();
+        i->set_from_icon_name("go-previous-symbolic");
+        b->append(*i);
+        b->append(*Gtk::make_managed<Gtk::Label>("Steps"));
+        m_steps_button->set_child(*b);
+    }
+    m_steps_button->set_tooltip_text("Back to the steps (Organize \u2192 Start)");
+    m_steps_button->signal_clicked().connect([this] { go("organize"); });
+    m_steps_button->set_visible(false);
+    header->pack_start(*m_steps_button);
     m_menu_button.set_icon_name("open-menu-symbolic");
     m_menu_button.set_menu_model(build_menu());
     header->pack_end(m_menu_button);
@@ -84,6 +102,8 @@ void Shell::build_shell() {  // zone: window + header + body
         auto col = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::VERTICAL, 0);
         col->set_hexpand(true);
         col->append(m_tabs);
+        m_expert = core::guide::expert(m_data_dir);   // s030a: Guided hides the tab rows
+        m_tabs.set_visible(m_expert);
         col->append(m_stack);
         m_body.append(*col);
     } else {
@@ -143,8 +163,33 @@ void Shell::build_pages() {  // zone: one page per nav item, then the sidebar
 void Shell::build_page(const std::string& id) {  // zone: a page's hero
     if (id == "activity") { build_activity(); return; }   // s004: alive
     if (id == "organize") {                                // s027: Organize's guided landing
-        m_org_start = Gtk::make_managed<OrganizeStart>(m_data_dir, [this](const std::string& page) { go(page); },
-                                                       [this] { on_organize(); });
+        m_org_start = Gtk::make_managed<OrganizeStart>(*this, *m_door, m_home, m_data_dir,   // s030a: the guided start
+            [this](const std::string& page) {
+                go(page);
+                if (page == "closet" && m_clo_states) {   // s030d: looked at once; emptied -> back to the steps
+                    m_closet_from_start = true;
+                    m_closet_ran = false;
+                    on_closet_look();
+                }
+            },
+            [this](std::vector<std::pair<std::string, std::string>> items) {   // s030c: one after another; done -> Start
+                if (items.empty()) return;
+                on_organize(items.front().first, items.front().second);   // makes the window
+                if (m_organize_win) m_organize_win->open_from_start(std::move(items), [this] { back_to_start(); });
+            },
+            [this](std::vector<std::string> folders, std::vector<std::string> skip) {   // s030d: folder after folder
+                go("sort");
+                if (m_sort_page) {
+                    m_sort_page->set_on_settled([this](const std::string& rel) {   // s030f
+                        const auto why = core::guide::settle(m_data_dir, rel);
+                        if (m_org_start) m_org_start->note("~/" + rel + ": nothing to move -- its files stay where they are.");
+                        if (auto lg = log::get(log::Area::Shell)) lg->info("start: settled ~/{}{}", rel, why.empty() ? "" : " (not saved: " + why + ")");
+                    });
+                    m_sort_page->start_queue(std::move(folders), std::move(skip), [this] { back_to_start(); });
+                }
+            },
+            [this] { refresh_activity(); });
+        m_org_start->set_on_put([this] { on_put(); });   // s030g
         m_stack.add(*m_org_start, id, "Organize");
         return;
     }
@@ -220,6 +265,7 @@ void Shell::build_page(const std::string& id) {  // zone: a page's hero
         m_sort_page = Gtk::make_managed<SortPage>(*m_door, m_home, m_data_dir, m_fixture,
                                                   [this] { return user_dirs_text(); }, [this] { refresh_activity(); });
         m_sort_page->set_on_adopt([this] { on_adopt(); });   // s023
+        m_sort_page->set_on_put([this](std::vector<std::string> files) { on_put(std::move(files)); });   // s030g
         m_stack.add(*m_sort_page, id, pp ? pp->title : "Sort");
         return;
     }
@@ -532,6 +578,8 @@ void Shell::build_nav() {  // zone: brand + the four areas + each area's tab row
 Glib::RefPtr<Gio::Menu> Shell::build_menu() {  // zone: hamburger model
     auto menu = Gio::Menu::create();
     auto prefs = Gio::Menu::create();
+    prefs->append("Put it with\u2026", "win.put");   // s030g: any file, any folder
+    prefs->append("Expert mode", "win.expert");   // s030a: every tab, for the nitty-gritty
     prefs->append("Adopt folders\u2026", "win.adopt");   // s023
     prefs->append("Organize as\u2026", "win.organize");   // s024e
     prefs->append("Ebooks from files\u2026", "win.ebooks");   // s028

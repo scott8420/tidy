@@ -67,6 +67,10 @@
 #include "core/Pages.hpp"
 #include "core/Paths.hpp"
 #include "core/Protection.hpp"
+#include "core/Comics.hpp"
+#include "core/Guide.hpp"
+#include "core/Put.hpp"
+#include "core/Routes.hpp"
 #include "core/Home.hpp"
 #include "core/Sort.hpp"
 #include "Busy.hpp"
@@ -5107,9 +5111,9 @@ int main(int argc, char** argv) {
         check("recognise: font_family -- Roboto-Bold.ttf -> roboto; a .png is not a font",
               rc::font_family("Roboto-Bold.ttf") == "roboto" && rc::font_family("Gill_Sans.otf") == "gill" &&
               rc::font_family("x.png").empty());
-        check("recognise: bundle homes -- .optik OCR, .curvz Design/Curvz, .jots none",
+        check("recognise: bundle homes -- .optik OCR, .curvz Design/Curvz, .scriv none (s030: .jots has one now)",
               rc::bundle_home(".optik") == "Documents/OCR" && rc::bundle_home(".CURVZ") == "Documents/Design/Curvz" &&
-              rc::bundle_home(".jots").empty());
+              rc::bundle_home(".scriv").empty());
         const fs::path root = fs::temp_directory_path() / ("tidy_selftest_recognise_" + std::to_string(::getpid()));
         fs::remove_all(root);
         const std::string H = (root / "home").string(), D = (root / "data").string();
@@ -5275,8 +5279,8 @@ int main(int argc, char** argv) {
               eb::folder_name("Star Wars: A/B") == "Star Wars - A-B" && eb::folder_name(".hidden") == "hidden" &&
               eb::folder_name("  x  ") == "x" && eb::folder_name("Van Vogt, A. E.") == "Van Vogt, A. E.",
               eb::folder_name("Star Wars: A/B"));
-        check("ebooks: is_ebook -- .epub .PDF .cbz yes, .odt no",
-              eb::is_ebook("a.epub") && eb::is_ebook("b.PDF") && eb::is_ebook("c.cbz") && !eb::is_ebook("d.odt"));
+        check("ebooks: is_ebook -- .epub .PDF yes; .odt no; s030e: .cbz no (a comic)",
+              eb::is_ebook("a.epub") && eb::is_ebook("b.PDF") && !eb::is_ebook("c.cbz") && !eb::is_ebook("d.odt"));
         const auto t = eb::type_for("Fiction");
         check("ebooks: the type -- ebook-fiction, by place, Entertainment/EBooks/Fiction, Author group, no folders, valid",
               t.name == "ebook-fiction" && t.by_place && t.category == "Entertainment/EBooks/Fiction" &&
@@ -5465,6 +5469,365 @@ int main(int argc, char** argv) {
               r.messages.empty() ? "" : r.messages.front());
         const auto u = door.undo();
         check("run: one undo -- the fonts back on the Desktop", u.ok && fs::exists(H + "/Desktop/GaramondPremrPro.otf"));
+        fs::remove_all(root);
+    }
+
+    // ── s030: the Home design on Scott's home -- tuned from his report ──────────
+    {
+        namespace su = tidy::core::suspects;
+        namespace hm = tidy::core::home;
+        namespace so = tidy::core::sort;
+        namespace rc = tidy::core::recognise;
+        check("s030 suspects: a site at the end is no extension ('... - libgen.li', www.UIndex.org); Notes.li yes",
+              su::ext_of("Drawing the Draped Figure (2012, Courier Corporation) - libgen.li").empty() &&
+              su::ext_of("www.UIndex.org").empty() && su::ext_of("libgen.li").empty() && su::ext_of("Notes.li") == ".li" &&
+              su::ext_of("Brand.composix") == ".composix");
+        check("s030 home: static, variable, TTF, fonts are format-only folder names; Roboto is not",
+              hm::generic_folder_name("static") && hm::generic_folder_name("Variable") && hm::generic_folder_name("TTF") &&
+              hm::generic_folder_name("fonts") && !hm::generic_folder_name("Roboto"));
+        check("s030 sort: .srt .SUB .nfo .vtt are a video's companions; .txt, .mkv are not",
+              so::is_companion("Movie.en.srt") && so::is_companion("x.SUB") && so::is_companion("x.nfo") &&
+              so::is_companion("x.vtt") && !so::is_companion("x.txt") && !so::is_companion("x.mkv"));
+        check("s030 bundles: .jots -> Documents/Jots, .mort -> Develop/Mortimer; .mort is Tidy's own bundle",
+              rc::bundle_home(".jots") == "Documents/Jots" && rc::bundle_home(".MORT") == "Develop/Mortimer" &&
+              std::count(tidy::core::projects::own_bundles().begin(), tidy::core::projects::own_bundles().end(), ".mort") == 1);
+
+        const fs::path root = fs::temp_directory_path() / ("tidy_s030_" + std::to_string(::getpid()));
+        fs::remove_all(root);
+        const fs::path home = root / "home";
+        put_file(home / "Desktop/Film.mkv", "video");
+        put_file(home / "Desktop/Film.en.srt", "1\n00:00 --> 00:01\nhi\n");
+        put_file(home / "Desktop/lonely.srt", "1\n");
+        put_file(home / "Downloads/.keep", "");
+        const std::string H = fs::canonical(home).string();
+        const auto st = tidy::core::settings::Settings{};
+        const std::int64_t now = now_s();
+        const auto rep = tidy::core::birth::report(H, tidy::core::birth::sweep(H, ""), now, st.old_years);
+        const auto dz = hm::design(hm::seed(st));
+        const auto rows = so::rows(H, rep, st, now, {}, {}, nullptr, &dz);
+        const auto row = [&](const std::string& rel) -> const so::Row* {
+            for (const auto& r : rows) if (r.born.file.path == H + "/" + rel) return &r;
+            return nullptr;
+        };
+        const auto* rv = row("Desktop/Film.mkv");
+        const auto* rs = row("Desktop/Film.en.srt");
+        const auto* rl = row("Desktop/lonely.srt");
+        check("s030 sort: the .srt goes where its video goes, never the Closet",
+              rv && rs && rv->go == so::Go::Home && rs->go == so::Go::Home && rs->folder == rv->folder && !rs->closet,
+              rs ? rs->folder + " | " + rs->why : "missing");
+        check("s030 sort: a subtitle with no video of its name beside one other video goes with it too",
+              rl && rl->go == so::Go::Home && rl->folder == rv->folder, rl ? rl->why : "missing");
+        fs::remove_all(root);
+    }
+
+    // ── s030a: the guided Start -- six steps from one look ───────────────────────
+    {
+        namespace gd = tidy::core::guide;
+        namespace rc = tidy::core::recognise;
+        rc::Report r;
+        rc::Bundle jots; jots.rel = "Documents/MyJots.jots"; jots.home = "Documents/Jots"; r.bundles.push_back(jots);
+        rc::Bundle there; there.rel = "Documents/Jots/A.jots"; there.home = "="; r.bundles.push_back(there);
+        rc::Bundle inproj; inproj.rel = "Writing/X-project/a.optik"; inproj.project = "Writing/X-project"; inproj.home = "Documents/OCR"; r.bundles.push_back(inproj);
+        rc::Project oak; oak.rel = "Documents/EBooks/Fiction/Carolyn Keene/12 Oak/Bookbinding-project"; oak.tpl = "bookbinding";
+        oak.shelf = "Documents/Bookbinding/<Author (Last, First)>/<Title>"; r.projects.push_back(oak);
+        rc::Project slan; slan.rel = "Documents/EBooks/Fiction/A. E. Van Vogt/Slan"; slan.maybe = "bookbinding"; r.projects.push_back(slan);
+        rc::KindRow fonts; fonts.kind = "Fonts"; fonts.count = 60; fonts.elsewhere = {{"Documents/Fonts/Roboto/static", 54}, {"Documents/Fonts/Oswald/static", 6}};
+        rc::KindRow vids; vids.kind = "Videos"; vids.count = 5; vids.elsewhere = {{"Entertainment", 5}};
+        rc::KindRow subs; subs.kind = "(with its video -- subtitles, nfo)"; subs.count = 9; subs.elsewhere = {{"Documents", 9}};
+        r.kinds = {fonts, vids, subs};
+        r.in_closet = 24;
+        gd::Inputs in;
+        in.held = 0; in.home_saved = false;
+        auto v = gd::steps(r, in);
+        check("s030a guide: six steps in order -- Basics, Bundles, Projects, Sets, Loose files, Closet",
+              v.size() == 6 && v[0].title == "Basics" && v[1].title == "Bundles" && v[2].title == "Projects" &&
+              v[3].title == "Sets" && v[4].title == "Loose files" && v[5].title == "Closet");
+        check("s030a guide: Home design not saved -> Basics is now (look it over)",
+              gd::current(v) == 0 && v[0].act == gd::Act::HomeDesign && v[0].details == "templates");
+        in.held = 3;
+        v = gd::steps(r, in);
+        check("s030a guide: held folders -> Basics asks Quarantine first",
+              v[0].act == gd::Act::Quarantine && v[0].now.find("3 folders") != std::string::npos, v[0].now);
+        in.held = 0; in.home_saved = true;
+        v = gd::steps(r, in);
+        check("s030a guide: basics done -> Bundles now: only the LOOSE bundle away from home (1)",
+              v[0].state == gd::State::Done && gd::current(v) == 1 && v[1].todo == 1 && v[1].act == gd::Act::SendHome &&
+              v[1].bundles == std::vector<std::string>{"Documents/MyJots.jots"} && v[1].homes.front() == "Documents/Jots", v[1].now);
+        check("s030a guide: Projects -- off its shelf first (organize as its type), then the old ones (2 to do)",
+              v[2].todo == 2 && v[2].act == gd::Act::OrganizeAs && v[2].type == "bookbinding" && v[2].folder == oak.rel &&
+              v[2].after == "1 more after this." && v[2].items.size() == 2 && v[2].items[0].first == oak.rel &&
+              v[2].items[1] == std::make_pair(slan.rel, std::string("bookbinding")), v[2].now);
+        check("s030a guide: Sets with no comics off the shelf is not ready yet -- never the step lit",
+              v[3].state == gd::State::NotReady && v[3].act == gd::Act::None);
+        {
+            gd::Inputs ci; ci.home_saved = true; ci.comics = 12; ci.series = 4; ci.skipped = {1, 2};
+            const auto cv = gd::steps(r, ci);
+            check("s030e guide: 12 comics off the shelf -> Sets lit, Re-shelve, '4 series'",
+                  gd::current(cv) == 3 && cv[3].act == gd::Act::Reshelve && cv[3].todo == 12 &&
+                  cv[3].now.find("4 series") != std::string::npos, cv[3].now);
+        }
+        check("s030a guide: Loose files -- by folder, the biggest first; Entertainment and subtitles left out",
+              v[4].todo == 60 && v[4].folder == "Documents/Fonts/Roboto/static" && v[4].act == gd::Act::SortFolder &&
+              v[4].after == "1 more folder after this." &&
+              v[4].folders == std::vector<std::string>{"Documents/Fonts/Roboto/static", "Documents/Fonts/Oswald/static"},
+              v[4].now + " | " + std::to_string(v[4].todo));
+        in.skipped = {1, 2};
+        v = gd::steps(r, in);
+        check("s030a guide: skipping Bundles and Projects lights Loose files (Sets never)",
+              v[1].state == gd::State::Skipped && v[2].state == gd::State::Skipped && gd::current(v) == 4);
+        rc::Report clean;
+        gd::Inputs fine; fine.home_saved = true;
+        v = gd::steps(clean, fine);
+        check("s030a guide: a tidy home -> every step done (Sets not ready), none lit", gd::current(v) == -1 &&
+              v[0].state == gd::State::Done && v[5].state == gd::State::Done);
+
+        const fs::path root = fs::temp_directory_path() / ("tidy_s030a_" + std::to_string(::getpid()));
+        fs::remove_all(root);
+        fs::create_directories(root);
+        const std::string D = root.string();
+        const bool before = gd::expert(D);
+        const auto w1 = gd::set_expert(D, true);
+        const bool on = gd::expert(D);
+        const auto w2 = gd::set_expert(D, false);
+        check("s030a mode: Guided by default; Expert saved in mode.txt and read back; off again",
+              !before && w1.empty() && on && w2.empty() && !gd::expert(D), w1 + w2);
+        const auto ws = gd::settle(D, "Pictures/Grandparents");
+        check("s030f settled: a folder Sort found nothing in is saved and read back (once)",
+              ws.empty() && gd::settle(D, "Pictures/Grandparents").empty() && gd::settled(D) == std::set<std::string>{"Pictures/Grandparents"}, ws);
+        {
+            rc::Report gr;
+            rc::KindRow g; g.kind = "Graphics"; g.count = 3; g.elsewhere = {{"Pictures/Grandparents", 3}};
+            gr.kinds = {g};
+            gd::Inputs gi; gi.home_saved = true;
+            const auto before_v = gd::steps(gr, gi);
+            gi.settled = gd::settled(D);
+            const auto after_v = gd::steps(gr, gi);
+            check("s030f guide: a settled folder is not offered again -- Loose files done",
+                  before_v[4].todo == 3 && after_v[4].todo == 0 && after_v[4].state == gd::State::Done);
+        }
+        fs::remove_all(root);
+    }
+
+    // ── s030b: Organize from Start -- Hollow Oak's Bookbinding-project ─────────
+    {
+        namespace og = tidy::core::organize;
+        const fs::path root = fs::temp_directory_path() / ("tidy_s030b_" + std::to_string(::getpid()));
+        fs::remove_all(root);
+        const fs::path D = root / "data";
+        fs::create_directories(D);
+        tidy::core::templates::Template bb;
+        for (const auto& t : tidy::core::projects::known_templates(D.string())) if (t.name == "bookbinding") bb = t;
+        const fs::path book = root / "home/Documents/EBooks/Fiction/Carolyn Keene/12 The Message In The Hollow Oak/Bookbinding-project";
+        fs::create_directories(book / "Body/Layout");
+        fs::create_directories(book / "Cover/Layout");
+        put_file(book / "Body/Layout/x.odt", "odt");
+        check("s030b organize: a -project folder holding the tree is ONE project (not a folder of authors)",
+              !bb.name.empty() && og::guess(bb, book.string()) == og::Shape::One);
+        const auto gs = og::groups_of(bb, book.string(), og::Shape::One);
+        check("s030b organize: Bookbinding-project takes its title + author from the folders above",
+              gs.size() == 1 && gs[0].projects.size() == 1 && gs[0].projects[0].title == "The Message In The Hollow Oak" &&
+              gs[0].name == "Keene, Carolyn",
+              gs.empty() || gs[0].projects.empty() ? "none" : gs[0].name + " / " + gs[0].projects[0].title);
+        const fs::path old = root / "home/Documents/EBooks/Fiction/Carolyn Keene/01 The Secret of the Old Clock";
+        fs::create_directories(old / "Archive");
+        const auto go = og::groups_of(bb, old.string(), og::Shape::One);
+        check("s030c organize: an old book under 'Carolyn Keene' -> author Keene, Carolyn; the number goes",
+              go.size() == 1 && go[0].name == "Keene, Carolyn" && go[0].projects[0].title == "The Secret of the Old Clock",
+              go.empty() ? "none" : go[0].name);
+        const fs::path lone = root / "home/Documents/EBooks/Fiction/Fugitive of the Stars";
+        fs::create_directories(lone / "Archive");
+        const auto gl = og::groups_of(bb, lone.string(), og::Shape::One);
+        check("s030c organize: a book right under 'Fiction' -> no author guessed (one word is no name)",
+              gl.size() == 1 && gl[0].name.empty(), gl.empty() ? "none" : gl[0].name);
+        fs::remove_all(root);
+    }
+
+    // ── s030e: the Comics shelf -- a series per folder, strays join ─────────────
+    {
+        namespace cm = tidy::core::comics;
+        check("s030e comics: .cbz .CBR .cb7 are comics; .epub, .pdf are not",
+              cm::is_comic("a.cbz") && cm::is_comic("a.CBR") && cm::is_comic("a.cb7") && !cm::is_comic("a.epub") && !cm::is_comic("a.pdf"));
+        check("s030e comics: clean -- brackets (an unclosed one too) and site names out",
+              cm::clean("Flash Gordon S002 (Kitchen Sink) - libgen.li.cbz") == "Flash Gordon S002" &&
+              cm::clean("Flash Gordon S045 (Kitchen.cbz") == "Flash Gordon S045", cm::clean("Flash Gordon S002 (Kitchen Sink) - libgen.li.cbz"));
+        const std::vector<std::string> names = {
+            "Flash Gordon S002.cbz", "Flash Gordon S045.cbz", "Alex Raymond's Flash Gordon vol 2 Sundailies 82.cbz",
+            "Alex Raymond's Flash Gordon V2.cbr", "Donald Duck Lost in the Andes.cbz", "Donald Duck Trick or Treat.cbz",
+            "Donald Duck - The Lost Peg Leg.cbz", "Uncle Scrooge The Seven Cities of Gold.cbz",
+            "Uncle Scrooge The Lost Crown of Genghis Khan.cbz", "The Complete Carl Barks Disney Library 05 (Fantagraphics).cbz",
+            "The Complete Carl Barks Disney Library v11.cbz", "Captain George Comic World 06 (Flash Gordon In The Water World) (Canadian).cbz",
+            "Hellboy.cbz"};
+        const auto ss = cm::series_all(names, {});
+        std::string got;
+        for (const auto& x : ss) got += x + " | ";
+        check("s030e comics: Flash Gordon x4 (S002, S045, Alex Raymond's vol 2, V2) -> Flash Gordon",
+              ss[0] == "Flash Gordon" && ss[1] == "Flash Gordon" && ss[2] == "Flash Gordon" && ss[3] == "Flash Gordon", got);
+        check("s030e comics: Donald Duck x3 (two by shared words, one by ' - ') -> Donald Duck; Uncle Scrooge x2",
+              ss[4] == "Donald Duck" && ss[5] == "Donald Duck" && ss[6] == "Donald Duck" &&
+              ss[7] == "Uncle Scrooge" && ss[8] == "Uncle Scrooge", got);
+        check("s030e comics: Complete Carl Barks Disney Library x2; Captain George Comic World; a lone Hellboy is its own",
+              ss[9] == "Complete Carl Barks Disney Library" && ss[10] == "Complete Carl Barks Disney Library" &&
+              ss[11] == "Captain George Comic World" && ss[12] == "Hellboy", got);
+        check("s030e comics: a stray joins a series already on the shelf",
+              cm::series_of("Flash Gordon S046 (Titan).cbz", {"Donald Duck", "Flash Gordon"}) == "Flash Gordon" &&
+              cm::series_of("Alex Raymond's Flash Gordon Sundays.cbz", {"Flash Gordon"}) == "Flash Gordon");
+
+        const fs::path root = fs::temp_directory_path() / ("tidy_s030e_" + std::to_string(::getpid()));
+        fs::remove_all(root);
+        const fs::path home = root / "home";
+        put_file(home / "Entertainment/EBooks/Fiction/1934), Monsters Of Mongo (15 Apr 1934 - 18 Nov/Flash Gordon S002/Flash Gordon S002.cbz", "c");
+        put_file(home / "Entertainment/EBooks/Fiction/Titan/Flash Gordon S045/Flash Gordon S045.cbz", "c");
+        put_file(home / "Entertainment/EBooks/Fiction/Barks, Carl/Donald Duck Trick or Treat/Donald Duck Trick or Treat.cbz", "c");
+        put_file(home / "Entertainment/EBooks/Fiction/Barks, Carl/Donald Duck Lost in the Andes/Donald Duck Lost in the Andes.cbz", "c");
+        put_file(home / "Entertainment/EBooks/Fiction/Keene, Carolyn/The Secret/Secret.epub", "e");
+        put_file(home / "Entertainment/Comics/Flash Gordon/Flash Gordon S001.cbz", "c");
+        const std::string H = fs::canonical(home).string();
+        const auto items = cm::find(H);
+        std::map<std::string, std::string> by;
+        for (const auto& it : items) by[fs::path(it.path).filename().string()] = it.series;
+        check("s030e comics: find -- 4 off the shelf (not the one on it), each with its series",
+              items.size() == 4 && by["Flash Gordon S002.cbz"] == "Flash Gordon" && by["Donald Duck Trick or Treat.cbz"] == "Donald Duck",
+              std::to_string(items.size()));
+        auto pl = cm::reshelve(H, items);
+        check("s030e comics: re-shelve trashes the emptied title + author folders, never the genre or a folder still holding a book",
+              std::find(pl.trashed.begin(), pl.trashed.end(), "Entertainment/EBooks/Fiction/Titan") != pl.trashed.end() &&
+              std::find(pl.trashed.begin(), pl.trashed.end(), "Entertainment/EBooks/Fiction/Barks, Carl") != pl.trashed.end() &&
+              std::find(pl.trashed.begin(), pl.trashed.end(), "Entertainment/EBooks/Fiction") == pl.trashed.end() &&
+              std::find(pl.trashed.begin(), pl.trashed.end(), "Entertainment/EBooks/Fiction/Keene, Carolyn") == pl.trashed.end());
+        const std::string D = (root / "data").string();
+        fs::create_directories(D);
+        latch::door::Door door(H, D + "/door");
+        door.load();
+        pl.plan.previewed = true;
+        const auto r = door.run(pl.plan);
+        check("s030e comics: run -- on the shelf by series, the old folders gone, the ebook untouched",
+              r.ok && fs::exists(H + "/Entertainment/Comics/Flash Gordon/Flash Gordon S002.cbz") &&
+              fs::exists(H + "/Entertainment/Comics/Flash Gordon/Flash Gordon S001.cbz") &&
+              fs::exists(H + "/Entertainment/Comics/Donald Duck/Donald Duck Lost in the Andes.cbz") &&
+              !fs::exists(H + "/Entertainment/EBooks/Fiction/Titan") &&
+              fs::exists(H + "/Entertainment/EBooks/Fiction/Keene, Carolyn/The Secret/Secret.epub"),
+              r.messages.empty() ? "" : r.messages.front());
+        const auto u = door.undo();
+        check("s030e comics: one undo -- every comic back where it was",
+              u.ok && fs::exists(H + "/Entertainment/EBooks/Fiction/Titan/Flash Gordon S045/Flash Gordon S045.cbz"));
+        // A stray on the Desktop joins its series (no Home rule needed).
+        put_file(home / "Desktop/Flash Gordon S046 (Titan).cbz", "c");
+        put_file(home / "Downloads/.keep", "");
+        const auto st = tidy::core::settings::Settings{};
+        const std::int64_t now = now_s();
+        const auto rep = tidy::core::birth::report(H, tidy::core::birth::sweep(H, ""), now, st.old_years);
+        const auto dz = tidy::core::home::design(tidy::core::home::seed(st));
+        const auto rows = tidy::core::sort::rows(H, rep, st, now, {}, {}, nullptr, &dz);
+        const tidy::core::sort::Row* rs = nullptr;
+        for (const auto& rr : rows) if (rr.born.file.path == H + "/Desktop/Flash Gordon S046 (Titan).cbz") rs = &rr;
+        check("s030e sort: a stray .cbz on the Desktop joins its series on the Comics shelf",
+              rs && rs->go == tidy::core::sort::Go::Home && rs->folder == "Entertainment/Comics/Flash Gordon" && !rs->closet,
+              rs ? rs->folder + " | " + rs->why : "missing");
+        fs::remove_all(root);
+    }
+
+    // ── s030g: Put it with... -- any file, any folder, learned ──────────────────
+    {
+        namespace pu = tidy::core::put;
+        namespace ro = tidy::core::routes;
+        const fs::path root = fs::temp_directory_path() / ("tidy_s030g_" + std::to_string(::getpid()));
+        fs::remove_all(root);
+        const fs::path home = root / "home";
+        put_file(home / "Downloads/Flash Gordon S046.cbz", "c");
+        put_file(home / "Downloads/notes.txt", "n");
+        fs::create_directories(home / "Entertainment/Comics/Flash Gordon");
+        const std::string H = fs::canonical(home).string();
+        const std::string D = (root / "data").string();
+        fs::create_directories(D);
+        std::string rel, why_bad;
+        const auto w_ok = pu::folder_rel(H, H + "/Entertainment/Comics/Flash Gordon", &rel);
+        why_bad = pu::folder_rel(H, "/etc", nullptr);
+        check("s030g put: a folder in home reads as rel; outside home is refused",
+              w_ok.empty() && rel == "Entertainment/Comics/Flash Gordon" && !why_bad.empty(), w_ok + " | " + why_bad);
+        const std::vector<std::string> files = {H + "/Downloads/Flash Gordon S046.cbz"};
+        auto pl = pu::plan(H, files, rel);
+        check("s030g put: one line in the preview, a move into the folder, a Keep tag",
+              pl.lines.size() == 1 && pl.lines[0] == "Flash Gordon S046.cbz  ->  ~/Entertainment/Comics/Flash Gordon" &&
+              std::any_of(pl.plan.actions.begin(), pl.plan.actions.end(), [](const auto& a) { return a.verb == latch::door::Verb::Move; }),
+              pl.lines.empty() ? "none" : pl.lines[0]);
+        const auto again = pu::plan(H, {H + "/Entertainment/Comics/Flash Gordon/x.cbz"}, rel);
+        check("s030g put: a file already in the folder is left (said so)", again.lines.empty() && again.skipped.size() == 1);
+        latch::door::Door door(H, D + "/door");
+        door.load();
+        pl.plan.previewed = true;
+        const auto r = door.run(pl.plan);
+        const auto taught = pu::learn(H, D, files, rel);
+        check("s030g put: run -- the file in its folder, its route taught",
+              r.ok && fs::exists(H + "/Entertainment/Comics/Flash Gordon/Flash Gordon S046.cbz") && taught == 1,
+              r.messages.empty() ? "" : r.messages.front());
+        const auto book = ro::parse(tidy::core::own::read(D, ro::kFile));
+        tidy::core::birth::Born nb;
+        nb.file.path = H + "/Downloads/Flash Gordon S047.cbz";
+        nb.place = "downloads";
+        const auto prop = ro::propose(book, H, nb);
+        check("s030g put: the next 'Flash Gordon S047.cbz' from Downloads is proposed for the same folder",
+              prop.folder == "Entertainment/Comics/Flash Gordon", prop.folder + " | " + prop.because);
+        {   // A Donald Duck from Downloads: the broad *.cbz-from-Downloads route must not take it to Flash Gordon.
+            put_file(home / "Desktop/Donald Duck Trick or Treat.cbz", "c");
+            put_file(home / "Desktop/Flash Gordon S047.cbz", "c");
+            const auto st = tidy::core::settings::Settings{};
+            const std::int64_t now = now_s();
+            const auto rep = tidy::core::birth::report(H, tidy::core::birth::sweep(H, ""), now, st.old_years);
+            const auto dz = tidy::core::home::design(tidy::core::home::seed(st));
+            const auto rows = tidy::core::sort::rows(H, rep, st, now, {}, {}, &book, &dz);
+            std::string dd, fg;
+            for (const auto& rr : rows) {
+                const auto n = fs::path(rr.born.file.path).filename().string();
+                if (n == "Donald Duck Trick or Treat.cbz") dd = rr.folder;
+                if (n == "Flash Gordon S047.cbz") fg = rr.folder;
+            }
+            check("s030g sort: the taught name route takes Flash Gordon S047; a Donald Duck goes to its own series",
+                  fg == "Entertainment/Comics/Flash Gordon" && dd.rfind("Entertainment/Comics/Donald Duck", 0) == 0, fg + " | " + dd);
+        }
+        const auto u = door.undo();
+        check("s030g put: one undo -- back in Downloads", u.ok && fs::exists(H + "/Downloads/Flash Gordon S046.cbz"));
+        fs::remove_all(root);
+    }
+
+    // ── s030i: the Trash row; an app's file to its app's home ──────────────────
+    {
+        namespace hm = tidy::core::home;
+        namespace so = tidy::core::sort;
+        namespace tp = tidy::core::templates;
+        const auto st = tidy::core::settings::Settings{};
+        auto t = hm::seed(st);
+        check("s030i home: the Home type always has its Trash row (seeded, and after a round trip)",
+              std::any_of(t.folders.begin(), t.folders.end(), [](const auto& f) { return f.path == hm::kTrash; }) &&
+              tp::parse(tp::format(t)) == t && tp::problems(t).empty(),
+              tp::problems(t).empty() ? "" : tp::problems(t).front());
+        t.routes.insert(t.routes.begin(), {"*.sla", hm::kTrash});
+        t.routes.insert(t.routes.begin(), {"*.ics", hm::kTrash});
+        const auto dz = hm::design(t);
+        const fs::path root = fs::temp_directory_path() / ("tidy_s030i_" + std::to_string(::getpid()));
+        fs::remove_all(root);
+        const fs::path home = root / "home";
+        put_file(home / "Desktop/comic.sla", "s");
+        put_file(home / "Desktop/old.ics", "i");
+        put_file(home / "Desktop/plan.mort", "m");
+        put_file(home / "Downloads/.keep", "");
+        const std::string H = fs::canonical(home).string();
+        const std::int64_t now = now_s();
+        const auto rep = tidy::core::birth::report(H, tidy::core::birth::sweep(H, ""), now, st.old_years);
+        const auto rows = so::rows(H, rep, st, now, {}, {}, nullptr, &dz);
+        std::map<std::string, const so::Row*> by;
+        for (const auto& r : rows) by[fs::path(r.born.file.path).filename().string()] = &r;
+        check("s030i sort: *.sla and *.ics on the Trash row -> the Trash, never the Closet",
+              by["comic.sla"] && by["comic.sla"]->go == so::Go::Trash && by["old.ics"] && by["old.ics"]->go == so::Go::Trash &&
+              !by["comic.sla"]->closet);
+        check("s030i sort: a .mort with no Home rule goes to its app's home (Develop/Mortimer)",
+              by["plan.mort"] && by["plan.mort"]->go == so::Go::Home && by["plan.mort"]->folder == "Develop/Mortimer",
+              by["plan.mort"] ? by["plan.mort"]->why : "missing");
+        const auto pl = so::plan(H, rows, now);
+        const auto trashes = std::count_if(pl.plan.actions.begin(), pl.plan.actions.end(),
+                                           [](const auto& a) { return a.verb == latch::door::Verb::Trash; });
+        check("s030i sort: the plan trashes the two through the door (no folder named <the Trash>)",
+              trashes == 2 && std::none_of(pl.plan.actions.begin(), pl.plan.actions.end(), [](const auto& a) {
+                  return a.to.find("<the Trash>") != std::string::npos; }));
         fs::remove_all(root);
     }
 

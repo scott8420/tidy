@@ -1,43 +1,86 @@
 #pragma once
-// OrganizeStart (s027) -- Organize's landing page: the first real process to
-// organization, so it gently says what to do, in order. Five steps, each a
-// card with one line of why and one button; the first step not done yet is
-// lit "Start here". Read-only: it counts your types (core::templates) and
-// what Quarantine holds (core::quarantine::current), nothing more. The
-// buttons only go to the page (or window) that does the work.
+// OrganizeStart -- Organize's landing page.
+// s027: five cards. s030a (Scott, 2026-11-13: "Do this, do this now"; "a set
+// of icons with arrow ... Step 1: set basics -> Step 2: set bundles"): the
+// GUIDED start --
+//
+//   [1 Basics] -> [2 Bundles] -> [3 Projects] -> [4 Sets] -> [5 Loose files] -> [6 Closet]
+//
+//   Step 2 -- Bundles
+//   Do this now: send 7 app files to their homes ...      [Do it] [Skip]
+//                                                         Show me the details
+//
+// The steps come from core::guide on ONE read-only look of the whole home
+// (under Busy, each time the page shows). A done step is ticked, the step to
+// do lit, Sets marked "not ready yet". Click an icon to see that step. Do it
+// opens the plan (a preview, then Do it through the door) or the page that
+// does it -- never acts without a preview.
 #include <gtkmm/box.h>
 
+#include "core/Comics.hpp"
+#include "core/Guide.hpp"
+
+#include <latch/Door.hpp>
+
 #include <functional>
+#include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
-namespace Gtk { class Label; class Button; }
+namespace Gtk { class Label; class Button; class Image; class Window; }
 
 namespace tidy {
 
 class OrganizeStart : public Gtk::Box {
 public:
     using Go = std::function<void(const std::string& page)>;
-    using Act = std::function<void()>;
-    OrganizeStart(std::string data_dir, Go go, Act organize);
+    using Organize = std::function<void(std::vector<std::pair<std::string, std::string>> items)>;   // (abs dir, type) each
+    using Sort = std::function<void(std::vector<std::string> folders, std::vector<std::string> skip)>;   // s030d: a queue
+    using Changed = std::function<void()>;
+    OrganizeStart(Gtk::Window& parent, latch::door::Door& door, std::string home, std::string data_dir, Go go,
+                  Organize organize, Sort sort, Changed changed);
 
-    void refresh();   // re-count: called each time the page shows
-
-    // The step to light, from the counts (0-based; pure, the selftest's).
-    // Types first if you have none of your own AND the built-in is off;
-    // Quarantine while anything is held; else the Map.
-    static int next_step(int types, int held);
+    void refresh();   // look again (under Busy): called each time the page shows
+    void set_on_put(std::function<void()> f) { m_on_put = std::move(f); }   // s030g
+    void note(const std::string& line) { m_after += (m_after.empty() ? "" : "  ") + line; }   // s030f: shown after the next look
 
 private:
-    struct Step { Gtk::Box* card = nullptr; Gtk::Label* state = nullptr; Gtk::Label* line = nullptr; };
-    Gtk::Box* step(int n, const std::string& title, const std::string& why,
-                   const std::vector<std::pair<std::string, Act>>& buttons, const std::string& name);
+    void look();
+    void show_steps();
+    void show_step(int i);
+    void do_it();
+    void send_home(const core::guide::Step& s);
+    void reshelve();                              // s030e: the comics -> their series
+    std::vector<core::comics::Item> m_comics;     // s030e: from the last look
 
-    std::string m_data_dir;
-    Go  m_go;
-    Act m_organize;
-    std::vector<Step> m_steps;
+    Gtk::Window& m_parent;
+    latch::door::Door& m_door;
+    std::string m_home, m_data_dir;
+    Go m_go;
+    Organize m_organize;
+    Sort m_sort;
+    Changed m_changed;
+    std::function<void()> m_on_put;   // s030g
+
+    std::vector<core::guide::Step> m_steps;
+    std::set<int> m_skipped;
+    int m_view = -1;           // the step shown below the strip
+    bool m_looking = false;
+    std::string m_after;       // a line after a Do it
+
+    struct Chip { Gtk::Button* button = nullptr; Gtk::Image* icon = nullptr; Gtk::Label* name = nullptr; Gtk::Label* state = nullptr; };
+    std::vector<Chip> m_chips;
     Gtk::Label* m_summary = nullptr;
+    Gtk::Label* m_title = nullptr;
+    Gtk::Label* m_state = nullptr;
+    Gtk::Label* m_now = nullptr;
+    Gtk::Label* m_more = nullptr;
+    Gtk::Label* m_status = nullptr;
+    Gtk::Button* m_do = nullptr;
+    Gtk::Button* m_skip = nullptr;
+    Gtk::Button* m_details = nullptr;
+    Gtk::Box* m_panel = nullptr;
 };
 
 }  // namespace tidy

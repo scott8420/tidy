@@ -33,6 +33,14 @@ public:
 
     // A folder (absolute; "" = pick one here), and the type when it is known (a project's own).
     void open(const std::string& folder, const std::string& type = "");
+    // s030b (Scott: "by do it it should finish and return to the starting steps"):
+    // opened from Start -- one project, and after a good Do it the window closes
+    // and `when_done` runs.
+    // s030c (Scott: "when I fix a bookbinding project it does not move to the next
+    // suspect"): a queue -- (folder abs, type) each; after a good Do it the next
+    // one loads ("2 of 23"); Skip this one moves on; Close / the last one -> when_done.
+    using Item = std::pair<std::string, std::string>;
+    void open_from_start(std::vector<Item> items, std::function<void()> when_done);
 
 private:
     void fill_types(const std::string& want);
@@ -54,6 +62,14 @@ private:
     std::vector<core::organize::Group> m_groups;
     std::optional<core::organize::Organized> m_plan;
     bool m_busy = false, m_quiet = false;
+    std::function<void()> m_when_done;   // s030b: from Start
+    bool m_force_one = false;            // s030b: from Start -- the folder IS one project
+    std::vector<Item> m_queue;           // s030c
+    std::size_t m_at = 0;
+    Gtk::Button* m_skip = nullptr;
+    void load_at(std::size_t i, const std::string& before);
+    void next(const std::string& before);
+    void finish();
 
     Gtk::DropDown* m_type = nullptr;
     Gtk::Label* m_where = nullptr;

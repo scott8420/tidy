@@ -2,6 +2,7 @@
 #include "core/Organize.hpp"
 #include "core/Quarantine.hpp"
 #include "core/Archive.hpp"
+#include "core/Ebooks.hpp"
 #include "core/Layout.hpp"
 #include "core/Projects.hpp"
 #include "core/Protection.hpp"
@@ -61,7 +62,38 @@ bool project_like(const tp::Template& t, const std::string& dir) {
     return files_like(t, dir) && !holds_projects(t, dir);
 }
 
+// s030c: an author from a folder's name -- "Keene, Carolyn" as it is, "Carolyn
+// Keene" flipped; never a one-word folder ("Fiction"), never one with digits.
+std::string author_from(const std::string& folder_name) {
+    if (folder_name.find(", ") != std::string::npos) return folder_name;
+    std::size_t words = 1;
+    for (char c : folder_name) {
+        if (std::isdigit(static_cast<unsigned char>(c))) return "";
+        words += c == ' ';
+    }
+    if (words < 2 || words > 4 || !std::isupper(static_cast<unsigned char>(folder_name[0]))) return "";
+    return ebooks::last_first(folder_name);
+}
+
+bool named_by_parent(const tp::Template& t, const std::string& name) {
+    if (!projects::is_project_name(name)) return false;
+    std::string a = name.substr(0, name.size() - std::string(projects::kSuffix).size()), b = t.name;
+    for (auto& c : a) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    for (auto& c : b) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return a.empty() || a == b || b.rfind(a, 0) == 0;   // "Bookbinding-project" for bookbinding
+}
+
 Shape guess(const tp::Template& t, const std::string& dir) {
+    // s030b: a -project folder, or one whose top holds 2+ of the type's own top
+    // folders (Body/ Cover/), is ONE project -- never a folder of authors.
+    if (projects::is_project_name(fs::path(dir).filename().string())) return Shape::One;
+    {
+        std::size_t tops = 0;
+        std::error_code ec;
+        for (const auto& fo : t.folders)
+            if (fo.path.find('/') == std::string::npos && fs::is_directory(fs::path(dir) / fo.path, ec)) ++tops;
+        if (tops >= 2) return Shape::One;
+    }
     // Its own top holds files the routes place -> one project.
     std::set<std::string> top;
     dests(t, dir, "", 1, top);
@@ -84,12 +116,20 @@ std::vector<Group> groups_of(const tp::Template& t, const std::string& dir, Shap
     const auto group_for = [&](const std::string& folder_name, const std::string& at) {
         if (!has_group) return std::string();
         if (folder_name.find(", ") != std::string::npos) return folder_name;
-        return layout::guess_author(at);   // its parent, when that reads "Last, First"
+        return layout::guess_author(at);   // its parent, when that reads "Last, First" (a series is no author)
     };
     if (s == Shape::One) {
         Group g;
-        g.name = has_group ? layout::guess_author(dir) : "";
-        g.projects.push_back({dir, layout::guess_title(name), true});
+        g.name = has_group ? author_from(fs::path(dir).parent_path().filename().string()) : "";
+        std::string title = layout::guess_title(name);
+        // s030b: "Bookbinding-project" inside "12 The Message In The Hollow Oak" -- the
+        // title (and the author) come from the folder above.
+        if (named_by_parent(t, name)) {
+            const fs::path up = fs::path(dir).parent_path();
+            title = layout::guess_title(up.filename().string());
+            if (has_group) g.name = author_from(up.parent_path().filename().string());
+        }
+        g.projects.push_back({dir, title, true});
         out.push_back(std::move(g));
         return out;
     }

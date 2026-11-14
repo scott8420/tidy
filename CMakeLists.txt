@@ -83,6 +83,9 @@ add_library(tidy_core STATIC
     src/core/Paths.cpp       # where Tidy's records live (resolved, not created)
     src/core/Protection.cpp  # s019a: Hands-off folders + Samson's places -> latch
     src/core/Sort.cpp        # s020: the one-step Sort -- a level and a place for every loose file
+    src/core/Put.cpp         # s030g: Put it with... -- any file, any folder, learned
+    src/core/Comics.cpp      # s030e: the Comics shelf -- a series per folder, strays join
+    src/core/Guide.cpp       # s030a: the guided Start -- six steps from one look of the home
     src/core/Routes.cpp      # s022: learned routes -- each send home remembered, proposed again
     src/core/Adopt.cpp       # s023: adopt -- picked folders cataloged in place, routes learned; catch-alls swept
     src/core/Suspects.cpp    # s025: the suspect scan -- folders that may be one thing, read-only
@@ -161,6 +164,7 @@ add_executable(tidy
     src/Look.cpp
     src/Shell.cpp
     src/Shell_zones.cpp
+    src/Shell_put.cpp        # s030g: Put it with...
     src/Shell_bindings.cpp
     src/Shell_handlers.cpp
     src/Shell_helpers.cpp

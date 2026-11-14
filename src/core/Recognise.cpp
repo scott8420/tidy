@@ -60,6 +60,7 @@ std::string fext_of(const std::string& name) {   // file extension, lower case, 
 }
 
 constexpr const char* kNever = "(never moved -- a password database)";
+constexpr const char* kWithVideo = "(with its video -- subtitles, nfo)";
 
 std::set<std::string>& vocabulary() {   // the working-folder names (lower case)
     static std::set<std::string> v = {"workups", "images", "fonts", "assets", "drafts", "archive", "print", "layout"};
@@ -513,7 +514,9 @@ void sets_and_kinds(Report& r, const std::vector<Loose>& loose, const std::vecto
         const auto& f = loose[i];
         std::string kind;
         if (fext_of(f.name) == ".kdbx") kind = kNever;   // a password database: never moved
-        else if (const auto* t = homing::type_of(table, f.name)) kind = home::fixed_part(t->folder);   // s029: the Home design
+        else if (sort::is_companion(f.name)) kind = kWithVideo;   // s030: subtitles go with their video
+        else if (const auto* t = homing::type_of(table, f.name))   // s029: the Home design
+            kind = home::is_trash(t->folder) ? std::string("the Trash (by your Home design)") : home::fixed_part(t->folder);
         if (kind.empty()) kind = sort::ent_folder(ent, f.name);
         if (kind.empty()) {
             const std::string e = fext_of(f.name);
@@ -590,7 +593,9 @@ std::string bundle_home(const std::string& ext) {
     static const std::map<std::string, std::string> m = {{".optik", "Documents/OCR"},
                                                          {".curvz", "Documents/Design/Curvz"},
                                                          {".composix", "Documents/Design/Layout"},
-                                                         {".klimt", "Documents/Design/Photo"}};
+                                                         {".klimt", "Documents/Design/Photo"},
+                                                         {".jots", "Documents/Jots"},        // s030 (Scott)
+                                                         {".mort", "Develop/Mortimer"}};     // s030 (Scott)
     const auto it = m.find(lower(ext));
     return it == m.end() ? "" : it->second;
 }
@@ -729,6 +734,10 @@ std::string format(const Report& r) {
                     clues += "; placed: " + num(p->placed) + " of " + num(p->routed) + " where " + p->tpl + " says";
             } else if (!p->maybe.empty())
                 clues += "maybe an old " + p->maybe + " (its folders are " + p->maybe + "'s)";
+            else if (p->how == Project::How::Place)
+                clues += "on its shelf";   // s030: a shelf type with no folders (an ebook title) has no tree to fit
+            else if (p->how == Project::How::Book)
+                clues += "a book in the library";
             else
                 clues += "tree: no type fits half";
             if (!p->working.empty()) {
@@ -771,7 +780,7 @@ std::string format(const Report& r) {
     // 4 Kinds
     o << "\n4. Kinds -- what is left, by your Home design: " << files_text(r.in_kinds) << "\n";
     for (const auto& k : r.kinds) {
-        if (k.kind == kNever) o << "  " << k.kind << ": " << num(k.count) << "\n";
+        if (k.kind == kNever || k.kind == kWithVideo) o << "  " << k.kind << ": " << num(k.count) << "\n";
         else
             o << "  " << k.kind << ": " << num(k.count) << " -- " << num(k.at_home) << " at home, "
               << num(k.count - k.at_home) << " elsewhere\n";

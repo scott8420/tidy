@@ -36,7 +36,7 @@
 
 namespace tidy::core::sort {
 
-enum class Go { Home, Archive, Stays };
+enum class Go { Home, Archive, Stays, Trash };   // s030i: Trash -- a Home rule on the Trash row
 
 struct Row {
     birth::Born      born;
@@ -64,6 +64,11 @@ struct Row {
 // proposes the Trash after the aging days (Settings, 30).
 inline constexpr const char* kEntertainment = "Entertainment";
 std::string kind_of(const std::string& file_name);   // "Movies", "Books", "Music" or ""
+// s030: a video's companion -- .srt .sub .idx .ass .ssa .vtt .nfo .smi. It goes
+// where its video goes (Scott), never to the Closet on its own.
+bool is_companion(const std::string& file_name);
+// s030e: comics going home go to their series (~/Entertainment/Comics/<Series>).
+void join_series(const std::string& home, std::vector<Row>& rows);
 // s023g the Entertainment table (Settings): where a read download goes. The
 // standard one: video -> Entertainment/Movies (an episode -> Series/<Show>/Season
 // NN), books and comics -> Entertainment/EBooks, audio -> Entertainment/Music.

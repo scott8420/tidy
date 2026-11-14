@@ -71,7 +71,7 @@ void apply_places(const std::string& data_dir, const std::string& home = "");
 // saved (READ-ONLY). What a book is checked against before you save your own.
 std::vector<templates::Template> known_templates(const std::string& data_dir);
 inline const std::vector<std::string>& own_bundles() {
-    static const std::vector<std::string> v = {".composix", ".quire"};
+    static const std::vector<std::string> v = {".composix", ".quire", ".mort"};   // s030: Mortimer's too
     return v;
 }
 // Is the folder at `rel` (relative to home) a project: a -project name, or a

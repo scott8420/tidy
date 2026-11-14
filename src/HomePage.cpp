@@ -290,7 +290,9 @@ void HomePage::show(Look look) {
         Row r;
         r.born = b;
         const auto name = fs::path(b.file.path).filename().string();
-        if (const auto* tr = ho::type_of(m_table, name)) { r.type_folder = tr->folder; r.type_pattern = tr->pattern; ++typed; }
+        if (const auto* tr = ho::type_of(m_table, name); tr && !core::home::is_trash(tr->folder)) {   // s030i: Sort trashes, Files home never
+            r.type_folder = tr->folder; r.type_pattern = tr->pattern; ++typed;
+        }
         r.learned = core::routes::propose(m_book, m_home, b);   // s022
         core::retention::Level lv{};
         const std::string level = core::retention::parse(b.file.tags.retention, lv) ? core::retention::title_of(lv) : b.file.tags.retention;

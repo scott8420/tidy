@@ -1,4 +1,5 @@
 #include "SortPage.hpp"
+#include <glibmm/main.h>
 #include "Busy.hpp"
 #include "SelectList.hpp"
 #include "Log.hpp"
@@ -146,8 +147,14 @@ void SortPage::build_results() {
     m_whole->set_valign(Gtk::Align::CENTER);
     m_whole->set_visible(false);
     m_whole->set_tooltip_text("Sort the whole home again, not just this folder");
-    m_whole->signal_clicked().connect([this] { look_in(""); });
+    m_whole->signal_clicked().connect([this] { q_stop(false); look_in(""); });
     head->append(*m_whole);
+    m_qskip = Gtk::make_managed<Gtk::Button>("Skip this folder");   // s030d: the queue from Start
+    m_qskip->set_name("sort.qskip");
+    m_qskip->set_valign(Gtk::Align::CENTER);
+    m_qskip->set_visible(false);
+    m_qskip->signal_clicked().connect([this] { if (!m_busy) q_next(); });
+    head->append(*m_qskip);
     head->append(*again);
     box->append(*head);
     m_list = Gtk::make_managed<SelectList>("sort.list");
@@ -155,8 +162,19 @@ void SortPage::build_results() {
     m_list->set_margin_start(32);
     m_list->set_margin_end(32);
     m_list->set_margin_bottom(16);
-    m_list->set_choices({"Sort these", "Move on now (as read)"});   // s023g
-    m_list->on_choose([this](std::size_t c) { if (c == 1) on_move_now(); else on_sort(); });
+    m_list->set_choices({"Sort these", "Move on now (as read)", "Put it with\u2026"});   // s023g; s030g
+    m_list->on_choose([this](std::size_t c) {
+        if (c == 1) { on_move_now(); return; }
+        if (c == 2) {   // s030g: the selected files -> a folder you pick
+            std::vector<std::string> files;
+            for (auto i : m_list->selected())
+                if (i < m_rows.size() && !m_rows[i].is_project && !m_rows[i].folder_whole) files.push_back(m_rows[i].born.file.path);
+            if (files.empty()) { m_status->set_text("Put it with... is for files -- a project or a whole folder moves as one."); return; }
+            if (m_on_put_many) m_on_put_many(std::move(files));
+            return;
+        }
+        on_sort();
+    });
     box->append(*m_list);
     auto bar = bar_box();
     m_status = label("", "dim", 0.0f);
@@ -226,6 +244,34 @@ void SortPage::refresh_if_shown() {
     if (get_visible_child_name() == "results") fill();
 }
 
+void SortPage::start_queue(std::vector<std::string> folders, std::vector<std::string> skip, std::function<void()> when_done) {
+    m_queue = std::move(folders);
+    m_skip = std::move(skip);
+    m_q_done = std::move(when_done);
+    if (m_queue.empty()) { q_stop(true); return; }
+    q_load(0);
+}
+
+void SortPage::q_load(std::size_t i) {
+    m_qi = i;
+    if (m_qskip) m_qskip->set_visible(true);
+    look_in(m_queue[i], m_skip);
+}
+
+void SortPage::q_next() {
+    if (m_qi + 1 < m_queue.size()) { q_load(m_qi + 1); return; }
+    q_stop(true);
+}
+
+void SortPage::q_stop(bool back) {
+    const bool had = !m_queue.empty();
+    m_queue.clear();
+    if (m_qskip) m_qskip->set_visible(false);
+    auto f = std::move(m_q_done);
+    m_q_done = nullptr;
+    if (back && had && f) f();
+}
+
 void SortPage::look_in(const std::string& rel, std::vector<std::string> skip) {   // s027a
     m_scope = rel;
     m_skip = std::move(skip);
@@ -276,7 +322,7 @@ void SortPage::show(Look look) {
     // Grouped by where they go: each home folder, then ~/Archive, then what stays.
     auto rows = std::move(look.rows);
     const auto key = [](const so::Row& r) {
-        return std::string(r.go == so::Go::Home ? "0" : r.go == so::Go::Archive ? "1" : "2") + r.folder;
+        return std::string(r.go == so::Go::Home ? "0" : r.go == so::Go::Archive ? "1" : r.go == so::Go::Trash ? "15" : "2") + r.folder;
     };
     std::stable_sort(rows.begin(), rows.end(), [&](const so::Row& a, const so::Row& b) { return key(a) < key(b); });
     m_rows = std::move(rows);
@@ -284,7 +330,7 @@ void SortPage::show(Look look) {
     std::map<std::string, std::size_t> count;
     for (const auto& r : m_rows) ++count[key(r)];
     std::string last;
-    std::size_t home = 0, arch = 0, stays = 0;
+    std::size_t home = 0, arch = 0, stays = 0, trashn = 0;
     for (const auto& r : m_rows) {
         SelectList::Item it;
         const std::string k = key(r);
@@ -293,15 +339,18 @@ void SortPage::show(Look look) {
             const auto n = plural(count[k], "file");
             if (r.go == so::Go::Home) { it.header = "To ~/" + r.folder + "  (" + n + ")"; }
             else if (r.go == so::Go::Archive) { it.header = "To ~/" + r.folder + "  (" + n + ")"; it.header_sub = "Historical -- archived and fingerprinted; Back up from the Archive page."; }
+            else if (r.go == so::Go::Trash) { it.header = "To the Trash  (" + n + ")"; it.header_sub = "Your Home design's Trash row says so. Undo in Review -> Activity brings them back."; }
             else { it.header = "Stays where it is  (" + n + ")"; it.header_sub = "Unread downloads and Ephemeral files (Due proposes the Trash when their days are up), your junk list (the Junk Drawer), files no Home rule fits (they wait in the Closet), and projects with no category (pick one on the Projects page)."; }
         }
         home += r.go == so::Go::Home;
         arch += r.go == so::Go::Archive;
         stays += r.go == so::Go::Stays;
+        trashn += r.go == so::Go::Trash;   // s030i
         it.title = std::filesystem::path(r.born.file.path).filename().string() +
                    (r.is_project ? std::string("   (a project, whole)")
                     : r.folder_whole ? std::string("   (a folder, whole)")
                     : r.closet ? std::string("   -> the Closet")   // s029: no Home rule fits
+                    : r.go == so::Go::Trash ? std::string("   -> the Trash")   // s030i
                     : "   -> " + (r.junk ? std::string("the Junk Drawer") : rt::title_of(r.level)));
         it.line = shown(std::filesystem::path(r.born.file.path).parent_path().string()) + "   ·   " + r.why +
                   (r.now_folder.empty() ? std::string() : "   ·   Move on now -> ~/" + r.now_folder) +
@@ -311,13 +360,21 @@ void SortPage::show(Look look) {
     }
     m_list->set_items(items);
     m_list->select_all();
-    m_summary->set_text((m_scope.empty() ? std::string() : "In ~/" + m_scope + ": ") +
+    const std::string qpre = m_queue.empty() ? std::string()
+        : "Folder " + std::to_string(m_qi + 1) + " of " + std::to_string(m_queue.size()) + " -- ";   // s030d
+    m_summary->set_text(qpre + (m_scope.empty() ? std::string() : "In ~/" + m_scope + ": ") +
                         plural(m_rows.size(), "loose file") + ": " + std::to_string(home) + " to go home, " +
-                        std::to_string(arch) + " to archive, " + std::to_string(stays) + " to stay, labelled" +
+                        std::to_string(arch) + " to archive, " + (trashn ? std::to_string(trashn) + " to the Trash, " : std::string()) +
+                        std::to_string(stays) + " to stay, labelled" +
                         (m_fixture ? "   |   FIXTURE " + m_home : ""));
     if (m_status->get_text() == kLooking)
         m_status->set_text(m_rows.empty() ? "Nothing to sort -- every loose file has its place."
                                           : "All selected. Unselect what is wrong, then Sort...");
+    // s030d: in the queue, a folder with nothing to move or archive is passed by itself.
+    if (!m_queue.empty() && home == 0 && arch == 0 && trashn == 0) {
+        if (m_on_settled) m_on_settled(m_scope);   // s030f: never offered again
+        Glib::signal_idle().connect_once([this] { if (!m_queue.empty() && !m_busy) q_next(); });
+    }
 }
 
 void SortPage::on_move_now() {   // s023g
@@ -440,6 +497,8 @@ void SortPage::on_run() {
             set_visible_child("results");
             if (auto lg = log::get(log::Area::Door))
                 lg->info("sort run '{}': {} done, {} failed; {} fingerprinted", label, r.done, r.failed, *prints);
+            if (r.ok && !m_queue.empty()) { q_next(); return; }   // s030d: the next folder, or back to Start
+            if (r.ok && m_done_once) { auto f = std::move(m_done_once); m_done_once = nullptr; f(); }   // s030b
         },
         [data, door, archiving, prints](const dr::Result& r) {   // the catalog: the tagged files where they now are
             core::catalog::Catalog cat;

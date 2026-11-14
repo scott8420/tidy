@@ -49,6 +49,16 @@ std::string ext_of(const std::string& n) {
     if (!alpha) return "";
     std::string low = "." + e;
     for (auto& c : low) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    // s030: a web site's name at the end of a download's folder ("... - libgen.li",
+    // "www.UIndex.org") is no extension -- the word before the dot is the site.
+    static const char* const kSites[] = {".li", ".com", ".org", ".net", ".io", ".to", ".me", ".is",
+                                         ".rs", ".bz", ".mx", ".ag", ".cc", ".co", ".info", ".ws"};
+    for (const char* s : kSites) {
+        if (low != s) continue;
+        const auto sp = n.find_last_of(" \t");
+        const std::string word = n.substr(sp == std::string::npos ? 0 : sp + 1, dot - (sp == std::string::npos ? 0 : sp + 1));
+        if (sp != std::string::npos || word.find("www") == 0 || word == "libgen") return "";
+    }
     return low;
 }
 

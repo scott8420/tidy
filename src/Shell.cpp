@@ -1,3 +1,5 @@
+#include "OrganizeStart.hpp"
+#include "core/Guide.hpp"
 #include "core/Backup.hpp"
 #include "Shell.hpp"
 #include "core/Protection.hpp"
@@ -83,6 +85,8 @@ void Shell::build_ui() {
     // show a progress dlg"): the window first, then the walks under Busy.
     if (m_projects && m_settings.rescan_minutes > 0)
         Glib::signal_timeout().connect_once([this] { launch_look(); }, 150);   // the window is drawn first
+    else
+        Glib::signal_timeout().connect_once([this] { start_look(); }, 150);    // s030a: Start's look, alone
     arm_rescan();
 
     if (auto lg = log::get(log::Area::Shell))
@@ -114,7 +118,27 @@ void Shell::launch_look() {
             const auto line = m_projects->take(std::move(out->g));
             if (auto lg = log::get(log::Area::Shell)) lg->info("rescan at launch: {} ({} ms)", line, out->ms_projects);
             show_offer(out->st.lists, out->st.refound, out->ms_lists);
+            start_look();   // s030a: then Start's look -- one Busy after the other, never two at once
         });
+}
+
+void Shell::start_look() {   // s030a: the first look of the guided Start, after the launch walks
+    m_launched = true;
+    if (m_org_start && std::string(m_stack.get_visible_child_name()) == "organize") m_org_start->refresh();
+}
+
+void Shell::back_to_start() {
+    const bool there = std::string(m_stack.get_visible_child_name()) == "organize";
+    go("organize");   // from elsewhere: it looks as it shows
+    if (there && m_org_start) m_org_start->refresh();
+}
+
+void Shell::set_expert(bool on) {   // s030a: Expert shows every tab; Guided hides the tab rows
+    m_expert = on;
+    m_tabs.set_visible(on);
+    if (m_expert_act) m_expert_act->change_state(on);
+    const auto why = core::guide::set_expert(m_data_dir, on);
+    if (auto lg = log::get(log::Area::Shell)) lg->info("mode: {}{}", on ? "expert" : "guided", why.empty() ? "" : " -- not saved: " + why);
 }
 
 }  // namespace tidy
