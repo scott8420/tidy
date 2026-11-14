@@ -83,6 +83,8 @@ add_library(tidy_core STATIC
     src/core/Paths.cpp       # where Tidy's records live (resolved, not created)
     src/core/Protection.cpp  # s019a: Hands-off folders + Samson's places -> latch
     src/core/Sort.cpp        # s020: the one-step Sort -- a level and a place for every loose file
+    src/core/Library.cpp     # s030m: the old EBooks library onto the shelf
+    src/core/Media.cpp       # s030j: loose movies + series -> Movies/, Series/<Show>/Season NN
     src/core/Put.cpp         # s030g: Put it with... -- any file, any folder, learned
     src/core/Comics.cpp      # s030e: the Comics shelf -- a series per folder, strays join
     src/core/Guide.cpp       # s030a: the guided Start -- six steps from one look of the home

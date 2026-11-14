@@ -67,6 +67,12 @@ struct Inputs {
     std::set<int> skipped;         // steps the user skipped this run (Id as int)
     std::size_t comics = 0;        // s030e: comics off the Comics shelf
     std::size_t series = 0;        //   ... in how many series
+    std::size_t movies = 0;        // s030j: movies off the Movies shelf (folders or files)
+    std::size_t episodes = 0;      // s030j: season folders + loose episodes off the Series shelf
+    // s030l (Scott: "the screen says we have 8 files ... and there are none when i say do it"):
+    // the Closet step counts what the Closet PAGE shows (closet::view total); -1 = not given.
+    long long closet = -1;
+    std::size_t books = 0;         // s030m: books in the old EBooks library (Documents/EBooks) off the shelf
     std::set<std::string> settled; // s030f: folders Sort found nothing to move in (Tidy's own settled.txt)
 };
 

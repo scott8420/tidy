@@ -2,6 +2,10 @@
 #include "Busy.hpp"
 #include "Log.hpp"
 #include "core/Catalog.hpp"
+#include "core/Own.hpp"
+#include "core/Settings.hpp"
+#include "core/Birth.hpp"
+#include "core/Closet.hpp"
 #include "core/Home.hpp"
 #include "core/Homing.hpp"
 #include "core/Recognise.hpp"
@@ -204,14 +208,29 @@ void OrganizeStart::look() {
     auto saved = std::make_shared<bool>(false);
     auto comics = std::make_shared<std::vector<core::comics::Item>>();
     auto settled = std::make_shared<std::set<std::string>>();
+    auto media = std::make_shared<std::vector<core::media::Item>>();
+    auto closet_n = std::make_shared<long long>(-1);
+    auto books = std::make_shared<std::vector<core::library::Item>>();
+    const std::string dirs = m_dirs ? m_dirs() : std::string();
+    const bool have_dirs = static_cast<bool>(m_dirs);
     busy::start(m_parent, "Organize -- looking over your home", "Reading your home top down (nothing moves)",
-                [out, saved, comics, settled, home, data] {
+                [out, saved, comics, settled, media, closet_n, books, dirs, have_dirs, home, data] {
+                    if (have_dirs) {   // s030l: exactly what the Closet page will list
+                        const auto st = core::settings::parse(core::own::read(data, core::settings::kFile));
+                        const auto now = static_cast<std::int64_t>(std::time(nullptr));
+                        const auto rep = core::birth::report(home, core::birth::sweep(home, dirs, st.catch_all), now, st.old_years);
+                        *closet_n = static_cast<long long>(core::closet::view(rep, now, st).total());
+                    }
+                    *media = core::media::find(home);   // s030j
                     *settled = gd::settled(data);   // s030f
                     *out = rc::scan(home, home, data, false);
+                    *books = core::library::find(home, *out);   // s030m
                     *saved = core::home::saved(data);
                     *comics = core::comics::find(home);   // s030e
                 },
-                [this, out, saved, comics, settled] {
+                [this, out, saved, comics, settled, media, closet_n, books] {
+                    m_books = std::move(*books);
+                    m_media = std::move(*media);
                     m_comics = std::move(*comics);
                     m_looking = false;
                     gd::Inputs in;
@@ -219,6 +238,12 @@ void OrganizeStart::look() {
                     in.home_saved = *saved;
                     in.comics = m_comics.size();
                     in.settled = *settled;
+                    in.closet = *closet_n;
+                    in.books = m_books.size();
+                    for (const auto& m : m_media) {
+                        if (m.what == "its subtitles") continue;
+                        if (m.to.rfind(core::media::kMovies, 0) == 0) ++in.movies; else ++in.episodes;
+                    }
                     {
                         std::set<std::string> ss;
                         for (const auto& c : m_comics) ss.insert(c.series);
@@ -319,13 +344,40 @@ void OrganizeStart::do_it() {
     }
 }
 
-void OrganizeStart::reshelve() {   // s030e
-    if (m_comics.empty()) return;
-    auto planned = core::comics::reshelve(m_home, m_comics);
+void OrganizeStart::reshelve() {   // s030e comics; s030j movies + series -- one plan, one undo
+    if (m_comics.empty() && m_media.empty() && m_books.empty()) return;
+    core::comics::Planned planned;
+    if (!m_comics.empty()) planned = core::comics::reshelve(m_home, m_comics);
     std::map<std::string, std::size_t> per;
     for (const auto& c : m_comics) ++per[c.series];
     std::string lines;
+    if (!per.empty()) lines += "\nComics:";
     for (const auto& [s, n] : per) lines += "\n  " + s + "  (" + std::to_string(n) + ")";
+    if (!m_media.empty()) {
+        auto mp = core::media::shelve(m_home, m_media);
+        lines += "\nMovies and series:";
+        std::size_t shown = 0;
+        for (const auto& l : mp.lines) {
+            if (++shown > 14) { lines += "\n  ... and " + std::to_string(mp.lines.size() - 14) + " more"; break; }
+            lines += "\n  " + l;
+        }
+        planned.renamed.insert(planned.renamed.end(), mp.renamed.begin(), mp.renamed.end());
+        planned.plan.actions.insert(planned.plan.actions.end(), mp.plan.actions.begin(), mp.plan.actions.end());
+    }
+    if (!m_books.empty()) {   // s030m
+        auto lp = core::library::shelve(m_home, m_books);
+        lines += "\nBooks (from Documents/EBooks):";
+        std::size_t shown = 0;
+        for (const auto& l : lp.lines) {
+            if (++shown > 14) { lines += "\n  ... and " + std::to_string(lp.lines.size() - 14) + " more"; break; }
+            lines += "\n  " + l;
+        }
+        planned.trashed.insert(planned.trashed.end(), lp.trashed.begin(), lp.trashed.end());
+        planned.renamed.insert(planned.renamed.end(), lp.renamed.begin(), lp.renamed.end());
+        planned.plan.actions.insert(planned.plan.actions.end(), lp.plan.actions.begin(), lp.plan.actions.end());
+    }
+    const std::size_t total = m_comics.size() + m_media.size() + m_books.size();
+    planned.plan.label = "Shelves: " + std::to_string(total) + (total == 1 ? " thing" : " things");
     std::string refused;
     std::vector<std::string> made;
     for (const auto& a : planned.plan.actions) {
@@ -337,8 +389,9 @@ void OrganizeStart::reshelve() {   // s030e
         trash = "\n\nLeft empty -> the Trash: " + std::to_string(planned.trashed.size()) +
                 (planned.trashed.size() == 1 ? " folder" : " folders") + " (e.g. ~/" + planned.trashed.front() + ")";
     for (const auto& r : planned.renamed) trash += "\n  (taken: " + r + ")";
-    auto dlg = Gtk::AlertDialog::create("Comics -- " + std::to_string(m_comics.size()) + " to ~/" + core::comics::kShelf);
-    dlg->set_detail("One folder per series, each file keeps its name. One undo step in Review \u2192 Activity.\n" + lines +
+    auto dlg = Gtk::AlertDialog::create("Shelves -- " + std::to_string(total) + " to ~/Entertainment");
+    dlg->set_detail("Comics by series, movies by title, series by show and season; files keep their names. "
+                    "One undo step in Review \u2192 Activity.\n" + lines +
                     trash + refused);
     if (refused.empty()) {
         dlg->set_buttons({"Back", "Do it"});
@@ -355,12 +408,12 @@ void OrganizeStart::reshelve() {   // s030e
         keep->previewed = true;
         const std::string data = m_data_dir;
         auto* door = &m_door;
-        busy::door(m_parent, m_door, std::move(*keep), "Comics",
+        busy::door(m_parent, m_door, std::move(*keep), "Shelves",
             [this](const dr::Result& r) {
                 if (m_changed) m_changed();
-                m_after = r.ok ? "Comics on their shelf -- one undo in Review \u2192 Activity."
+                m_after = r.ok ? "On their shelves -- one undo in Review \u2192 Activity."
                                : "Not done: " + (r.messages.empty() ? std::string("see the log") : r.messages.front());
-                if (auto lg = log::get(log::Area::Door)) lg->info("start: comics -- {} done, {} failed", r.done, r.failed);
+                if (auto lg = log::get(log::Area::Door)) lg->info("start: shelves -- {} done, {} failed", r.done, r.failed);
                 look();
             },
             [data, door](const dr::Result& r) {

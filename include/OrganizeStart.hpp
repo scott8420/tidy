@@ -18,6 +18,8 @@
 #include <gtkmm/box.h>
 
 #include "core/Comics.hpp"
+#include "core/Library.hpp"
+#include "core/Media.hpp"
 #include "core/Guide.hpp"
 
 #include <latch/Door.hpp>
@@ -43,6 +45,8 @@ public:
 
     void refresh();   // look again (under Busy): called each time the page shows
     void set_on_put(std::function<void()> f) { m_on_put = std::move(f); }   // s030g
+    // s030l: the sweep's places (the Closet page's own), read on the main thread.
+    void set_dirs(std::function<std::string()> f) { m_dirs = std::move(f); }
     void note(const std::string& line) { m_after += (m_after.empty() ? "" : "  ") + line; }   // s030f: shown after the next look
 
 private:
@@ -53,6 +57,8 @@ private:
     void send_home(const core::guide::Step& s);
     void reshelve();                              // s030e: the comics -> their series
     std::vector<core::comics::Item> m_comics;     // s030e: from the last look
+    std::vector<core::media::Item> m_media;       // s030j: from the last look
+    std::vector<core::library::Item> m_books;     // s030m: from the last look
 
     Gtk::Window& m_parent;
     latch::door::Door& m_door;
@@ -62,6 +68,7 @@ private:
     Sort m_sort;
     Changed m_changed;
     std::function<void()> m_on_put;   // s030g
+    std::function<std::string()> m_dirs;   // s030l
 
     std::vector<core::guide::Step> m_steps;
     std::set<int> m_skipped;

@@ -69,6 +69,8 @@
 #include "core/Protection.hpp"
 #include "core/Comics.hpp"
 #include "core/Guide.hpp"
+#include "core/Library.hpp"
+#include "core/Media.hpp"
 #include "core/Put.hpp"
 #include "core/Routes.hpp"
 #include "core/Home.hpp"
@@ -5565,6 +5567,11 @@ int main(int argc, char** argv) {
             check("s030e guide: 12 comics off the shelf -> Sets lit, Re-shelve, '4 series'",
                   gd::current(cv) == 3 && cv[3].act == gd::Act::Reshelve && cv[3].todo == 12 &&
                   cv[3].now.find("4 series") != std::string::npos, cv[3].now);
+            ci.movies = 7; ci.episodes = 5;
+            const auto mv = gd::steps(r, ci);
+            check("s030j guide: + 7 movies and 5 seasons/episodes -> one Sets step for all (24), named in its sentence",
+                  mv[3].todo == 24 && mv[3].now.find("7 movies") != std::string::npos &&
+                  mv[3].now.find("5 seasons and episodes") != std::string::npos, mv[3].now);
         }
         check("s030a guide: Loose files -- by folder, the biggest first; Entertainment and subtitles left out",
               v[4].todo == 60 && v[4].folder == "Documents/Fonts/Roboto/static" && v[4].act == gd::Act::SortFolder &&
@@ -5602,7 +5609,14 @@ int main(int argc, char** argv) {
             const auto before_v = gd::steps(gr, gi);
             gi.settled = gd::settled(D);
             const auto after_v = gd::steps(gr, gi);
-            check("s030f guide: a settled folder is not offered again -- Loose files done",
+            {
+            rc::Report cr; cr.in_closet = 8;
+            gd::Inputs c1; c1.home_saved = true; c1.closet = 0;
+            gd::Inputs c2; c2.home_saved = true;
+            check("s030l guide: the Closet step counts what the Closet page lists (0 -> done), not the whole-home count",
+                  gd::steps(cr, c1)[5].state == gd::State::Done && gd::steps(cr, c2)[5].todo == 8);
+        }
+        check("s030f guide: a settled folder is not offered again -- Loose files done",
                   before_v[4].todo == 3 && after_v[4].todo == 0 && after_v[4].state == gd::State::Done);
         }
         fs::remove_all(root);
@@ -5828,6 +5842,134 @@ int main(int argc, char** argv) {
         check("s030i sort: the plan trashes the two through the door (no folder named <the Trash>)",
               trashes == 2 && std::none_of(pl.plan.actions.begin(), pl.plan.actions.end(), [](const auto& a) {
                   return a.to.find("<the Trash>") != std::string::npos; }));
+        fs::remove_all(root);
+    }
+
+    // ── s030j: loose movies + series at the top of ~/Entertainment ───────────────
+    {
+        namespace md = tidy::core::media;
+        const std::vector<std::pair<std::string, std::string>> titles = {
+            {"Kingdom Of Heaven (2005) [DIRECTOR'S CUT ROADSHOW BLURAY] [1080p] [BluRay] [5.1] [YTS.MX]", "Kingdom Of Heaven (2005)"},
+            {"Open Range (2003) [1080p]", "Open Range (2003)"},
+            {"Twixt (2011) [YTS.AG]", "Twixt (2011)"},
+            {"www.UIndex.org    -    In Her Shoes 2005 1080p BluRay x264-OFT", "In Her Shoes (2005)"},
+            {"The.Descendants.2011.1080p.BluRay.H264.AAC-RARBG", "The Descendants (2011)"},
+            {"The.7th.Voyage.Of.Sinbad.1958.Eng.REMASTERED.1080p.BluRay.x265.AAC5.1.88", "The 7th Voyage Of Sinbad (1958)"},
+            {"The Name of the Rose (1986) [1080p]", "The Name of the Rose (1986)"}};
+        std::string bad;
+        for (const auto& [in, want] : titles) if (md::movie_title(in) != want) bad += md::movie_title(in) + " | ";
+        check("s030j media: movie titles from Scott's folder names -> Title (Year)", bad.empty(), bad);
+
+        const fs::path root = fs::temp_directory_path() / ("tidy_s030j_" + std::to_string(::getpid()));
+        fs::remove_all(root);
+        const fs::path home = root / "home";
+        const fs::path E = home / "Entertainment";
+        put_file(E / "Kingdom Of Heaven (2005) [1080p] [YTS.MX]/Kingdom.Of.Heaven.2005.mp4", "v");
+        put_file(E / "Kingdom Of Heaven (2005) [1080p] [YTS.MX]/Subs/English.srt", "s");
+        put_file(E / "Mayor of Kingstown (2021) Season 1 S01 (1080p WEB-DL x265)/Mayor.of.Kingstown.S01E01.mkv", "v");
+        put_file(E / "Mayor of Kingstown (2021) Season 1 S01 (1080p WEB-DL x265)/Mayor.of.Kingstown.S01E02.mkv", "v");
+        put_file(E / "Stargate.Universe.S02.1080p/Stargate.Universe.S02E01.mkv", "v");
+        put_file(E / "MobLand.S01E03.mkv", "v");
+        put_file(E / "MobLand.S01E03.srt", "s");
+        put_file(E / "Open.Range.2003.1080p.mkv", "v");
+        put_file(E / "Series/Mobland/Season 01/MobLand.S01E01.mkv", "v");
+        put_file(E / "Comics/Flash Gordon/a.cbz", "c");
+        const std::string H = fs::canonical(home).string();
+        const auto items = md::find(H);
+        std::map<std::string, std::string> to;
+        for (const auto& it : items) to[fs::path(it.from).filename().string()] = it.to + (it.whole ? " (whole)" : "");
+        std::string got;
+        for (const auto& [k, v] : to) got += k + " -> " + v + " | ";
+        check("s030j media: a movie folder whole -> Movies/<Title (Year)>; a season folder whole -> Series/<Show>/Season 01",
+              to["Kingdom Of Heaven (2005) [1080p] [YTS.MX]"] == "Entertainment/Movies/Kingdom Of Heaven (2005) (whole)" &&
+              to["Mayor of Kingstown (2021) Season 1 S01 (1080p WEB-DL x265)"] == "Entertainment/Series/Mayor Of Kingstown/Season 01 (whole)" &&
+              to["Stargate.Universe.S02.1080p"] == "Entertainment/Series/Stargate Universe/Season 02 (whole)", got);
+        check("s030j media: a loose episode joins the show already on the shelf (its spelling), its .srt with it; a loose movie gets its folder",
+              to["MobLand.S01E03.mkv"] == "Entertainment/Series/Mobland/Season 01" && to["MobLand.S01E03.srt"] == "Entertainment/Series/Mobland/Season 01" &&
+              to["Open.Range.2003.1080p.mkv"] == "Entertainment/Movies/Open Range (2003)" && !to.count("a.cbz") && items.size() == 6, got);
+        const std::string D = (root / "data").string();
+        fs::create_directories(D);
+        auto pl = md::shelve(H, items);
+        latch::door::Door door(H, D + "/door");
+        door.load();
+        pl.plan.previewed = true;
+        const auto r = door.run(pl.plan);
+        check("s030j media: run -- on the shelves, subs inside the movie folder, one undo back",
+              r.ok && fs::exists(H + "/Entertainment/Movies/Kingdom Of Heaven (2005)/Subs/English.srt") &&
+              fs::exists(H + "/Entertainment/Series/Mayor Of Kingstown/Season 01/Mayor.of.Kingstown.S01E02.mkv") &&
+              fs::exists(H + "/Entertainment/Series/Mobland/Season 01/MobLand.S01E03.mkv") &&
+              fs::exists(H + "/Entertainment/Movies/Open Range (2003)/Open.Range.2003.1080p.mkv") && door.undo().ok &&
+              fs::exists(E / "MobLand.S01E03.mkv"), r.messages.empty() ? "" : r.messages.front());
+        {   // No Series/ yet: a season folder whole + a loose episode -- every MakeDir before its child.
+            fs::remove_all(E / "Series");
+            auto p2 = md::shelve(H, md::find(H));
+            std::vector<std::string> made;
+            std::string refused;
+            for (const auto& a : p2.plan.actions) {
+                if (const auto why = door.refusal(a, made); !why.empty()) refused += why + " | ";
+                if (a.verb == latch::door::Verb::MakeDir) made.push_back(a.to);
+            }
+            check("s030j media: with no ~/Entertainment/Series yet nothing is refused (parents first)", refused.empty(), refused);
+        }
+        {   // s030k: videos waiting in ~/Closet (and on the Desktop) are offered too.
+            put_file(home / "Closet/2026-11/Open Range (2003) [1080p].mkv", "v");
+            put_file(home / "Closet/2026-11/Open Range (2003) [1080p].srt", "s");
+            put_file(home / "Closet/Tulsa.King.S04E02.mkv", "v");
+            put_file(home / "Closet/notes.txt", "n");
+            std::map<std::string, std::string> t2;
+            for (const auto& it : md::find(H)) t2[fs::path(it.from).filename().string()] = it.to;
+            check("s030k media: a movie in ~/Closet -> Movies/<Title (Year)> with its .srt; an episode -> its show",
+                  t2["Open Range (2003) [1080p].mkv"] == "Entertainment/Movies/Open Range (2003)" &&
+                  t2["Open Range (2003) [1080p].srt"] == "Entertainment/Movies/Open Range (2003)" &&
+                  t2["Tulsa.King.S04E02.mkv"] == "Entertainment/Series/Tulsa King/Season 04" && !t2.count("notes.txt"));
+        }
+        fs::remove_all(root);
+    }
+
+    // ── s030m: the old EBooks library onto the shelf ────────────────────────────
+    {
+        namespace lb = tidy::core::library;
+        check("s030m library: genres -- Nonfiction / Non-Fiction -> Non-Fiction; Fiction stays",
+              lb::genre_of("Nonfiction") == "Non-Fiction" && lb::genre_of("Non-Fiction") == "Non-Fiction" && lb::genre_of("Fiction") == "Fiction");
+        const fs::path root = fs::temp_directory_path() / ("tidy_s030m_" + std::to_string(::getpid()));
+        fs::remove_all(root);
+        const fs::path home = root / "home";
+        const fs::path L = home / "Documents/EBooks";
+        put_file(L / "Fiction/Edgar Rice Burroughs/01 A Princess of Mars/A Princess of Mars.epub", "e");
+        put_file(L / "Fiction/Edgar Rice Burroughs/01 A Princess of Mars/cover.jpg", "j");
+        put_file(L / "Fiction/Edgar Rice Burroughs/02 The Gods of Mars/The Gods of Mars.pdf", "p");
+        put_file(L / "Fiction/Carolyn Keene/01 The Secret of the Old Clock/book.odt", "o");
+        put_file(L / "Fiction/Carolyn Keene/01 The Secret of the Old Clock/Archive/A0001.png", "a");
+        put_file(L / "Fiction/Carolyn Keene/01 The Secret of the Old Clock/Archive/A0002.png", "a");
+        put_file(L / "Fiction/Carolyn Keene/01 The Secret of the Old Clock/Images/cover.png", "i");
+        put_file(L / "Nonfiction/Zaehnsdorf, Joseph William/The Art of Bookbinding/art.pdf", "p");
+        put_file(L / "Comic Book Stuff/Scripts/script.txt", "t");
+        put_file(home / "Downloads/.keep", "");
+        const std::string H = fs::canonical(home).string();
+        const std::string D = (root / "data").string();
+        fs::create_directories(D);
+        const auto rep = tidy::core::recognise::scan(H, H, D, false);
+        const auto items = lb::find(H, rep);
+        std::map<std::string, std::string> to;
+        for (const auto& it : items) to[fs::path(it.from).filename().string()] = it.to + (it.whole ? " (whole)" : "");
+        std::string got;
+        for (const auto& [k, v] : to) got += k + " -> " + v + " | ";
+        check("s030m library: title folders whole -> Entertainment/EBooks/<Genre>/<Last, First>/<Title>; Nonfiction -> Non-Fiction",
+              to["01 A Princess of Mars"] == "Entertainment/EBooks/Fiction/Burroughs, Edgar Rice/01 A Princess of Mars (whole)" &&
+              to["02 The Gods of Mars"] == "Entertainment/EBooks/Fiction/Burroughs, Edgar Rice/02 The Gods of Mars (whole)" &&
+              to["The Art of Bookbinding"] == "Entertainment/EBooks/Non-Fiction/Zaehnsdorf, Joseph William/The Art of Bookbinding (whole)", got);
+        check("s030m library: never an old bookbinding (Projects has it), never a folder with no ebook (Comic Book Stuff)",
+              !to.count("01 The Secret of the Old Clock") && !to.count("Scripts") && items.size() == 3, got);
+        auto pl = lb::shelve(H, items);
+        latch::door::Door door(H, D + "/door");
+        door.load();
+        pl.plan.previewed = true;
+        const auto r = door.run(pl.plan);
+        check("s030m library: run -- on the shelf with their covers; Burroughs' emptied folder -> the Trash; the bookbinding stays; one undo",
+              r.ok && fs::exists(H + "/Entertainment/EBooks/Fiction/Burroughs, Edgar Rice/01 A Princess of Mars/cover.jpg") &&
+              !fs::exists(L / "Fiction/Edgar Rice Burroughs") && fs::exists(L / "Fiction/Carolyn Keene/01 The Secret of the Old Clock/book.odt") &&
+              door.undo().ok && fs::exists(L / "Fiction/Edgar Rice Burroughs/02 The Gods of Mars/The Gods of Mars.pdf"),
+              r.messages.empty() ? "" : r.messages.front());
         fs::remove_all(root);
     }
 

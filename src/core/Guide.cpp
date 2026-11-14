@@ -120,15 +120,27 @@ std::vector<Step> steps(const recognise::Report& r, const Inputs& in) {
         s.title = "Sets";
         s.icon = "view-grid-symbolic";
         s.details = "sees";
-        s.todo = in.comics;   // s030e: comics first; series of episodes and the EBooks library come later
-        if (in.comics) {
-            s.now = "Put " + plural(in.comics, "comic", "comics") + " on the Comics shelf -- one folder per series (" +
-                    plural(in.series, "series", "series") + "), the old folders left empty go to the Trash.";
+        s.todo = in.comics + in.movies + in.episodes + in.books;   // s030e comics; s030j movies + series; s030m books
+        if (s.todo) {
+            std::vector<std::string> parts;
+            if (in.comics) parts.push_back(plural(in.comics, "comic", "comics") + " (" + plural(in.series, "series", "series") + ")");
+            if (in.movies) parts.push_back(plural(in.movies, "movie", "movies"));
+            if (in.episodes) parts.push_back(plural(in.episodes, "season or episode", "seasons and episodes"));
+            if (in.books) parts.push_back(plural(in.books, "book", "books") + " from Documents/EBooks");
+            std::string list;
+            for (std::size_t i = 0; i < parts.size(); ++i) list += (i ? (i + 1 == parts.size() ? " and " : ", ") : "") + parts[i];
+            std::vector<std::string> where;
+            if (in.comics) where.push_back("Comics/<Series>");
+            if (in.movies) where.push_back("Movies/<Title (Year)>");
+            if (in.episodes) where.push_back("Series/<Show>/Season NN");
+            if (in.books) where.push_back("EBooks/<Genre>/<Last, First>/<Title>");
+            std::string shelves;
+            for (std::size_t i = 0; i < where.size(); ++i) shelves += (i ? ", " : "") + where[i];
+            s.now = "Put " + list + " on " + (parts.size() == 1 ? "its shelf" : "their shelves") + " in ~/Entertainment -- " + shelves + ".";
             s.act = Act::Reshelve;
             s.details = "sees";
         } else {
-            s.now = "Your comics are on their shelf. Series of episodes and the EBooks library get their own Do it soon -- "
-                    "skip this step for now.";
+            s.now = "Comics, movies, series and books are on their shelves.";
         }
     }
 
@@ -180,7 +192,7 @@ std::vector<Step> steps(const recognise::Report& r, const Inputs& in) {
         s.title = "Closet";
         s.icon = "user-trash-symbolic";
         s.details = "closet";
-        s.todo = r.in_closet;
+        s.todo = in.closet >= 0 ? static_cast<std::size_t>(in.closet) : r.in_closet;
         if (s.todo) {
             s.now = "Decide on the " + plural(s.todo, "file", "files") + " nothing claims -- keep, move or let go.";
             s.act = Act::Closet;
